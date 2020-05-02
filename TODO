@@ -1,0 +1,25 @@
+TODO
+====
+
+Recherche:
+
+ - améliorer le paramétrage du moteur de recherche
+
+
+Interface :
+
+ - faire une page d'accueil plus sympa, avec les dernières modifications etc.
+
+
+Performances :
+
+ - mesures sur ma machine :
+   - chargement 10000 pages/seconde soit 0.0001s/p
+   - occupation ram ~ 300ko/ page
+
+ - au dela de 100 pages (300Mo), il semble préférable de ne pas garder
+   le contenu des pages en mémoire, mais seulement leurs metadonnées
+   (tags, titre, etc.). De plus, il peut être souhaitable de dumper le
+   contenu scanné des pages dans un format binaire serialisé pour
+   permettre un redémarrage rapide du serveur (voir lib store module
+   Data.Store).

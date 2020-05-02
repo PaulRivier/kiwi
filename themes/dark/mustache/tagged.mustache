@@ -1,0 +1,27 @@
+<div class="tags-page">
+  <div class="tags-selection">
+    {{# tags }}
+    <h1>{{ locales.tags-list }}</h1>
+    <ul class="flex-hz tags-list">
+      {{# items }}
+      <li>
+	<a href="{{ target }}">{{ label }}</a>
+      </li>
+      {{/ items }}
+    </ul>
+    {{/ tags }}
+  </div>
+  <div class="results">
+    {{# pages }}
+    <h1>{{ locales.pages-list }}</h1>
+    <ul class="flex-hz pages-list">
+      {{# items }}
+      <li>
+	<a href="{{ target }}">{{ label }}</a>
+      </li>
+      {{/ items }}
+    </ul>
+    {{/ pages }}
+  </div>
+</div>
+

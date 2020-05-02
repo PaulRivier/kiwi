@@ -1,0 +1,50 @@
+<nav class="top-nav">
+  <div class="nav-content">
+    <ul class="nav-items nav-left">
+      <!-- <li class="nav-item"> -->
+	  <!--   <a href="/" class="nav-link"> -->
+	  <!--     <img src="/static/images/kiwi-home.png"> -->
+	  <!--   </a> -->
+      <!-- </li> -->
+      <li class="nav-item">
+	    <a href="/browse-all/" class="nav-img">
+          <img src="/static/images/tags.svg" />
+        </a>
+      </li>
+      <!-- <li class="nav-item"> -->
+	  <!--   <a href="/agenda" class="nav-img"> -->
+      <!--     <img src="/static/images/calendar.svg" /> -->
+      <!--   </a> -->
+      <!-- </li> -->
+
+    </ul>
+
+    <ul class="nav-items nav-right">
+      {{# is-admin }}
+      {{# page-info }}
+      <li class="nav-item">
+	    <a data-page-id="{{ page-id }}" class="nav-img edit-page">
+	      <img src="/static/images/edit.svg" />
+	    </a>
+      </li>
+      <li class="nav-item">
+	    <a data-page-link="{{ cm-link }}" class="nav-img copy-link">
+	      <img src="/static/images/copy-link.svg" />
+	    </a>
+      </li>
+      {{/ page-info }}
+      <li class="nav-item">
+	    <a class="nav-img reload">
+	      <img src="/static/images/reload.svg" />
+	    </a>
+      </li>
+      {{/ is-admin }}
+      <li>
+	    <form action="/search" method="get" class="search pure-form">
+	      <input name="query" type="search" placeholder="{{ locales.search }}" class="search">
+	    </form>
+      </li>
+    </ul>
+
+  </div>
+</nav>

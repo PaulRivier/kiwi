@@ -1,0 +1,52 @@
+<!DOCTYPE HTML>
+<html class="no-js">
+  <head>
+    <meta content="text/html; charset=UTF-8" http-equiv="content-type">
+    <title>{{title}}</title>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+    <meta content="Kiwi is a powerful personal wiki system" name="description">
+    <link href="/static/favicon.ico" type="image/x-icon" rel="shortcut icon">
+    <link href="/static/css/pure-min.css" media="screen" rel="stylesheet">
+    <link href="/static/css/app.css" media="screen" rel="stylesheet">
+  </head>
+  <body style="background-color: #2b2b2b;">
+    <div class="left-column">
+      <div class="js-toc">
+      </div>
+    </div>
+    <div class="main-column">
+      {{> navigation }}
+      <div class="page-content">
+        {{{ content }}}
+      </div>
+      <input class="copy">
+    </div>
+    <div class="right-column">
+
+      <div class="layout-login">
+        {{# login }}
+        <span class="username">{{ login }}</span>
+	    <a class="nav-img logout">
+	      <img src="/static/images/logout.svg" />
+	    </a>
+        {{/ login }}
+        {{^ login }}
+        <a href="/login" class="login">
+	      login
+	    </a>
+        {{/ login }}
+      </div>
+
+      
+    </div>
+    <script src="/static/js/jquery-3.5.0.min.js">
+    </script>
+    <script src="/static/js/lity.js">
+    </script>
+    <script src="/static/js/tocbot.min.js">
+    </script>
+    <script src="/static/js/app.js">
+    </script>
+  </body>
+</html>

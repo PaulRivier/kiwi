@@ -1,0 +1,37 @@
+<div class="page-view">
+
+  <ul class="flex-hz tags-list">
+    {{# tags }}
+    <li>
+      <a href="{{target}}">{{label}}</a>
+    </li>
+    {{/ tags }}
+  </ul>
+
+  {{# custom-meta }}
+  <ul class="custom-meta-list">
+    <li>
+      <span class="field"> {{ name }} </span> &ndash; 
+      {{# links }}
+      <a href="{{target}}">{{label}}</a>
+      {{/ links }}
+    </li>
+  </ul>
+  {{/ custom-meta }}
+
+  <h1 class="page-title"> {{title}} </h1>
+
+
+  <div class="document">
+    {{{document}}}
+  </div>
+
+  
+  <ul class="flex-hz pages-list backlinks">
+    {{# backlinks }}
+    <li><a href="{{target}}">{{label}}</a></li>
+    {{/ backlinks }}
+  </ul>
+
+
+</div>

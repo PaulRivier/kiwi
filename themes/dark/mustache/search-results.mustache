@@ -1,0 +1,19 @@
+<div class="search-results-page">
+  {{^ results }}
+  <h1>{{ locales.search-nothing }}</h1>
+  <form action="/search" method="get" class="search pure-form">
+    <input name="query" type="search" placeholder="{{ locales.search }}" autofocus="" class="search">
+  </form>
+  {{/ results }}
+
+  {{# results }}
+  <h1>{{ locales.search-results }}</h1>
+  <ul class="flex-hz results">
+    {{# items }}
+    <li>
+      <a href="{{ target }}">{{ label }}</a>
+    </li>
+    {{/ items }}
+  </ul>
+  {{/ results }}
+</div>

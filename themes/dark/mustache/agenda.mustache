@@ -1,0 +1,33 @@
+<div class="agenda-page">
+
+  <h1>{{ locales.agenda }}</h1>
+  <hr/>
+  {{# today-ltp }}
+  <div class="today-agenda">
+    <h2>{{ locales.today }}</h1>
+    <ul class="agenda">
+      {{# items }}
+      <li>
+        <a href="{{ target }}">{{ label }}</a>
+      </li>
+      {{/ items }}
+    </ul>
+  </div>
+  {{/ today-ltp }}
+
+  {{# future-ltp }}
+  <div class="future-agenda">
+    <h2>{{ locales.to-come }}</h1>
+    <ul class="agenda">
+      {{# items }}
+      <li>
+        <span class="date"> {{ date }} </span>
+        —
+        <a href="{{ target }}">{{ label }}</a>
+      </li>
+      {{/ items }}
+    </ul>
+    {{/ future-ltp }}
+  </div>
+
+</div>

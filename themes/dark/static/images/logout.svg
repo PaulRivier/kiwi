@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Svg Vector Icons : http://www.onlinewebfonts.com/icon -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   version="1.1"
+   x="0px"
+   y="0px"
+   viewBox="0 0 1000 1000"
+   enable-background="new 0 0 1000 1000"
+   xml:space="preserve"
+   id="svg10"
+   sodipodi:docname="logout.svg"
+   inkscape:version="0.92.4 (5da689c313, 2019-01-14)"><defs
+   id="defs14" /><sodipodi:namedview
+   pagecolor="#ffffff"
+   bordercolor="#666666"
+   borderopacity="1"
+   objecttolerance="10"
+   gridtolerance="10"
+   guidetolerance="10"
+   inkscape:pageopacity="0"
+   inkscape:pageshadow="2"
+   inkscape:window-width="1144"
+   inkscape:window-height="907"
+   id="namedview12"
+   showgrid="false"
+   inkscape:pagecheckerboard="true"
+   inkscape:zoom="0.236"
+   inkscape:cx="508.47458"
+   inkscape:cy="500"
+   inkscape:window-x="0"
+   inkscape:window-y="27"
+   inkscape:window-maximized="0"
+   inkscape:current-layer="svg10" />
+<metadata
+   id="metadata2"> Svg Vector Icons : http://www.onlinewebfonts.com/icon <rdf:RDF><cc:Work
+     rdf:about=""><dc:format>image/svg+xml</dc:format><dc:type
+       rdf:resource="http://purl.org/dc/dcmitype/StillImage" /><dc:title></dc:title></cc:Work></rdf:RDF></metadata>
+<g
+   id="g8"
+   style="fill:#ffffff"><path
+     d="M990,499.3c0-11.9-4.1-22.8-11-31.5c-2.1-3.4-4.6-6.7-7.5-9.6L810.9,297.7c-19.8-19.8-51.9-19.8-71.7,0c-19.8,19.8-19.8,51.9,0,71.7l79.3,79.3l-387.4,0c-28,0-50.7,22.7-50.7,50.7c0,28,22.7,50.7,50.7,50.7l387.2,0l-76.5,76.5c-19.8,19.8-19.8,51.9,0,71.7c9.9,9.9,22.9,14.8,35.8,14.8c13,0,25.9-4.9,35.8-14.8l160.6-160.6c5-5,8.8-10.9,11.3-17.1C988.3,514,990,506.9,990,499.3z"
+     id="path4"
+     style="fill:#ffffff" /><path
+     d="M647.9,755.4c-28,0-50.7,22.7-50.7,50.7v81.7H111.4V112.2h485.8v97.6c0,28,22.7,50.7,50.7,50.7c28,0,50.7-22.7,50.7-50.7V91.3c0-44.4-36.1-80.5-80.5-80.5H90.5C46.1,10.8,10,46.9,10,91.3v817.3c0,44.4,36.1,80.5,80.5,80.5H618c44.4,0,80.5-36.1,80.5-80.5V806.1C698.6,778.1,675.9,755.4,647.9,755.4z"
+     id="path6"
+     style="fill:#ffffff" /></g>
+</svg>

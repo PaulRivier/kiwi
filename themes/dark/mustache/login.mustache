@@ -1,0 +1,27 @@
+<div id="login-box">
+  {{# login }}
+  <div class="login-name">
+    <span class="username">{{ login }}</span>
+	<a class="nav-img logout-link">
+	  <img src="/static/images/logout.svg" />
+	</a>
+  </div>
+  {{/ login }}
+  {{^ login }}
+  <div class="login-form">
+    <form action="/login" method="post" class="login pure-form">
+      <ul class="flex-vz">
+	    <li>
+          <input name="username" type="text" placeholder="Username" class="login-id" required>
+        </li>
+        <li>
+          <input name="password" type="password" placeholder="Password" class="login-password" required>
+        </li>
+        <li>
+          <button type="submit" class="pure-button pure-button-primary"> Log in</button>
+        </li>
+      </ul>
+    </form>
+  </div>
+  {{/ login }}
+</div>
