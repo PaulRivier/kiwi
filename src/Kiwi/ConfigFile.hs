@@ -105,7 +105,8 @@ log: no
 title: untitled
 tags: untagged
 # access : built-in special groups are 'admin' and 'public'
-access: admin
+# access: admin
+access: public
 lang: english
 
 # If you want more metadata
