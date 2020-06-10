@@ -69,7 +69,7 @@ important, type 'admin' when prompted for your groups) :
 
 You are ready to start Kiwi :
 
-    kiwi serve ~/Kiwi
+    kiwi serve ~/Kiwi/kiwi.ini
 
 Open your browser to localhost:3456, and log-in with your account
 
