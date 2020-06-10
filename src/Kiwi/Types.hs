@@ -141,7 +141,6 @@ data CustomMetaConfig =
   deriving (Show)
 
 data CustomMetaType = CmtText | CmtInt | CmtDate | CmtBool
-                    -- | CmtTextList | CmtIntList | CmtDateList
   deriving (Eq, Show)
 
 instance Read CustomMetaType where

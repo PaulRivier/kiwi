@@ -1,20 +1,24 @@
 # Kiwi
 
-Kiwi is a personal note taking system, based on a collection of
-Markdown files managed by the user. It aims to offer a solution
-powerful enough to handle all types of notes you want to keep, yet
-reliable and simple enough so that you feel comfortable with it.
+Kiwi is a minimalist content management system, using a database of
+Markdown files managed by the user. Kiwi is optmized for text
+contents. It aims to offer a powerful solution to handle all types of
+notes you want to write for yourself or share with others, and remain
+reliable and simple so that you feel comfortable with it.
 
 Kiwi offers some nice features to render, index and browse your
-files :
-- powerful tags system, with tags-set browsing and nice sub-tags system
+content :
+- powerful tags system, with tags-set and sub-tags navigation
+- user-defined custom meta-data, with full indexing
+- incremental metadata navigation
 - full-text search with word stemming available in various languages
+- access control
 - clear view/model separation, highly themable (html + CSS + JS)
 
-Kiwi uses [CommonMark](<https://commonmark.org/>) flavor of Markdown.
+Kiwi uses [CommonMark](<https://commonmark.org/>) flavor of Markdown
+for contents.
 
-At this stage Kiwi is alpha software. Although it does not write your
-files, you should still use it with caution.
+At this stage Kiwi is alpha software, use it with caution.
 
 # Install
 
@@ -43,19 +47,31 @@ configuration file.
 In case your folder is not empty, Kiwi will give up, only writing
 *kiwi.ini.default* file to help you update your kiwi.ini file.
 
-At this step, I recommend that you also symlink the bundled 'themes'
-folder to your kiwi folder. Alternatively, edit your *kiwi.ini* to
-point "themes-dir" to the theme you want in the bundled themes
-folder. Themes are separated from code, therefore they are very easy
-to add to Kiwi, check how existing themes are defined.
+At this step, you should symlink the bundled 'themes' folder to your
+kiwi folder. Alternatively, edit your *kiwi.ini* to point "themes-dir"
+to the theme you want in the bundled themes folder. Themes are
+separated from code, therefore they are very easy to add to Kiwi,
+check how existing themes are defined.
 
-    ln -s ~/your-git-folders/kiwi/themes themes
+    ln -s ~/your-git-clones-folder/kiwi/themes themes
+
+Create your own user account and get admin privileges (this is
+important, type 'admin' when prompted for your groups) :
+
+    kiwi access ~/Kiwi/kiwi.ini --create YOUR_NAME
+
+    # This should look like that
+    # Password: ********
+    # Groups (comma separated):
+    # admin
+    # Access created
+
 
 You are ready to start Kiwi :
 
     kiwi serve ~/Kiwi
 
-Open your browser to localhost:3456
+Open your browser to localhost:3456, and log-in with your account
 
 # Kiwi folder layout
 
@@ -88,7 +104,7 @@ are composed of metadata and content. Metadata are fields in the form
 
 and must all be at the very top of the file, without any blank line.
 
-Document content starts after first blank line. Lines in metadata that
+Document content starts after first empty line. Lines in metadata that
 don't include ':' are ignored, so for example all this forms of
 metadata headers are acceptable
 
@@ -141,13 +157,34 @@ tags: tag1
 Metadata should include at least a 'title' field in the header. See
 Home.md for file format example.
 
-All metadata fields have default values set in *kiwi.ini* file. You
-can change these default values there. These values are then overidden
-by page headers.
+Some metadata keys are reserved by kiwi :
+
+* **title** : title of your page (required)
+* **id** : unique identifier, this is optional, if you don't set it
+  kiwi will use the name of the file
+* **tags** : powerful tags (optional)
+* **lang** : language of the content, for full-text search (optional)
+* **access** : access restriction, comma separated allowed groups (optional)
+* **images-dir** : if you want to include many images in your document
+  from one of your images subfolder, set it here, and Kiwi will look
+  for your images links from there
+* **files-dir** : if you want to link to many files in your document
+  from one of your files subfolder, set it here, and Kiwi will look
+  for your files links from there
+
+Some metadata fields can have default values set in *kiwi.ini*
+file. You can change these default values there. These values are then
+overidden by page headers. These fields are :
+
+* title
+* tags
+* access
+* lang
 
 You are free to use any filename extension for your pages, as long as
 the format inside is metadata header + blank line + CommonMark
 Markdown.
+
 
 **Links format :**
 
@@ -173,9 +210,11 @@ behaviour, however they provide the following properties :
 
 - links to an other page are relative to current page folder. This
   will save you strokes and help you move folders if you need to.
-- links to an image are relative to current page subfolder in 'images'
-  folder. In other word, from document *pages/receipe/cake.md*, a link to
-  *image:cacao.png* will look for file *images/receipe/cacao.png*.
+- If meta *images-dir* is not set, links to an image are relative to
+  current page subfolder in 'images' folder. In other word, from
+  document *pages/receipe/cake.md*, a link to *image:cacao.png* will
+  look for file *images/receipe/cacao.png*. If meta *images-dir* is
+  set, it takes precedence.
 - same applies to files
 
 Links can target path relative to top directories if they start with
@@ -193,7 +232,7 @@ folders, and to use subfolders if you want to.
 # Documents reload
 
 Documents are reloaded on demand. From the web interface, click on the
-reload button. This will reload the database, not your brawser
+reload button. This will reload the database, not your browser
 page. You may need to hit your browser reload button as well.
 
 # Tags
@@ -206,15 +245,37 @@ write for example :
 
 That's it.
 
-Kiwi has a nice subtags mechanism, to help you organize better your
-content and control tags proliferation. Use it as demonstrated below :
+Kiwi also has a nice subtags mechanism, to help you organize better
+your content and control tags proliferation. Use it as demonstrated
+below :
 
     title: Japanese cake
     tags: cooking > receipt > cake, favorite, area > Japan
 
 This will just work as you want it to work.
 
-Browsing files by tags should be intuitive from the web interface.
+If you prefer you can span tags on multiple lines :
+
+    tags: cooking > receipt > cake
+    tags: favorite
+    tags: area > Japan
+
+Also if you want to include a comma in your tag, escape it with a
+backslash '\,'.
+
+Browsing files by tags should be intuitive from the web interface,
+look for the button with labels. Don't forget to reload when you want.
+
+# Custom metadata
+
+You can use your own custom metadata. Set them in your *kiwi.ini*
+file, and restart Kiwi. Then you can use them like so :
+
+    category: Places
+    authors: John, Jack
+    
+Custom metadata type can be text, integer, date or bool. Date format
+is "YYYY-MM-DD".
 
 
 # Full-text search
@@ -240,14 +301,13 @@ russian, spanish, swedish and turkish.
 If you have set your editor in kiwi.ini, you can click on the pen
 picture to open your document in your editor.
 
-
 # Copy link
 
 Clicking on the chain link will copy a link to current page to your
 clipboard, so that it is easier for you to link between your
 documents.
 
-# Content versionning and backup
+# Content versioning and backup
 
 Kiwi is unaware of your content history, however you are strongly
 encouraged to keep your content in a revision control system.

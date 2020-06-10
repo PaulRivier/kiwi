@@ -112,12 +112,11 @@ lang: english
 
 # [metadata category]
 # type: text
+# threshold: 0
 # 
 # [metadata authors]
 # type: text
-# separator: ,
-# web-menu: true
-# browse-threshold: 0.8
+# threshold: 0.8
 
 |]
 
