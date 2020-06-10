@@ -19,7 +19,7 @@ import           Kiwi.Types (ActM)
 import qualified Kiwi.Types as K
 import qualified Kiwi.View as V
 import           Kiwi.Utils (getDB, getSessions, asksK, tagsListSubSegments, 
-                             filterRootTags, nodup, fastListDiff)
+                             filterRootTags, fastListDiff)
 import qualified Kiwi.Utils as U
 import qualified Utils.DocIndex as DI
 
@@ -34,26 +34,26 @@ servePage pgId = do
     Nothing -> serveNotFound
 
   
-serveTagged :: T.Text -> ActM ()
-serveTagged tags' = do
-  db <- getRestrictedDB
-  r <- if tags' == "*" then taggedIndex db
-       else taggedWith db (U.splitTextEsc ',' tags')
-  html r
-  where
-    taggedIndex db =
-      let rootTags = filterRootTags $ tagsListSubSegments $ nodup $
-                     concat (map K.pageTags $ DI.documentsList (K.pagesIndex db))
-      in V.renderTagged [] rootTags $ DI.documentsList (K.pagesIndex db)
-    taggedWith db query =
-      let idx = K.pagesIndex db
-          subset = DI.narrow idx $ U.qAll K.FieldTag query
-          matchingPages = DI.documentsList subset
-          matchesAllTagsSegs = tagsListSubSegments $ K.fromKeys $
-                               DI.getFieldKeys subset K.FieldTag
-          querySegs = tagsListSubSegments query
-          nextTags = filterRootTags $ fastListDiff matchesAllTagsSegs querySegs
-      in V.renderTagged query nextTags matchingPages
+-- serveTagged :: T.Text -> ActM ()
+-- serveTagged tags' = do
+--   db <- getRestrictedDB
+--   r <- if tags' == "*" then taggedIndex db
+--        else taggedWith db (U.splitTextEsc ',' tags')
+--   html r
+--   where
+--     taggedIndex db =
+--       let rootTags = filterRootTags $ tagsListSubSegments $ nodup $
+--                      concat (map K.pageTags $ DI.documentsList (K.pagesIndex db))
+--       in V.renderTagged [] rootTags $ DI.documentsList (K.pagesIndex db)
+--     taggedWith db query =
+--       let idx = K.pagesIndex db
+--           subset = DI.narrow idx $ U.qAll K.FieldTag query
+--           matchingPages = DI.documentsList subset
+--           matchesAllTagsSegs = tagsListSubSegments $ K.fromKeys $
+--                                DI.getFieldKeys subset K.FieldTag
+--           querySegs = tagsListSubSegments query
+--           nextTags = filterRootTags $ fastListDiff matchesAllTagsSegs querySegs
+--       in V.renderTagged query nextTags matchingPages
 
 
 

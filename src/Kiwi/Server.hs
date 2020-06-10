@@ -59,17 +59,17 @@ kiwiServer cfp c cache = do
 
 kiwiRoute :: ServerState -> Static.CacheContainer -> WebM ()
 kiwiRoute ss cache = do
-  get "/" $ redirect "/browse/tags"
+  get "/" $ redirect "/browse/"
   getPath "^/page/[^.]+" $ \p -> withLogin $ do
     servePage p
-  get "/browse/tags/:tags" $ withLogin $ do
-    tags <- param "tags"
-    serveTagged tags
+  -- get "/browse/tags/:tags" $ withLogin $ do
+  --   tags <- param "tags"
+  --   serveTagged tags
   -- get "/browse-meta/:meta/:keys" $ withLogin $ do
   --   meta <- param "meta"
   --   keys <- param "keys"
   --   serveBrowseMeta meta keys
-  get "/browse-all/:req" $ withLogin $ do
+  get "/browse/:req" $ withLogin $ do
     req <- TL.toStrict <$> param "req"
     serveBrowseAll req
   get "/search" $ withLogin $ do
@@ -120,7 +120,7 @@ initServerState cfp conf = do
   let contentDir' = FP.combine kiwiDir' (Conf.contentDir conf)
   let staticDir'  = FP.joinPath [kiwiDir', (Conf.themeDir conf), "static"]
   let pagesRootDir = FP.combine contentDir' pagesFSDir
-  tpl <- compileTemplate $ FP.combine (Conf.themeDir conf) "mustache"
+  tpl <- compileTemplate $ FP.joinPath [kiwiDir', (Conf.themeDir conf), "mustache"]
   accounts' <- loadAccounts $ FP.combine kiwiDir' "_accounts"
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"
   sessR <- newIORef sess

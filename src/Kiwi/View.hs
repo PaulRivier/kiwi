@@ -4,7 +4,7 @@ module Kiwi.View where
 
 import           Data.Aeson (ToJSON(..), (.=), toJSON, object)
 import qualified Data.Aeson as J
-import           Data.List ((\\), sort, sortOn, inits)
+import           Data.List (sortOn)
 import           Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 -- import qualified Data.Time as Time
@@ -16,7 +16,7 @@ import qualified Text.Pandoc as P
 import qualified Kiwi.Locales as Loc
 import qualified Kiwi.Types as K
 import           Kiwi.Types (ActM)
-import           Kiwi.Utils (segmentsToTag, prettyTag, asksK, fst3)
+import           Kiwi.Utils (prettyTag, asksK, fst3)
 import qualified Kiwi.Utils as U
 
 
@@ -72,7 +72,7 @@ renderPage p blp =
     renderLayout (K.pageTitle p) layoutContent pgi
   where 
     browseTag t = browseLink K.FieldTag (K.KeyText t)
-    browseLink f k = T.concat ["/browse-all/", U.encodeReq $ U.createReq (f,k)]
+    browseLink f k = T.concat ["/browse/", U.encodeReq $ U.createReq (f,k)]
     customMeta = map customMeta1 $ K.pageCustomMeta p
       where customMeta1 cmd =
               object [ "name" .= K.cmdName cmd
@@ -81,29 +81,29 @@ renderPage p blp =
                                     browseLink (K.FieldCustom f) k )
 
 
-renderTagged :: [K.TagId] -> [K.TagSegments] -> [K.Page] -> ActM TL.Text
-renderTagged tagsSel nextTags pages = do
-  loc <- getLocales
-  locJ <- getLocalesJSON
-  tpl <- getTemplate
-  let c = object [ ("tags", mkTags), ("pages", mkPages), ("locales", locJ) ]
-      mkTags = toJSONListHack $ map tagJSON $ sortOn fst $ map prepareTagLink nextTags
-      mkPages = toJSONListHack $ map (linkJSON . pageLink) pages
-      lc = X.renderMustache (K.taggedTemplate tpl) c
-  renderLayout (K.loc_Tags loc) lc Nothing
-  where
-    tagJSON :: (T.Text, T.Text) -> J.Value
-    tagJSON (label, tagsChain) = linkJSON (label, T.concat ["/browse/tags/", tagsChain])
-    prepareTagLink :: K.TagSegments -> (T.Text, T.Text)
-    prepareTagLink tagSeg = case tagSeg of
-      (t:[]) -> (t, makeTagsChain tagSeg)
-      _      -> (T.concat ["> ", last tagSeg], makeTagsChain tagSeg)
-    makeTagsChain :: K.TagSegments -> T.Text
-    makeTagsChain t = let
-      tagParents = map segmentsToTag $ init $ tail $ inits t
-      newTagsSel = tagsSel \\ tagParents
-      tid = segmentsToTag t
-      in T.intercalate "," (sort (tid:newTagsSel))
+-- renderTagged :: [K.TagId] -> [K.TagSegments] -> [K.Page] -> ActM TL.Text
+-- renderTagged tagsSel nextTags pages = do
+--   loc <- getLocales
+--   locJ <- getLocalesJSON
+--   tpl <- getTemplate
+--   let c = object [ ("tags", mkTags), ("pages", mkPages), ("locales", locJ) ]
+--       mkTags = toJSONListHack $ map tagJSON $ sortOn fst $ map prepareTagLink nextTags
+--       mkPages = toJSONListHack $ map (linkJSON . pageLink) pages
+--       lc = X.renderMustache (K.taggedTemplate tpl) c
+--   renderLayout (K.loc_Tags loc) lc Nothing
+--   where
+--     tagJSON :: (T.Text, T.Text) -> J.Value
+--     tagJSON (label, tagsChain) = linkJSON (label, T.concat ["/browse/tags/", tagsChain])
+--     prepareTagLink :: K.TagSegments -> (T.Text, T.Text)
+--     prepareTagLink tagSeg = case tagSeg of
+--       (t:[]) -> (t, makeTagsChain tagSeg)
+--       _      -> (T.concat ["> ", last tagSeg], makeTagsChain tagSeg)
+--     makeTagsChain :: K.TagSegments -> T.Text
+--     makeTagsChain t = let
+--       tagParents = map segmentsToTag $ init $ tail $ inits t
+--       newTagsSel = tagsSel \\ tagParents
+--       tid = segmentsToTag t
+--       in T.intercalate "," (sort (tid:newTagsSel))
 
 
 type BrowseMenu = [(K.MetaField, [(T.Text, T.Text)])]
@@ -126,7 +126,7 @@ renderBrowseAll menu pages = do
   renderLayout (K.loc_Tags loc) lc Nothing
   where
     tagJSON :: (T.Text, T.Text) -> J.Value
-    tagJSON (label, tagsChain) = linkJSON (label, T.concat ["/browse-all/", tagsChain])
+    tagJSON (label, tagsChain) = linkJSON (label, T.concat ["/browse/", tagsChain])
 
     customMetaJSON :: (T.Text, [(T.Text, T.Text)]) -> J.Value
     customMetaJSON (field, keys) = object [ ("field", toJSON field)
