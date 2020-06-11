@@ -23,39 +23,15 @@ import           Kiwi.Utils (getDB, getSessions, asksK, tagsListSubSegments,
 import qualified Kiwi.Utils as U
 import qualified Utils.DocIndex as DI
 
-servePage :: T.Text -> ActM ()
+servePage :: K.PageUID -> ActM ()
 servePage pgId = do
   db <- getRestrictedDB
   case findPage db pgId of
     Just p -> do
-      let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageId p)) 
+      let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p)) 
       r <- V.renderPage p backLinkPages
       html r
     Nothing -> serveNotFound
-
-  
--- serveTagged :: T.Text -> ActM ()
--- serveTagged tags' = do
---   db <- getRestrictedDB
---   r <- if tags' == "*" then taggedIndex db
---        else taggedWith db (U.splitTextEsc ',' tags')
---   html r
---   where
---     taggedIndex db =
---       let rootTags = filterRootTags $ tagsListSubSegments $ nodup $
---                      concat (map K.pageTags $ DI.documentsList (K.pagesIndex db))
---       in V.renderTagged [] rootTags $ DI.documentsList (K.pagesIndex db)
---     taggedWith db query =
---       let idx = K.pagesIndex db
---           subset = DI.narrow idx $ U.qAll K.FieldTag query
---           matchingPages = DI.documentsList subset
---           matchesAllTagsSegs = tagsListSubSegments $ K.fromKeys $
---                                DI.getFieldKeys subset K.FieldTag
---           querySegs = tagsListSubSegments query
---           nextTags = filterRootTags $ fastListDiff matchesAllTagsSegs querySegs
---       in V.renderTagged query nextTags matchingPages
-
-
 
 
 type BrowseAllReq = M.Map K.MetaField [K.DocIndexKey]
@@ -79,10 +55,13 @@ serveBrowseAll r' = do
                           M.findWithDefault [] K.FieldTag req
           nextTags = filterRootTags $ fastListDiff allTagsSegs queryTagsSegs
           tags = (K.FieldTag, map (K.KeyText . U.segmentsToTag) nextTags)
+          -- sources specific handling
+          sources = (K.FieldSource, DI.getFieldKeys subset K.FieldSource)
           -- custom fields
           fieldsAndKeys = map (fks subset) $ relevantFields subset (K.customMetaConfig db)
-          nextStep = map (\(f, keys) -> (f, map (nextStepLink req f) keys))  $
-                     tags : filterOut req fieldsAndKeys
+          -- menu construction
+          menu = tags : (filterOut req (sources : fieldsAndKeys))
+          nextStep = map (\(f, keys) -> (f, map (nextStepLink req f) keys)) $ menu
       in V.renderBrowseAll nextStep $ DI.documentsList subset
       where fks idx f = (f, DI.getFieldKeys idx f)
 
@@ -133,7 +112,7 @@ serveSearch query = do
                       html r
 
 
-serveEditPage :: Maybe (FP.FilePath, [String]) -> T.Text -> ActM ()
+serveEditPage :: Maybe (FP.FilePath, [String]) -> K.PageUID -> ActM ()
 serveEditPage editorM pgId =
   case editorM of
     Nothing -> serveNotFound
@@ -141,9 +120,8 @@ serveEditPage editorM pgId =
       db <- getDB
       case findPage db pgId of
         Nothing -> serveNotFound
-        Just p -> let filePath = FP.joinPath [ K.pagesDir db, K.pageFSPath p ]
-                  in do
-          _ <- liftAndCatchIO $ Proc.spawnProcess cmd (args ++ [filePath])
+        Just p -> do
+          _ <- liftAndCatchIO $ Proc.spawnProcess cmd $ args ++ [K.pageAbsoluteFSPath p]
           html "ok"
       
 
@@ -201,7 +179,7 @@ serveForbidden = do
   html r
 
 
-findPage :: K.PagesDB -> T.Text -> Maybe K.Page
+findPage :: K.PagesDB -> K.PageUID -> Maybe K.Page
 findPage db pgId = DI.findDoc (K.pagesIndex db) pgId 
 
 

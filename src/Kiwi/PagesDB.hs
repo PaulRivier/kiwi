@@ -4,7 +4,7 @@
 module Kiwi.PagesDB where
 
 import           Data.List (find)
-import qualified Data.Map.Strict as M
+-- import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe)
 import           Data.SearchEngine (insertDocs, deleteDoc)
 import qualified Data.Set as S
@@ -17,68 +17,82 @@ import qualified System.FilePath as FP
 import           Kiwi.Search
 import           Kiwi.Types
 import           Kiwi.Pandoc (loadPageIO)
-import           Kiwi.Utils (traverseDir, tagSubSegments, segmentsToTag, nodup)
+import           Kiwi.Utils (traverseDir, tagSubSegments, segmentsToTag,
+                             nodup, concatMapM)
 import qualified Utils.DocIndex as DI
 
-updatePagesDB :: PagesDB ->  IO PagesDB
-updatePagesDB db =
-  let top = pagesDir db
-      pages = DI.store $ pagesIndex db
+updatePagesDB :: FP.FilePath ->  FP.FilePath -> PagesDB ->  IO PagesDB
+updatePagesDB contentDir' pagesDir db =
+  let dbPages = DI.documentsList $ pagesIndex db
       lu = lastUpdate db
       md = defaultMeta db
       cmc = customMetaConfig db
   in do
+    sources <- filter (\(x:_) -> x /= '.') <$> D.listDirectory contentDir'
     dbOK <- getCondition
     currentTime <- C.getCurrentTime
+    let pagesDirs = map (\s -> FP.joinPath [contentDir', s, pagesDir]) sources
     case dbOK  of
-      True -> return db   -- pas de modification
-      False -> do         -- modifications à trouver
-        (modified, removed) <- getModifiedAndRemoved top pages md cmc lu
-        let pagesIndexClean = DI.removeMany (pagesIndex db) (S.toList removed)
-        let newPagesIndex = DI.insertMany pagesIndexClean modified
-        let updSearchEngine = getUpdSearchEngine (searchEngine db) modified removed
+      True -> return db   -- nothing to do
+      False -> do         -- some work to do
+         -- pas de dossier caché
+        fsPaths <- concatMapM (\d -> traverseDir d (\(x:_) -> x /= '.')) pagesDirs
+        newOrMod <- getNewOrMod contentDir' md cmc lu fsPaths
+        let removedUIDs = getRemovedUIDs dbPages fsPaths
+        -- (modified, removed) <- getModifiedAndRemoved dirs dbPagesRelPath md cmc lu
+        let pagesIndexClean = DI.removeMany (pagesIndex db) removedUIDs
+        let newPagesIndex = DI.insertMany pagesIndexClean newOrMod
+        let updSearchEngine = getUpdSearchEngine (searchEngine db) newOrMod removedUIDs
         return $ db { lastUpdate = currentTime
                     , pagesIndex = newPagesIndex
                     , searchEngine = updSearchEngine }
   where
-    -- TODO : gérer les conditions de rechargement
+    -- TODO : gérer des conditions de rechargement
     getCondition = return False
 
-    getModifiedAndRemoved top pages md cmc date = do
-      fsPaths <- traverseDir top (\(x:_) -> x /= '.') -- pas de dossier caché
+    getNewOrMod cd md cmc date fsPaths = do
       fsPathsAndMTime <- mapM addMTime fsPaths
       let updatedPaths = map fst $ filter (\(_,mt) -> mt > date) fsPathsAndMTime
-      newPages <- mapM (loadPageIO top md cmc) updatedPaths
-      -- pages supprimées
-      let pgIdFromPaths = map (pageIdFromFilePath top) fsPaths
-      let missing = S.difference (M.keysSet pages) (S.fromList pgIdFromPaths)
-      return (newPages, missing)
+      mapM (loadPage cd md cmc) updatedPaths
+
+    getRemovedUIDs dbPages fsPaths =
+      let fsPathsSet = S.fromList fsPaths
+          notInPaths = \pg -> not $ S.member (pageAbsoluteFSPath pg) fsPathsSet
+          missing = filter notInPaths dbPages
+      in map pageUID missing
 
     addMTime path = do
       mt <- D.getModificationTime path
       return (path, mt)
 
+    loadPage :: FP.FilePath -> MetaData -> [CustomMetaConfig] -> FP.FilePath -> IO Page
+    loadPage cd md cmc fullPath =
+      let splitPath = FP.splitDirectories $ FP.makeRelative cd fullPath
+          source = T.pack $ head splitPath
+          relPath = FP.dropExtension $ FP.joinPath $ drop 2 $ splitPath
+      in loadPageIO fullPath relPath source md cmc
+
     getUpdSearchEngine se modified removed =
-        insertDocs modified $ foldr deleteDoc se (S.toList removed)
+        insertDocs modified $ foldr deleteDoc se removed
 
 
 
 
-emptyPagesDB :: FP.FilePath -> MetaData -> [CustomMetaConfig] -> PagesDB
-emptyPagesDB dir md cmc =
+emptyPagesDB :: MetaData -> [CustomMetaConfig] -> PagesDB
+emptyPagesDB md cmc =
     let oldDate = C.UTCTime (Cal.fromGregorian 2000 1 1) (C.secondsToDiffTime 0)
-    in PagesDB { pagesDir = dir
-               , defaultMeta = md
+    in PagesDB { defaultMeta = md
                , customMetaConfig = cmc
                , lastUpdate = oldDate
-               , pagesIndex = DI.init pageId (pageExtractKeys cmc)
+               , pagesIndex = DI.init pageUID (pageExtractKeys cmc)
                , searchEngine = initPageSearchEngine (metaLang md) }
 
 
 pageExtractKeys :: [CustomMetaConfig] -> [DI.Field Page MetaField DocIndexKey]
-pageExtractKeys cmc = [ mkField FieldTag KeyText extractTags
+pageExtractKeys cmc = [ mkField FieldSource KeyText ((:[]) . fst . pageUID)
+                      , mkField FieldTag KeyText extractTags
                       , mkField FieldAccess KeyText pageAccess
-                      , mkField FieldLink KeyText pageLinks
+                      , mkField FieldLink KeyPairText pageLinks
                       , mkField FieldLang KeyLang ((:[]) . pageLang)
                       ] ++
                       map mkCustomField cmc
@@ -93,9 +107,9 @@ extractTags :: Page -> [TagId]
 extractTags p = concatMap expandSubTags $ pageTags p
   where expandSubTags = map segmentsToTag . tagSubSegments
   
-pageIdFromFilePath :: FP.FilePath -> FP.FilePath -> T.Text
-pageIdFromFilePath top pgPath =
-    T.pack $ FP.dropExtension $ FP.makeRelative top pgPath
+mkPageRelPath :: FP.FilePath -> FP.FilePath -> T.Text
+mkPageRelPath top pgPath =
+  T.pack $ FP.makeRelative top pgPath
 
 
 

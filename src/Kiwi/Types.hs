@@ -1,4 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, FlexibleInstances #-}
 
 module Kiwi.Types where
 
@@ -68,15 +68,15 @@ type ActM a = ActionT TL.Text ServerM a
 
 
 data PagesDB =
-  PagesDB { pagesDir :: FP.FilePath
-          , defaultMeta   :: MetaData
+  PagesDB { defaultMeta   :: MetaData
           , customMetaConfig :: [CustomMetaConfig]
           , lastUpdate :: Time.UTCTime
-          , pagesIndex :: DI.DocIndex Page PageId MetaField DocIndexKey
+          , pagesIndex :: DI.DocIndex Page PageUID MetaField DocIndexKey
           , searchEngine :: PageSearchEngine }
 
 
-data MetaField = FieldTag
+data MetaField = FieldSource
+               | FieldTag
                | FieldAccess
                | FieldLang
                | FieldLink
@@ -97,21 +97,21 @@ data MetaData =
 
 
 data Page =
-  Page { pageId  :: PageId   -- ^ page id, used for routing
-       , pageFSPath :: FP.FilePath  -- ^ path to file
+  Page { pageUID  :: PageUID   -- ^ page uid, used for routing
+       , pageAbsoluteFSPath :: FP.FilePath  -- ^ path to file, absolute
        , pageMTime :: Time.UTCTime -- ^ time of file modification from filesystem
        , pageDoc :: P.Pandoc
        , pageTitle :: T.Text
        , pageTags :: [TagId]
        , pageLang :: Lang
        , pageAccess :: [T.Text]
-       , pageLinks :: [PageId]
+       , pageLinks :: [PageUID]
        , pageCustomMeta :: [CustomMetaData]
        }
   deriving (Show)
 
 
-type PageId = T.Text
+type PageUID = (T.Text, T.Text) -- ^ (source, page id)
 type PageSet = S.Set Page
 type TagId = T.Text
 type TagSegments = [TagId]
@@ -119,7 +119,7 @@ type TagSegments = [TagId]
 data PandocPage =
   PandocPage { pandocDoc :: P.Pandoc
              , pandocMeta :: MetaData
-             , pandocPageLinks :: [PageId]
+             , pandocPageLinks :: [PageUID]
              }
   deriving (Show)
 
@@ -149,9 +149,6 @@ instance Read CustomMetaType where
     "int"    -> [(CmtInt, "")]
     "date"   -> [(CmtDate, "")]
     "bool"   -> [(CmtBool, "")]
-    -- "[text]" -> [(CmtTextList, "")]
-   -- "[int]"  -> [(CmtIntList, "")]
-    -- "[date]" -> [(CmtDateList, "")]
     _        -> []
 
 
@@ -160,6 +157,7 @@ data DocIndexKey = KeyText T.Text
                  | KeyDay Time.Day
                  | KeyBool Bool
                  | KeyLang Lang
+                 | KeyPairText (T.Text, T.Text)
   deriving (Eq, Ord, Show, Read)
 
 
@@ -196,10 +194,15 @@ instance FieldKey Lang where
   fromKey (KeyLang k) = Just k
   fromKey _ = Nothing
 
+instance FieldKey (T.Text,T.Text) where
+  toKey = KeyPairText
+  fromKey (KeyPairText k) = Just k
+  fromKey _ = Nothing
+
 
 -- Search Engine
 
-type PageSearchEngine = SearchEngine Page PageId PageField NoFeatures
+type PageSearchEngine = SearchEngine Page PageUID PageField NoFeatures
 
 data PageField = TitleField
                | TagsField

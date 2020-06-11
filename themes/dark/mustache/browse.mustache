@@ -1,7 +1,21 @@
 <div class="tags-page">
+
+  <div class="sources-selection">
+    {{# sources }}
+    <ul class="flex-hz sources-list">
+      {{# items }}
+      <li>
+	    <a href="{{ target }}">{{ label }}</a>
+      </li>
+      {{/ items }}
+    </ul>
+    {{/ sources }}
+  </div>
+
+
   <div class="tags-selection">
     {{# tags }}
-    <fieldset class="meta">
+    <fieldset class="flex">
       <legend>{{ locales.tags-list }}</legend>
       <ul class="flex-hz tags-list">
         {{# items }}
@@ -13,10 +27,12 @@
     </fieldset>
     {{/ tags }}
   </div>
+
+
   {{# custom-meta }}
   <div class="custom-meta-selection">
     {{# items }}
-    <fieldset class="meta">
+    <fieldset class="flex">
       <legend>{{ field }}</legend>
       {{# keys }}
       <ul class="flex-hz custom-meta-list">
@@ -26,14 +42,16 @@
         </li>
         {{/ items }}
       </ul>
+      {{/ keys }}
     </fieldset>
-    {{/ keys }}
     {{/ items }}
   </div>
   {{/ custom-meta }}
+
+
+  {{# pages }}
   <div class="results">
-    {{# pages }}
-    <fieldset class="meta">
+    <fieldset class="flex">
       <legend>&rarr; {{ locales.pages-list }}</legend>
       <ul class="flex-hz pages-list">
         {{# items }}
@@ -43,7 +61,7 @@
         {{/ items }}
       </ul>
     </fieldset>
-    {{/ pages }}
   </div>
+  {{/ pages }}
 </div>
 

@@ -10,7 +10,6 @@ body {
   background-color: var(--kiwi-bg-color);
   color: var(--kiwi-text-color);
   text-decoration: none;
-
   display: flex;
   flex-direction: row;
   /* flex-wrap: wrap; */
@@ -256,16 +255,16 @@ ul.flex-hz li:hover {
 /*   justify-content: flex-start; */
 /* } */
 
-fieldset.meta {
-  margin: 20px 0;
+fieldset.flex {
+  margin: 0 0 20px 0;
   padding: 0 10px;
 }
 
-div.tags-selection fieldset.meta {
+div.tags-selection fieldset.flex {
   border: 1px solid rgba(var(--kiwi-tag-link-color), 0.3);
 }
 
-div.tags-selection fieldset.meta legend {
+div.tags-selection fieldset.flex legend {
   color: rgba(var(--kiwi-tag-link-color), 0.8);
 }
 
@@ -289,11 +288,11 @@ ul.tags-list li a:hover {
   color:  rgba(var(--kiwi-tag-link-color), 1);
 }
 
-.tags-page .results fieldset.meta {
+.tags-page .results fieldset.flex {
   border: 1px solid rgba(var(--kiwi-page-link-color), 0.3);
 }
 
-.tags-page .results fieldset.meta legend {
+.tags-page .results fieldset.flex legend {
   color: rgba(var(--kiwi-page-link-color), 0.8);
 }
 
@@ -317,17 +316,48 @@ ul.pages-list li a:hover,
 }
 
 
+div.sources-selection {
+  height: 1.5em;
+}
+
+div.sources-selection ul.sources-list {
+  margin: 0;
+  padding: 0;
+  list-style-type: none;
+  justify-content: flex-end;
+}
+
+div.sources-selection ul.sources-list li {
+  border: none;
+  color: rgba(var(--kiwi-text-color-rgb), 0.7);
+  padding: 0;
+  margin: 0 0 0 10px;
+}
+
+div.sources-selection ul.sources-list li a {
+  margin: 0 0.2em;
+  padding: 0 0.2em;
+  text-decoration: none;
+  color: rgba(var(--kiwi-text-color-rgb), 0.5);
+}
+
+div.sources-selection ul.sources-list li a:hover {
+  color: rgba(var(--kiwi-text-color-rgb), 1);
+}
+
+
+
 div.custom-meta-selection fieldset {
   color: var(--kiwi-text-color);
   border: 1px solid #444444;
 }
 
 
-fieldset.meta legend {
+fieldset.flex legend {
   padding: 0 12px;
 }
 
-fieldset.meta ul {
+fieldset.flex ul {
   padding: 2px;
 }
 
@@ -337,7 +367,7 @@ div.custom-meta-selection fieldset ul.custom-meta-list li {
   border: none;
 }
 
-div.custom-meta-selection fieldset ul.custom-meta-list li:hover {
+div.custom-meta-selection fieldset ul.custom-meta-list li:hover{
   opacity: 1;
 }
 

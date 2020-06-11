@@ -17,12 +17,12 @@ import           Text.Read (readMaybe)
 
 import           Kiwi.Types
 import           Kiwi.Utils (getFileContent, splitOnFirst, (>:), for,  splitTextEsc,
-                            normalizeTag)
+                            normalizeTag, pathToPageId)
 
 
-loadPage :: T.Text -> MetaData -> [CustomMetaConfig] ->
+loadPage :: T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
             FP.FilePath -> Either String PandocPage
-loadPage c md cmc path = case splitOnFirst "\n\n" c of
+loadPage c source md cmc dir = case splitOnFirst "\n\n" c of
   Nothing -> Left "Metadata is not valid"
   Just (metaC, content) -> 
     let docMeta = parseMetaData metaC
@@ -38,16 +38,15 @@ loadPage c md cmc path = case splitOnFirst "\n\n" c of
                                            readMaybe . T.unpack . last )
                   , metaCustom = parseCustomMeta docMeta cmc
                   }
-        pagePathDir = FP.takeDirectory path
-        pagePathDirT = T.pack $ pagePathDir
-        imagesDir = T.unpack $ findWith pagePathDirT T.concat "images-dir" docMeta
-        filesDir  = T.unpack $ findWith pagePathDirT T.concat "files-dir" docMeta
+        dirT = T.pack $ dir
+        imagesDir = T.unpack $ findWith dirT T.concat "images-dir" docMeta
+        filesDir  = T.unpack $ findWith dirT T.concat "files-dir" docMeta
 
     in case (P.runPure $ P.readCommonMark mdConf content) of
          Left e -> Left $ show e
          Right doc'->
-           let (doc, collected) = walkDoc pagePathDir imagesDir filesDir doc'
-               colLinks = [ l | CollectedPageLink l <- collected ]
+           let (doc, collected) = walkDoc dir imagesDir filesDir doc'
+               colLinks = [ (source, l) | CollectedPageLink l <- collected ]
            in Right (PandocPage doc meta colLinks)
   where
     mdConf = P.def { P.readerExtensions = P.pandocExtensions }
@@ -119,20 +118,20 @@ walkDoc pageDir imagesDir filesDir doc =
 
 
 
-loadPageIO :: FP.FilePath -> MetaData -> [CustomMetaConfig] ->
-              FP.FilePath -> IO Page
-loadPageIO pagesDir' md cmc pageFullPath = do
-  let pgPath = FP.makeRelative pagesDir' pageFullPath
-  let pgNameId = T.pack $ FP.dropExtension pgPath
-  cM <- getFileContent pageFullPath
-  mt <- D.getModificationTime pageFullPath
+loadPageIO :: FP.FilePath -> FP.FilePath -> T.Text ->
+              MetaData -> [CustomMetaConfig] -> IO Page
+loadPageIO fullPath relPath source md cmc = do
+  cM <- getFileContent fullPath
+  mt <- D.getModificationTime fullPath
+  let pageDir = FP.takeDirectory relPath
   case cM of
-    Nothing -> error ("file not found : " ++ pageFullPath)
-    Just c -> case (loadPage c md cmc pgPath) of
+    Nothing -> error ("file not found : " ++ fullPath)
+    Just c -> case (loadPage c source md cmc pageDir) of
       Left _ -> error "Unable to read markdown"
-      Right p -> let meta = pandocMeta p in
-        return $ Page { pageId = fromMaybe pgNameId $ metaId meta
-                      , pageFSPath = pgPath
+      Right p -> let meta = pandocMeta p
+                     pId = fromMaybe (pathToPageId relPath) $ metaId meta in
+        return $ Page { pageUID = (source, pId)
+                      , pageAbsoluteFSPath = fullPath
                       , pageMTime = mt
                       , pageDoc = pandocDoc p
                       , pageTitle = metaTitle meta

@@ -20,10 +20,10 @@ initPageSearchEngine :: Lang -> PageSearchEngine
 initPageSearchEngine lg =
     initSearchEngine (pageSearchConfig (alg lg)) defaultSearchRankParameters
 
-pageSearchConfig :: Algorithm -> SearchConfig Page PageId PageField NoFeatures
+pageSearchConfig :: Algorithm -> SearchConfig Page PageUID PageField NoFeatures
 pageSearchConfig lg =
     SearchConfig {
-      documentKey           = pageId,
+      documentKey           = pageUID,
       extractDocumentTerms  = extractTokens,
       transformQueryTerm    = normaliseQueryToken,
       documentFeatureValue  = const noFeatures
@@ -40,10 +40,6 @@ pageSearchConfig lg =
 
     normaliseQueryToken :: T.Text -> PageField -> T.Text
     normaliseQueryToken tok _ = T.toLower $ stem lg $ normalizeText tok
-      -- case field of
-      --   TitleField -> stem language $ normalizeText tok
-      --   TagsField -> T.toLower tok
-      --   ContentField -> stem language $ normalizeText tok
 
     -- dans le cas des tags, on indexe le tag sous sa forme canonique
     -- [tag] ainsi que les termes qui le composent
@@ -123,41 +119,3 @@ alg l = case l of
   K.Turkish -> SB.Turkish
 
 
--- -- Old code parsing query to extract tags. Not really useful.
-
-
--- data QueryTerm = QueryTag T.Text | QueryWord T.Text
---   deriving Show
-
--- type SParser = X.Parsec String () 
-
--- prepareQuery ::  T.Text -> [T.Text]
--- prepareQuery q = concat $ map makeTerm $ parseTerms (T.strip q)
---   where
---     makeTerm :: QueryTerm -> [T.Text]
---     makeTerm (QueryTag t) = [ T.concat ["[", T.toLower t, "]"] ]
---     makeTerm (QueryWord t) = extractTerms t
-
---     parseTerms :: T.Text -> [QueryTerm]
---     parseTerms q' =
---       let toksE = X.parse queryParser "" (T.unpack q')
---       in case toksE of
---         Left e -> trace (show e) []
---         Right toks -> toks
-
---     queryParser :: SParser [QueryTerm]
---     queryParser = X.sepBy (queryTag <|> queryWord)
---                           (X.many $ X.char ' ')
-
---     queryTag :: SParser QueryTerm
---     queryTag = do
---       let tagparser = X.many1 (X.noneOf "]")
---       t <- X.between (X.char '[') ( X.char ']') tagparser
---       return $ QueryTag $ T.pack $ t
-
---     queryWord :: SParser QueryTerm
---     queryWord = do
---       word <- X.many1 (X.noneOf " [")
---       return $ QueryWord $ T.pack word
-        
-              

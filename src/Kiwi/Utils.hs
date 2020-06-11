@@ -199,9 +199,24 @@ showKeyLabel k = case k of
   KeyDay d -> T.pack $ show d
   KeyBool b -> T.pack $ show b
   KeyLang l -> T.pack $ show l
+  KeyPairText p -> T.pack $ show p
+
+pathToPageId :: FP.FilePath -> T.Text
+pathToPageId = T.replace "/" ":" . T.pack
 
 pageUrl :: Page -> T.Text
-pageUrl p = T.concat ["/page/", pageId p]
+pageUrl p = let (s,i) = pageUID p in
+  T.concat ["/page/", urlEncodeText s, "/", urlEncodeText i]
+
+joinPageId :: Page -> T.Text
+joinPageId p = let (s,i) = pageUID p in
+  T.concat [s, "/", i]
+
+urlEncodeText :: T.Text -> T.Text
+urlEncodeText = TE.decodeUtf8 . URI.urlEncode False . TE.encodeUtf8 
+
+urlDecodeText :: T.Text -> T.Text
+urlDecodeText = TE.decodeUtf8 . URI.urlDecode False . TE.encodeUtf8 
 
 -- Caching helpers
 
@@ -310,6 +325,9 @@ splitOnFirst sep t = case T.breakOn sep t of
   (_, "") -> Nothing
   (pref,rst) -> Just (pref, T.drop (T.length sep) rst)
 
+
+concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
+concatMapM f xs = liftM concat (mapM f xs)
 
 (>:) :: Functor f => f a -> (a -> b) -> f b
 (>:) = flip fmap

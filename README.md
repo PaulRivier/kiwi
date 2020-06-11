@@ -12,7 +12,9 @@ content :
 - user-defined custom meta-data, with full indexing
 - incremental metadata navigation
 - full-text search with word stemming available in various languages
+- automatic backlinks
 - access control
+- multi data sources
 - clear view/model separation, highly themable (html + CSS + JS)
 
 Kiwi uses [CommonMark](<https://commonmark.org/>) flavor of Markdown
@@ -80,10 +82,22 @@ In your kiwi folder you should have this layout.
 - Kiwi
   - kiwi.ini
   - content
-    - pages
-	- images
-	- files
+    - my 
+      - pages
+      - images
+      - files
   - themes
+  
+*content* is the folder that will contain all your *sources*. A
+*source* is an independent module of content, with its own pages,
+images and files. Kiwi can handle many *sources* in a single database,
+and allow to browse their contents together.
+
+You can have as many sources as you want. This can be really useful
+for collaboration, aggregation or online publishing.
+
+Your pages should go in the *pages* folder, your images in the
+*images* folder and your other files in the *files* folder.
 
 ## kiwi.ini config file
 
@@ -93,12 +107,17 @@ directory. Start with one bundled with this repository.
 
 ## content folder
 
-This is where your content will go.
+This folder contains all your *sources*. You can have only one source,
+or several. In each source, Kiwi will require the following layout.
 
 ### pages
 
-Add your Markdown documents to 'pages' to get started. Kiwi documents
-are composed of metadata and content. Metadata are fields in the form
+Add your Markdown documents to 'pages' to get started. Pages filename
+are used as identifiers, unless you set a custom identifier in the
+page.
+
+Kiwi documents are composed of metadata and content. Metadata are
+fields in the form
 
     field: value
 
@@ -135,7 +154,7 @@ tags: tag1
 ...
 ```
 
-But these are NOT acceptables, because of the lack of newlines, or
+But these are NOT acceptable, because of the lack of newlines, or
 because of undue presence of ':'.
 
 ```
@@ -160,8 +179,9 @@ Home.md for file format example.
 Some metadata keys are reserved by kiwi :
 
 * **title** : title of your page (required)
-* **id** : unique identifier, this is optional, if you don't set it
-  kiwi will use the name of the file
+* **id** : your page identifier, this is optional, if you don't set it
+  kiwi will use the name of the file. In should be unique within the
+  page source. You should not use "/" or ":".
 * **tags** : powerful tags (optional)
 * **lang** : language of the content, for full-text search (optional)
 * **access** : access restriction, comma separated allowed groups (optional)
@@ -174,7 +194,7 @@ Some metadata keys are reserved by kiwi :
 
 Some metadata fields can have default values set in *kiwi.ini*
 file. You can change these default values there. These values are then
-overidden by page headers. These fields are :
+overridden by page headers. These fields are :
 
 * title
 * tags

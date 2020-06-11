@@ -54,7 +54,8 @@ renderPage p blp =
     tpl <- getTemplate
     loc <- getLocalesJSON
     let pvd = object [ "title" .= K.pageTitle p
-                     , "page-id" .= K.pageId p
+                     , "page-source" .= fst (K.pageUID p)
+                     , "page-id" .= snd (K.pageUID p)
                      , "tags" .= tagsViewData
                      , "custom-meta" .= customMeta
                      , "lang" .= (show $ K.pageLang p)
@@ -65,9 +66,10 @@ renderPage p blp =
         tagsViewData = map (\t -> linkJSON (prettyTag t, browseTag t)) $
                        K.pageTags p
         layoutContent = X.renderMustache (K.pageTemplate tpl) (toJSON pvd)
-        pgi = Just $ object [ "page-id" .= K.pageId p
+        pgi = Just $ object [ "page-source" .= fst (K.pageUID p)
+                            , "page-id" .= snd (K.pageUID p)
                             , "cm-link" .= T.concat [ "[", K.pageTitle p, "](<page:",
-                                                      K.pageId p, ">)" ]
+                                                      U.joinPageId p, ">)" ]
                             ]
     renderLayout (K.pageTitle p) layoutContent pgi
   where 
@@ -81,30 +83,6 @@ renderPage p blp =
                                     browseLink (K.FieldCustom f) k )
 
 
--- renderTagged :: [K.TagId] -> [K.TagSegments] -> [K.Page] -> ActM TL.Text
--- renderTagged tagsSel nextTags pages = do
---   loc <- getLocales
---   locJ <- getLocalesJSON
---   tpl <- getTemplate
---   let c = object [ ("tags", mkTags), ("pages", mkPages), ("locales", locJ) ]
---       mkTags = toJSONListHack $ map tagJSON $ sortOn fst $ map prepareTagLink nextTags
---       mkPages = toJSONListHack $ map (linkJSON . pageLink) pages
---       lc = X.renderMustache (K.taggedTemplate tpl) c
---   renderLayout (K.loc_Tags loc) lc Nothing
---   where
---     tagJSON :: (T.Text, T.Text) -> J.Value
---     tagJSON (label, tagsChain) = linkJSON (label, T.concat ["/browse/tags/", tagsChain])
---     prepareTagLink :: K.TagSegments -> (T.Text, T.Text)
---     prepareTagLink tagSeg = case tagSeg of
---       (t:[]) -> (t, makeTagsChain tagSeg)
---       _      -> (T.concat ["> ", last tagSeg], makeTagsChain tagSeg)
---     makeTagsChain :: K.TagSegments -> T.Text
---     makeTagsChain t = let
---       tagParents = map segmentsToTag $ init $ tail $ inits t
---       newTagsSel = tagsSel \\ tagParents
---       tid = segmentsToTag t
---       in T.intercalate "," (sort (tid:newTagsSel))
-
 
 type BrowseMenu = [(K.MetaField, [(T.Text, T.Text)])]
 
@@ -113,7 +91,8 @@ renderBrowseAll menu pages = do
   loc <- getLocales
   locJ <- getLocalesJSON
   tpl <- getTemplate
-  let c = object [ ("tags", mkTags)
+  let c = object [ ("sources", mkSources)
+                 , ("tags", mkTags)
                  , ("custom-meta", mkCustomMeta)
                  , ("pages", mkPages)
                  , ("locales", locJ) ]
@@ -121,6 +100,9 @@ renderBrowseAll menu pages = do
                fromMaybe [] $ lookup K.FieldTag menu
       mkCustomMeta = toJSONListHack $ map customMetaJSON $
                      [(n, vs) | (K.FieldCustom n, vs)  <- menu ]
+      mkSources = let sourcesLink = fromMaybe [] $ lookup K.FieldSource menu
+        in if length sourcesLink > 1 then toJSONListHack $ map linkJSON sourcesLink
+           else J.Null
       mkPages = toJSONListHack $ map (linkJSON . pageLink) pages
       lc = X.renderMustache (K.browseTemplate tpl) c
   renderLayout (K.loc_Tags loc) lc Nothing
@@ -131,16 +113,6 @@ renderBrowseAll menu pages = do
     customMetaJSON :: (T.Text, [(T.Text, T.Text)]) -> J.Value
     customMetaJSON (field, keys) = object [ ("field", toJSON field)
                                           , ("keys", toJSONListHack $ map tagJSON keys) ]
-    -- prepareTagLink :: K.TagSegments -> (T.Text, T.Text)
-    -- prepareTagLink tagSeg = case tagSeg of
-    --   (t:[]) -> (t, makeTagsChain tagSeg)
-    --   _      -> (T.concat ["> ", last tagSeg], makeTagsChain tagSeg)
-    -- makeTagsChain :: K.TagSegments -> T.Text
-    -- makeTagsChain t = let
-    --   tagParents = map segmentsToTag $ init $ tail $ inits t
-    --   newTagsSel = tagsSel \\ tagParents
-    --   tid = segmentsToTag t
-    --   in T.intercalate "," (sort (tid:newTagsSel))
   
       
 renderSearchResults :: [K.Page] -> ActM TL.Text

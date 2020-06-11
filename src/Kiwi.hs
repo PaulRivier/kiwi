@@ -71,8 +71,8 @@ initKiwiDir d = do
     createKiwi r = do
       forM_ (dirs r) D.createDirectory
       writeFile (FP.combine r "kiwi.ini") Conf.defaultConfigFileContent
-      writeFile (FP.combine r "content/pages/Home.md") DP.defaultHomePage
-      writeFile (FP.combine r "content/pages/CommonMark.md") DP.commonmarkDocPage
+      writeFile (FP.combine r "content/my/pages/Home.md") DP.defaultHomePage
+      writeFile (FP.combine r "content/my/pages/CommonMark.md") DP.commonmarkDocPage
       putStrLn $ unlines ["Kiwi directory created at " ++ r,
                           "You should now do the following steps :",
                           " - check kiwi.ini file",
@@ -80,8 +80,8 @@ initKiwiDir d = do
                           " - start wiki with command : kiwi serve " ++ FP.combine r "kiwi.ini"]
       -- todo : config, Home.md, static
       
-    dirs r = map (FP.combine r) ["content", "content/pages",
-                                 "content/images", "content/files"]
+    dirs r = map (FP.combine r) ["content", "content/my", "content/my/pages",
+                                 "content/my/images", "content/my/files"]
       
 
 

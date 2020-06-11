@@ -26,9 +26,10 @@ $(document).ready(function() {
     edit_link.on('click', function(e) {
 	e.preventDefault();
 	$.ajax({
-            type: "POST",
-            url: "/edit-page",
-            data: {"page-id": $(this).attr("data-page-id")}
+        type: "POST",
+        url: "/edit-page",
+        data: {"page-source": $(this).attr("data-page-source"),
+               "page-id": $(this).attr("data-page-id")}
 	}).done(function(data) {});
     });
 

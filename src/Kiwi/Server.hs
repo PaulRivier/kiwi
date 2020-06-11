@@ -12,10 +12,10 @@ import           Data.List (stripPrefix, isInfixOf)
 -- import           Data.Maybe (catMaybes)
 import qualified Data.Map.Strict as M
 import qualified Data.SearchEngine as SE
-import           Data.Text (Text, intercalate)
+-- import           Data.Text (Text, intercalate)
 -- import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
-import qualified Network.Wai as WAI
+-- import qualified Network.Wai as WAI
 import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import qualified Network.Wai.Middleware.Static as Static
 import           Network.Wai.Middleware.Static ((>->), (<|>))
@@ -60,8 +60,13 @@ kiwiServer cfp c cache = do
 kiwiRoute :: ServerState -> Static.CacheContainer -> WebM ()
 kiwiRoute ss cache = do
   get "/" $ redirect "/browse/"
-  getPath "^/page/[^.]+" $ \p -> withLogin $ do
-    servePage p
+  get "/page/:source/:pId" $ do
+    source <- param "source"
+    pId <- param "pId"
+    withLogin $ servePage (source, pId)
+  -- getPath "^/page/:source/[^.]+" $ \p -> withLogin $ do
+    
+  --   servePage p
   -- get "/browse/tags/:tags" $ withLogin $ do
   --   tags <- param "tags"
   --   serveTagged tags
@@ -79,8 +84,9 @@ kiwiRoute ss cache = do
     withLogin updateDB
     html ""
   post "/edit-page" $ ifAdmin $ do
-    pgId <- param "page-id"
-    serveEditPage (editorCommand ss) pgId
+    source <- param "page-source"
+    pId <- param "page-id"
+    serveEditPage (editorCommand ss) (source, pId)
   get  "/login" $ serveLogin
   post "/login" $ logUserIn
   post "/logout" $ logUserOut
@@ -88,29 +94,23 @@ kiwiRoute ss cache = do
     db <- getDB
     html $ TL.pack $ show $ DI.index $ pagesIndex db
 
-  serveStaticContent (contentDir ss) (staticDir ss) cache
+  serveStatic cache [("static/", staticDir ss)]
+  serveStatic cache (filesParts $ contentDir ss)
+
   notFound serveNotFound
-  
+
+  where
+    filesParts cd = [ ("image/", FP.joinPath [cd, imagesFSDir])
+                    , ("file/", FP.joinPath [cd, filesFSDir]) ]
     
-serveStaticContent :: FP.FilePath -> FP.FilePath ->
-                      Static.CacheContainer -> WebM ()
-serveStaticContent cd sd cache =
-  let opts = Static.defaultOptions { Static.cacheContainer = cache }
-  in middleware $ Static.staticPolicyWithOptions opts (staticContentPolicy cd sd)
 
-
-getPath :: String -> (Text -> ActM ()) -> WebM ()
-getPath m action = get (regex m) $ do
-  req <- request
-  let path = intercalate "/" $ drop 1 $ WAI.pathInfo req
-  action path
-  
 
 updateDB :: ActM ()
 updateDB = do
   dbR <- serverM $ asks pagesDB
   db' <- liftIO $ readIORef dbR
-  db  <- liftAndCatchIO $ DB.updatePagesDB db'
+  cd <- asksK contentDir
+  db  <- liftAndCatchIO $ DB.updatePagesDB cd pagesFSDir db'
   liftAndCatchIO $ atomicWriteIORef dbR db
 
 
@@ -119,13 +119,13 @@ initServerState cfp conf = do
   kiwiDir' <- D.makeAbsolute (FP.takeDirectory cfp)
   let contentDir' = FP.combine kiwiDir' (Conf.contentDir conf)
   let staticDir'  = FP.joinPath [kiwiDir', (Conf.themeDir conf), "static"]
-  let pagesRootDir = FP.combine contentDir' pagesFSDir
+  -- let pagesRootDir = FP.combine contentDir' pagesFSDir
   tpl <- compileTemplate $ FP.joinPath [kiwiDir', (Conf.themeDir conf), "mustache"]
   accounts' <- loadAccounts $ FP.combine kiwiDir' "_accounts"
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"
   sessR <- newIORef sess
-  db <- DB.updatePagesDB (DB.emptyPagesDB pagesRootDir (Conf.defaultMeta conf)
-                         (Conf.customMetaConfig conf))
+  db <- DB.updatePagesDB contentDir' pagesFSDir
+          (DB.emptyPagesDB (Conf.defaultMeta conf) (Conf.customMetaConfig conf))
   _ <- warmUpSearchEngine (searchEngine db)
   dbR <- newIORef db
   return $ ServerState {
@@ -168,20 +168,19 @@ compileTemplate dir =
     make t = X.compileMustacheDir t dir
 
 
-staticContentPolicy :: FP.FilePath -> FP.FilePath -> Static.Policy
-staticContentPolicy cd sd =
-  let imagesPath = FP.joinPath [cd, imagesFSDir]
-      filesPath = FP.joinPath [cd, filesFSDir]
+serveStatic :: Static.CacheContainer -> [(String, FP.FilePath)] -> WebM ()
+serveStatic cache parts =
+  let opts = Static.defaultOptions { Static.cacheContainer = cache }
       basePolicy = mconcat [ Static.noDots
                            , Static.isNotAbsolute
                            , Static.predicate (not . isInfixOf "/.")
                            ]
-      in basePolicy >->
-         ( contentPolicy "image/" imagesPath <|>
-           contentPolicy "file/" filesPath <|>
-           contentPolicy "static/" sd )
+      contentPolicies = map (\(url,path) -> contentPolicy url path) parts
+      policy = basePolicy >-> foldl1 (<|>) contentPolicies
+  in middleware $
+     Static.staticPolicyWithOptions opts policy
   where
     contentPolicy url fspath = mconcat [ Static.policy (stripPrefix url)
                                        , Static.addBase fspath ]
-      
-                             
+
+
