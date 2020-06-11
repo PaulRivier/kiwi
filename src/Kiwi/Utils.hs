@@ -208,9 +208,9 @@ pageUrl :: Page -> T.Text
 pageUrl p = let (s,i) = pageUID p in
   T.concat ["/page/", urlEncodeText s, "/", urlEncodeText i]
 
-joinPageId :: Page -> T.Text
-joinPageId p = let (s,i) = pageUID p in
-  T.concat [s, "/", i]
+pageUIDLink :: Page -> T.Text
+pageUIDLink p = let (s,i) = pageUID p in
+  T.concat ["/", s, "/", i]
 
 urlEncodeText :: T.Text -> T.Text
 urlEncodeText = TE.decodeUtf8 . URI.urlEncode False . TE.encodeUtf8 

@@ -69,7 +69,7 @@ renderPage p blp =
         pgi = Just $ object [ "page-source" .= fst (K.pageUID p)
                             , "page-id" .= snd (K.pageUID p)
                             , "cm-link" .= T.concat [ "[", K.pageTitle p, "](<page:",
-                                                      U.joinPageId p, ">)" ]
+                                                      U.pageUIDLink p, ">)" ]
                             ]
     renderLayout (K.pageTitle p) layoutContent pgi
   where 
