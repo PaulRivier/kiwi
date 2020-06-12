@@ -55,7 +55,8 @@ to the theme you want in the bundled themes folder. Themes are
 separated from code, therefore they are very easy to add to Kiwi,
 check how existing themes are defined.
 
-    ln -s ~/your-git-clones-folder/kiwi/themes themes
+    cd ~/Kiwi
+    ln -s ~/PATH-TO-KIWI-GIT-CLONE/themes themes
 
 Create your own user account and get admin privileges (this is
 important, type 'admin' when prompted for your groups) :
