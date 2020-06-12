@@ -106,6 +106,9 @@ prettyTag = T.intercalate (T.pack " > ") . tagToSegments
 normalizeTag :: TagId -> TagId
 normalizeTag = segmentsToTag . tagToSegments
 
+prefixNormalizeTag :: TagSegments -> TagId -> TagId
+prefixNormalizeTag prefix = segmentsToTag . (prefix ++) . tagToSegments
+
 filterRootTags :: [TagSegments] -> [TagSegments]
 filterRootTags tss = let set = S.fromList tss in filter (isRoot set) tss
   where isRoot _ (_:[]) = True
@@ -120,9 +123,7 @@ fastListDiff l1 [] = l1
 fastListDiff l1 l2 = S.toList $ S.difference (S.fromList l1) (S.fromList l2)
 
 splitMeta :: T.Text -> [TagId]
-splitMeta = filter (not . T.null) .
-            map T.strip .
-            T.splitOn ","
+splitMeta = splitTextEsc ','
 
 splitTextEsc :: Char -> T.Text -> [T.Text]
 splitTextEsc sep = filter (not . T.null) . map T.strip . 

@@ -25,8 +25,6 @@ updatePagesDB :: FP.FilePath ->  FP.FilePath -> PagesDB ->  IO PagesDB
 updatePagesDB contentDir' pagesDir db =
   let dbPages = DI.documentsList $ pagesIndex db
       lu = lastUpdate db
-      md = defaultMeta db
-      cmc = customMetaConfig db
   in do
     sources <- filter (\(x:_) -> x /= '.') <$> D.listDirectory contentDir'
     dbOK <- getCondition
@@ -37,9 +35,8 @@ updatePagesDB contentDir' pagesDir db =
       False -> do         -- some work to do
          -- pas de dossier caché
         fsPaths <- concatMapM (\d -> traverseDir d (\(x:_) -> x /= '.')) pagesDirs
-        newOrMod <- getNewOrMod contentDir' md cmc lu fsPaths
+        newOrMod <- getNewOrMod contentDir' lu fsPaths
         let removedUIDs = getRemovedUIDs dbPages fsPaths
-        -- (modified, removed) <- getModifiedAndRemoved dirs dbPagesRelPath md cmc lu
         let pagesIndexClean = DI.removeMany (pagesIndex db) removedUIDs
         let newPagesIndex = DI.insertMany pagesIndexClean newOrMod
         let updSearchEngine = getUpdSearchEngine (searchEngine db) newOrMod removedUIDs
@@ -50,10 +47,10 @@ updatePagesDB contentDir' pagesDir db =
     -- TODO : gérer des conditions de rechargement
     getCondition = return False
 
-    getNewOrMod cd md cmc date fsPaths = do
+    getNewOrMod cd date fsPaths = do
       fsPathsAndMTime <- mapM addMTime fsPaths
       let updatedPaths = map fst $ filter (\(_,mt) -> mt > date) fsPathsAndMTime
-      mapM (loadPage cd md cmc) updatedPaths
+      mapM (loadPage cd) updatedPaths
 
     getRemovedUIDs dbPages fsPaths =
       let fsPathsSet = S.fromList fsPaths
@@ -65,12 +62,15 @@ updatePagesDB contentDir' pagesDir db =
       mt <- D.getModificationTime path
       return (path, mt)
 
-    loadPage :: FP.FilePath -> MetaData -> [CustomMetaConfig] -> FP.FilePath -> IO Page
-    loadPage cd md cmc fullPath =
+    loadPage :: FP.FilePath -> FP.FilePath -> IO Page
+    loadPage cd fullPath =
       let splitPath = FP.splitDirectories $ FP.makeRelative cd fullPath
           source = T.pack $ head splitPath
           relPath = FP.dropExtension $ FP.joinPath $ drop 2 $ splitPath
-      in loadPageIO fullPath relPath source md cmc
+          md = defaultMeta db
+          cmc = customMetaConfig db
+          sc = find (\c -> scSourceName c == source) $ sourcesConfig db
+      in loadPageIO fullPath relPath source md cmc sc
 
     getUpdSearchEngine se modified removed =
         insertDocs modified $ foldr deleteDoc se removed
@@ -78,11 +78,12 @@ updatePagesDB contentDir' pagesDir db =
 
 
 
-emptyPagesDB :: MetaData -> [CustomMetaConfig] -> PagesDB
-emptyPagesDB md cmc =
+emptyPagesDB :: MetaData -> [CustomMetaConfig] -> [SourceConfig] -> PagesDB
+emptyPagesDB md cmc sc =
     let oldDate = C.UTCTime (Cal.fromGregorian 2000 1 1) (C.secondsToDiffTime 0)
     in PagesDB { defaultMeta = md
                , customMetaConfig = cmc
+               , sourcesConfig = sc
                , lastUpdate = oldDate
                , pagesIndex = DI.init pageUID (pageExtractKeys cmc)
                , searchEngine = initPageSearchEngine (metaLang md) }

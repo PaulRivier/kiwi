@@ -70,6 +70,7 @@ type ActM a = ActionT TL.Text ServerM a
 data PagesDB =
   PagesDB { defaultMeta   :: MetaData
           , customMetaConfig :: [CustomMetaConfig]
+          , sourcesConfig :: [SourceConfig]
           , lastUpdate :: Time.UTCTime
           , pagesIndex :: DI.DocIndex Page PageUID MetaField DocIndexKey
           , searchEngine :: PageSearchEngine }
@@ -140,6 +141,10 @@ data CustomMetaConfig =
                    }
   deriving (Show)
 
+data SourceConfig = 
+  SourceConfig { scSourceName :: T.Text
+               , scRootTag :: TagSegments }
+
 data CustomMetaType = CmtText | CmtInt | CmtDate | CmtBool
   deriving (Eq, Show)
 
@@ -198,6 +203,7 @@ instance FieldKey (T.Text,T.Text) where
   toKey = KeyPairText
   fromKey (KeyPairText k) = Just k
   fromKey _ = Nothing
+
 
 
 -- Search Engine

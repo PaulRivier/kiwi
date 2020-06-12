@@ -125,7 +125,9 @@ initServerState cfp conf = do
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"
   sessR <- newIORef sess
   db <- DB.updatePagesDB contentDir' pagesFSDir
-          (DB.emptyPagesDB (Conf.defaultMeta conf) (Conf.customMetaConfig conf))
+          (DB.emptyPagesDB (Conf.defaultMeta conf)
+                           (Conf.customMetaConfig conf)
+                           (Conf.sourcesConfig conf))
   _ <- warmUpSearchEngine (searchEngine db)
   dbR <- newIORef db
   return $ ServerState {

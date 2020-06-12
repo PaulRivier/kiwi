@@ -16,8 +16,9 @@ import qualified Text.Pandoc.Walk as PW
 import           Text.Read (readMaybe)
 
 import           Kiwi.Types
-import           Kiwi.Utils (getFileContent, splitOnFirst, (>:), for,  splitTextEsc,
-                            normalizeTag, pathToPageId)
+import           Kiwi.Utils (getFileContent, splitOnFirst, (>:), for,  splitMeta,
+                             pathToPageId)
+import qualified Kiwi.Utils as U
 
 
 loadPage :: T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
@@ -29,9 +30,9 @@ loadPage c source md cmc dir = case splitOnFirst "\n\n" c of
         meta = md { metaId    = T.concat <$> M.lookup "id" docMeta
                   , metaTitle = findWith (metaTitle md) (T.intercalate " ")
                                          "title" docMeta
-                  , metaTags = findWith (metaTags md) (splitTextEsc ',' . T.intercalate ",")
+                  , metaTags = findWith (metaTags md) (splitMeta . T.intercalate ",")
                                         "tags" docMeta
-                  , metaAccess = findWith (metaAccess md) (splitTextEsc ',' . T.intercalate ",")
+                  , metaAccess = findWith (metaAccess md) (splitMeta . T.intercalate ",")
                                           "access" docMeta
                   , metaLang = fromMaybe (metaLang md)
                                          ( M.lookup "lang" docMeta >>=
@@ -119,11 +120,13 @@ walkDoc pageDir imagesDir filesDir doc =
 
 
 loadPageIO :: FP.FilePath -> FP.FilePath -> T.Text ->
-              MetaData -> [CustomMetaConfig] -> IO Page
-loadPageIO fullPath relPath source md cmc = do
+              MetaData -> [CustomMetaConfig] -> Maybe SourceConfig ->
+              IO Page
+loadPageIO fullPath relPath source md cmc scM = do
   cM <- getFileContent fullPath
   mt <- D.getModificationTime fullPath
   let pageDir = FP.takeDirectory relPath
+  let rootTag = fromMaybe [] (scRootTag <$> scM)
   case cM of
     Nothing -> error ("file not found : " ++ fullPath)
     Just c -> case (loadPage c source md cmc pageDir) of
@@ -135,7 +138,8 @@ loadPageIO fullPath relPath source md cmc = do
                       , pageMTime = mt
                       , pageDoc = pandocDoc p
                       , pageTitle = metaTitle meta
-                      , pageTags =  map normalizeTag $ metaTags meta
+                      , pageTags =  map (U.prefixNormalizeTag rootTag) $
+                                    metaTags meta
                       , pageAccess =  metaAccess meta
                       , pageLang = metaLang meta
                       , pageLinks = pandocPageLinks p
@@ -143,13 +147,11 @@ loadPageIO fullPath relPath source md cmc = do
                       }
 
 
-
-
 parseCustomMeta :: M.Map T.Text [T.Text] -> [CustomMetaConfig] -> [CustomMetaData]
 parseCustomMeta m c = catMaybes $ for c $
   \cmc -> case M.lookup (cmcName cmc) m of
     Nothing -> Nothing
-    Just v  -> let cmdKs = doRead (cmcType cmc) $ concatMap (splitTextEsc ',') v
+    Just v  -> let cmdKs = doRead (cmcType cmc) $ concatMap (splitMeta) v
                in Just $ CustomMetaData (cmcName cmc) cmdKs
   where 
     doRead CmtText = map KeyText

@@ -9,7 +9,7 @@ import qualified System.FilePath as FP
 import           Text.RawString.QQ (r)
 
 import qualified Kiwi.Types as K
-import           Kiwi.Utils (splitMeta)
+import qualified Kiwi.Utils as U
 
 data KiwiConfig = KiwiConfig
   { name :: T.Text
@@ -20,6 +20,7 @@ data KiwiConfig = KiwiConfig
   , uiLang   :: K.UI_Lang
   , defaultMeta :: K.MetaData
   , customMetaConfig :: [K.CustomMetaConfig]
+  , sourcesConfig :: [K.SourceConfig]
   , logging :: Bool
   }
   
@@ -27,19 +28,20 @@ data KiwiConfig = KiwiConfig
 
 configParser :: IniParser KiwiConfig
 configParser = do
-  meta <- section "metadata" $ do
+  meta <- section "metadata-default" $ do
     defTitle <- fieldDefOf "title" string "untitled"
     defTags  <- fieldDefOf "tags" string "untagged"
     defAccess <- fieldDefOf "access" string "private"
     defLang  <- fieldDefOf "lang" readable K.English
     return K.MetaData { K.metaId = Nothing
                       , K.metaTitle = T.strip defTitle
-                      , K.metaTags = splitMeta defTags
-                      , K.metaAccess = splitMeta defAccess 
+                      , K.metaTags = U.splitMeta defTags
+                      , K.metaAccess = U.splitMeta defAccess 
                       , K.metaLang = defLang
                       , K.metaCustom = []
                       }
   customMeta' <- sectionsOf (T.stripPrefix "metadata ") customMetaParser
+  sourcesConfig' <- sectionsOf (T.stripPrefix "source ") sourceConfigParser
   section "kiwi" $ do
     name'  <- fieldDefOf "name" string "kiwi"
     contentDir' <- fieldOf "content-directory" string
@@ -57,6 +59,7 @@ configParser = do
       , uiLang = lang'
       , defaultMeta = meta
       , customMetaConfig = toList customMeta'
+      , sourcesConfig = toList sourcesConfig'
       , logging = logging'
       }
 
@@ -69,7 +72,15 @@ customMetaParser name' = do
                             , K.cmcType = cmcType
                             , K.cmcThreshold = cmcThreshold
                             }
-                      
+
+
+sourceConfigParser :: T.Text -> SectionParser K.SourceConfig
+sourceConfigParser source = do
+  rt <- fieldDefOf "root-tag" string ""
+  return K.SourceConfig { K.scSourceName = source
+                        , K.scRootTag = U.splitMeta $ T.strip $ T.pack rt
+                        }
+
 
 parseConfig :: T.Text -> Either String KiwiConfig
 parseConfig t = parseIniFile t configParser
@@ -101,15 +112,16 @@ ui-lang: english
 log: no
 
 # built-in metadata default values
-[metadata]
+[metadata-default]
 title: untitled
 tags: untagged
 # access : built-in special groups are 'admin' and 'public'
-# access: admin
-access: public
+# You can use any groups you want here, comma-separated
+access: admin
 lang: english
 
-# If you want more metadata
+# If you want more metadata. Threshold is the minimum ratio of relevance that must
+# be reached before the metadata is suggested in the metadata-browser.
 
 # [metadata category]
 # type: text
@@ -118,6 +130,13 @@ lang: english
 # [metadata authors]
 # type: text
 # threshold: 0.8
+
+
+# Some sources may be very specific, you may want to nest the tags under a parent tag
+# to preserve your browsing experience
+
+# [source dad-botanic]
+# root-tag: botanic
 
 |]
 
