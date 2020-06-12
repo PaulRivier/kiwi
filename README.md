@@ -190,16 +190,16 @@ Some metadata keys are reserved by kiwi :
 * **title** : title of your page (required)
 * **id** : your page identifier, this is optional, if you don't set it
   kiwi will use the name of the file. In should be unique within the
-  page source. You should not use "/" or ":".
-* **tags** : powerful tags (optional)
+  page source. It should not include "/" or ":".
+* **tags** : powerful tags, see below (optional)
 * **lang** : language of the content, for full-text search (optional)
 * **access** : access restriction, comma separated allowed groups (optional)
 * **images-dir** : if you want to include many images in your document
   from one of your images subfolder, set it here, and Kiwi will look
-  for your images links from there
+  for your images links from there (optional)
 * **files-dir** : if you want to link to many files in your document
   from one of your files subfolder, set it here, and Kiwi will look
-  for your files links from there
+  for your files links from there (optional)
 
 Some metadata fields can have default values set in *kiwi.ini*
 file. You can change these default values there. These values are then

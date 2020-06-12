@@ -40,13 +40,13 @@ loadPage c source md cmc dir = case splitOnFirst "\n\n" c of
                   , metaCustom = parseCustomMeta docMeta cmc
                   }
         dirT = T.pack $ dir
-        imagesDir = T.unpack $ findWith dirT T.concat "images-dir" docMeta
-        filesDir  = T.unpack $ findWith dirT T.concat "files-dir" docMeta
+        imagesDir = findWith dirT T.concat "images-dir" docMeta
+        filesDir  = findWith dirT T.concat "files-dir" docMeta
 
     in case (P.runPure $ P.readCommonMark mdConf content) of
          Left e -> Left $ show e
          Right doc'->
-           let (doc, collected) = walkDoc (T.unpack source) dir imagesDir filesDir doc'
+           let (doc, collected) = walkDoc source dirT imagesDir filesDir doc'
                colLinks = [ (source, l) | CollectedPageLink l <- collected ]
            in Right (PandocPage doc meta colLinks)
   where
@@ -63,7 +63,7 @@ data LinkType = PageLink T.Text
               | FileLink T.Text
               | OtherLink T.Text
 
-walkDoc :: FP.FilePath -> FP.FilePath -> FP.FilePath -> FP.FilePath ->
+walkDoc :: T.Text -> T.Text -> T.Text -> T.Text ->
            P.Pandoc -> (P.Pandoc, [CollectedFromDoc])
 walkDoc source pageDir imagesDir filesDir doc =
   runWriter (PW.walkM (fixInlines pageDir imagesDir filesDir) doc)
@@ -76,7 +76,7 @@ walkDoc source pageDir imagesDir filesDir doc =
         let parsedLink = parseLink rawLink
         case parsedLink of   -- (newAttr, newLink, newTxt)
           PageLink l  -> do
-            tell [CollectedPageLink l]
+            tell [CollectedPageLink $ absolutePageId ppd l]
             return $ P.Link (addClass "kiwi-link-page" attr) txt 
                             (pathToPage ppd l, lName)
           AnchorLink l -> return $ P.Link (addClass "kiwi-link-anchor" attr) txt 
@@ -103,19 +103,26 @@ walkDoc source pageDir imagesDir filesDir doc =
       -- setId :: T.Text -> P.Attr -> P.Attr
       -- setId i (_, classAttr, kvs) = (i, classAttr, kvs)
 
-      fixImage :: FP.FilePath -> T.Text -> T.Text
+      fixImage :: T.Text -> T.Text -> T.Text
       fixImage ipd l = let nl = pathToImage ipd <$> T.stripPrefix "image:" l
                        in fromMaybe l nl
 
       pathToImage d r = pathToR "/image" d r
       pathToFile d r = pathToR "/file" d r
-      pathToPage d r = pathToR "/page" d r
       pathToR n d r =
           case T.uncons r of
             -- absolute link
-            Just ('/', l) -> T.pack $ FP.joinPath [n, source, T.unpack l]
+            Just ('/', l) -> U.joinPathT [n, source, l]
             -- relative link
-            _       -> T.pack $ FP.joinPath [n, source, d, T.unpack r]
+            _       -> U.joinPathT [n, source, d, r]
+      pathToPage d r = U.joinPathT ["/page", source, absolutePageId d r]
+
+      absolutePageId d r =
+          case T.uncons r of
+            -- absolute link
+            Just ('/', l) -> U.normalizePageId l
+            -- relative link
+            _             -> U.normalizePageId $ U.joinPathT [d, r]
 
 
 
@@ -125,7 +132,9 @@ loadPageIO :: FP.FilePath -> FP.FilePath -> T.Text ->
 loadPageIO fullPath relPath source md cmc scM = do
   cM <- getFileContent fullPath
   mt <- D.getModificationTime fullPath
-  let pageDir = FP.takeDirectory relPath
+  let pageDir = case FP.takeDirectory relPath of
+        "." -> ""
+        x   -> x
   let rootTag = fromMaybe [] (scRootTag <$> scM)
   case cM of
     Nothing -> error ("file not found : " ++ fullPath)

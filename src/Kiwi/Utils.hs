@@ -203,7 +203,10 @@ showKeyLabel k = case k of
   KeyPairText p -> T.pack $ show p
 
 pathToPageId :: FP.FilePath -> T.Text
-pathToPageId = T.replace "/" ":" . T.pack
+pathToPageId = normalizePageId . T.pack
+
+normalizePageId :: T.Text -> T.Text
+normalizePageId = T.replace "/" ":"
 
 pageUrl :: Page -> T.Text
 pageUrl p = let (s,i) = pageUID p in
@@ -218,6 +221,9 @@ urlEncodeText = TE.decodeUtf8 . URI.urlEncode False . TE.encodeUtf8
 
 urlDecodeText :: T.Text -> T.Text
 urlDecodeText = TE.decodeUtf8 . URI.urlDecode False . TE.encodeUtf8 
+
+joinPathT :: [T.Text] -> T.Text
+joinPathT = T.pack . FP.joinPath . map T.unpack
 
 -- Caching helpers
 
