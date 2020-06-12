@@ -24,6 +24,14 @@ At this stage Kiwi is alpha software, use it with caution.
 
 # Install
 
+## From released binaries
+
+Binaries are provided for GNU/Linux x64 systems, you can find them
+from https://github.com/PaulRivier/kiwi/releases . Follow the
+deployment instructions from there, then come back to this page.
+
+## From source
+
 Get the source code, open a terminal into this folder then run as
 user :
 
