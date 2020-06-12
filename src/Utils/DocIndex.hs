@@ -1,5 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
 
+{- |
+   Module      : Utils.DocIndex
+   Copyright   : Copyright (C) 2020 - Paul Rivier 
+   License     : GNU GPL, version 3 or above
+
+-}
+
 module Utils.DocIndex where
 
 import Prelude hiding (id, last, init)
