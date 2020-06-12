@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: d8b10bb344418a8b237f144abb4ee749ff867b5cd124cebd337a1594c412d84f
+-- hash: 6947de1824e30ae6fd4d2e5f08e65c78c8bcdb920fba5e3c2d78a9730822df32
 
 name:           kiwi
 version:        0.1.0.0
@@ -46,7 +46,7 @@ library
       Paths_kiwi
   hs-source-dirs:
       src
-  ghc-options: -Wall
+  ghc-options: -Wall -O2
   build-depends:
       aeson
     , async
@@ -88,7 +88,7 @@ executable kiwi
       Paths_kiwi
   hs-source-dirs:
       app
-  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -O2
   build-depends:
       aeson
     , async

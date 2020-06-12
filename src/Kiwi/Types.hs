@@ -23,6 +23,7 @@ import qualified Utils.DocIndex as DI
 data ServerState =
   ServerState { kiwiName      :: T.Text
               , contentDir    :: FP.FilePath
+              , contentSources :: [FP.FilePath]
               , staticDir     :: FP.FilePath
               , kiwiDir       :: FP.FilePath
               , editorCommand :: Maybe (FP.FilePath, [String])

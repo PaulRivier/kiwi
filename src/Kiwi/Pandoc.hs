@@ -46,7 +46,7 @@ loadPage c source md cmc dir = case splitOnFirst "\n\n" c of
     in case (P.runPure $ P.readCommonMark mdConf content) of
          Left e -> Left $ show e
          Right doc'->
-           let (doc, collected) = walkDoc dir imagesDir filesDir doc'
+           let (doc, collected) = walkDoc (T.unpack source) dir imagesDir filesDir doc'
                colLinks = [ (source, l) | CollectedPageLink l <- collected ]
            in Right (PandocPage doc meta colLinks)
   where
@@ -63,9 +63,9 @@ data LinkType = PageLink T.Text
               | FileLink T.Text
               | OtherLink T.Text
 
-walkDoc :: FP.FilePath -> FP.FilePath -> FP.FilePath ->
+walkDoc :: FP.FilePath -> FP.FilePath -> FP.FilePath -> FP.FilePath ->
            P.Pandoc -> (P.Pandoc, [CollectedFromDoc])
-walkDoc pageDir imagesDir filesDir doc =
+walkDoc source pageDir imagesDir filesDir doc =
   runWriter (PW.walkM (fixInlines pageDir imagesDir filesDir) doc)
     where
       -- chemin des images
@@ -113,9 +113,9 @@ walkDoc pageDir imagesDir filesDir doc =
       pathToR n d r =
           case T.uncons r of
             -- absolute link
-            Just ('/', l) -> T.pack $ FP.joinPath [n, T.unpack l]
+            Just ('/', l) -> T.pack $ FP.joinPath [n, source, T.unpack l]
             -- relative link
-            _       -> T.pack $ FP.joinPath [n, d, T.unpack r]
+            _       -> T.pack $ FP.joinPath [n, source, d, T.unpack r]
 
 
 

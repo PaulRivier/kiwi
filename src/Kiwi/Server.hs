@@ -95,13 +95,17 @@ kiwiRoute ss cache = do
     html $ TL.pack $ show $ DI.index $ pagesIndex db
 
   serveStatic cache [("static/", staticDir ss)]
-  serveStatic cache (filesParts $ contentDir ss)
+
+  forM_ (contentSources ss) $ \src ->
+    serveStatic cache $ filesParts (contentDir ss) src
 
   notFound serveNotFound
 
   where
-    filesParts cd = [ ("image/", FP.joinPath [cd, imagesFSDir])
-                    , ("file/", FP.joinPath [cd, filesFSDir]) ]
+    filesParts cd src = [ ( concat ["image/", src, "/"]
+                          , FP.joinPath [cd, src, imagesFSDir] )
+                        , ( concat ["file/", src, "/"]
+                          , FP.joinPath [cd, src, filesFSDir]) ]
     
 
 
@@ -118,6 +122,7 @@ initServerState :: FP.FilePath -> Conf.KiwiConfig -> IO ServerState
 initServerState cfp conf = do
   kiwiDir' <- D.makeAbsolute (FP.takeDirectory cfp)
   let contentDir' = FP.combine kiwiDir' (Conf.contentDir conf)
+  sources <- filter (\(x:_) -> x /= '.') <$> D.listDirectory contentDir'
   let staticDir'  = FP.joinPath [kiwiDir', (Conf.themeDir conf), "static"]
   -- let pagesRootDir = FP.combine contentDir' pagesFSDir
   tpl <- compileTemplate $ FP.joinPath [kiwiDir', (Conf.themeDir conf), "mustache"]
@@ -133,6 +138,7 @@ initServerState cfp conf = do
   return $ ServerState {
       kiwiName   = Conf.name conf
     , contentDir = contentDir'
+    , contentSources = sources
     , staticDir  = staticDir'
     , kiwiDir    = kiwiDir'
     , editorCommand = Conf.editor conf
