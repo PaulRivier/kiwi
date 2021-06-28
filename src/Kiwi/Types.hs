@@ -33,6 +33,7 @@ data ServerState =
               , sessions      :: IORef Sessions
               , login         :: Maybe Login
               , pagesDB       :: IORef PagesDB
+              , tocSetting    :: TocSetting
               }
 
 
@@ -215,6 +216,23 @@ data PageField = TitleField
                | TagsField
                | ContentField
   deriving (Eq, Ord, Enum, Bounded, Ix, Show)
+
+
+-- Config, locales ...
+data TocSetting = TocOn | TocOff | TocAuto
+  deriving (Eq, Ord)
+
+instance Show TocSetting where
+  show TocOn = "on"
+  show TocOff = "off"
+  show TocAuto = "auto"
+
+instance Read TocSetting where
+  readsPrec _ s = case (trimStr $ map toLower s) of
+    "on" -> [(TocOn, "")]
+    "off" -> [(TocOff, "")]
+    "auto" -> [(TocAuto, "")]
+    _         -> []
 
 data Lang
     = Danish

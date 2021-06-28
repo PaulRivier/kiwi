@@ -148,6 +148,7 @@ initServerState cfp conf = do
     , sessions     = sessR
     , login        = Nothing
     , pagesDB      = dbR
+    , tocSetting   = Conf.toc conf
   }
   where
     findInterfaceLang :: UI_Lang -> UI_Lang

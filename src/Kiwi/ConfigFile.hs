@@ -22,6 +22,7 @@ data KiwiConfig = KiwiConfig
   , customMetaConfig :: [K.CustomMetaConfig]
   , sourcesConfig :: [K.SourceConfig]
   , logging :: Bool
+  , toc :: K.TocSetting
   }
   
 
@@ -50,6 +51,7 @@ configParser = do
     editor'  <- fieldDefOf "editor" parseEditor Nothing
     lang'  <- fieldOf "ui-lang" readable
     logging' <- fieldOf "log" flag
+    toc' <- fieldDefOf "toc" readable K.TocOn
     return KiwiConfig
       { name = name'
       , contentDir = contentDir'
@@ -61,6 +63,7 @@ configParser = do
       , customMetaConfig = toList customMeta'
       , sourcesConfig = toList sourcesConfig'
       , logging = logging'
+      , toc = toc'
       }
 
 
@@ -110,6 +113,8 @@ port: 3456
 ui-lang: english
 # Do you want HTTP logs in the console (for debug) ?
 log: no
+# Do you want to display Toc : on | off | auto
+toc: on
 
 # built-in metadata default values
 [metadata-default]

@@ -35,7 +35,9 @@ renderLayout t c pgi = do
   tpl <- getTemplate
   userM <- fmap fst3 <$> asksK K.login
   isAdmin <- U.isAdmin
+  toc <- asksK K.tocSetting
   let ld = object [ "title" .= t
+                  , "toc-setting" .= (show toc)
                   , "content" .= c
                   , "locales" .= loc
                   , "page-info" .= pgi
