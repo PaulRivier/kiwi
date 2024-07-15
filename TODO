@@ -1,6 +1,9 @@
 TODO
 ====
 
+Bugs:
+ - ~~strike~~ est interprété en <sub> par pandoc
+
 Recherche:
 
  - améliorer le paramétrage du moteur de recherche
