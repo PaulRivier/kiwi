@@ -6,7 +6,7 @@ module Kiwi.Search (
   ) where
 
 import           Data.Text.ICU.Char
-import           Data.Text.ICU.Normalize
+import           Data.Text.ICU.Normalize2
 import           Data.SearchEngine
 import qualified Data.Set as S
 import qualified Data.Text as T

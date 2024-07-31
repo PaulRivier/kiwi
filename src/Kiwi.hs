@@ -59,7 +59,7 @@ initKiwiDir d = do
   case exists of
     False -> putStrLn "Directory does not exist, check your path"
     True -> do
-      clean  <-  filter (\(x:_) -> x /= '.') <$> D.listDirectory d
+      clean  <-  filter (not . U.isDotFile) <$> D.listDirectory d
       case null clean of 
         False -> do
           putStrLn $ unlines ["Directory must be empty for initialisation",

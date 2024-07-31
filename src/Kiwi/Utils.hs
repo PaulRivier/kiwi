@@ -202,6 +202,10 @@ showKeyLabel k = case k of
   KeyLang l -> T.pack $ show l
   KeyPairText p -> T.pack $ show p
 
+isDotFile :: FP.FilePath -> Bool
+isDotFile ('.':_) = True
+isDotFile _ = False
+
 pathToPageId :: FP.FilePath -> T.Text
 pathToPageId = normalizePageId . T.pack
 

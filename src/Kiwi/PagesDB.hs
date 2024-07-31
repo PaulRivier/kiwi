@@ -18,7 +18,7 @@ import           Kiwi.Search
 import           Kiwi.Types
 import           Kiwi.Pandoc (loadPageIO)
 import           Kiwi.Utils (traverseDir, tagSubSegments, segmentsToTag,
-                             nodup, concatMapM)
+                             nodup, concatMapM, isDotFile)
 import qualified Utils.DocIndex as DI
 
 updatePagesDB :: FP.FilePath ->  FP.FilePath -> PagesDB ->  IO PagesDB
@@ -26,7 +26,7 @@ updatePagesDB contentDir' pagesDir db =
   let dbPages = DI.documentsList $ pagesIndex db
       lu = lastUpdate db
   in do
-    sources <- filter (\(x:_) -> x /= '.') <$> D.listDirectory contentDir'
+    sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
     dbOK <- getCondition
     currentTime <- C.getCurrentTime
     let pagesDirs = map (\s -> FP.joinPath [contentDir', s, pagesDir]) sources
@@ -34,7 +34,7 @@ updatePagesDB contentDir' pagesDir db =
       True -> return db   -- nothing to do
       False -> do         -- some work to do
          -- pas de dossier caché
-        fsPaths <- concatMapM (\d -> traverseDir d (\(x:_) -> x /= '.')) pagesDirs
+        fsPaths <- concatMapM (\d -> traverseDir d (not . isDotFile)) pagesDirs
         newOrMod <- getNewOrMod contentDir' lu fsPaths
         let removedUIDs = getRemovedUIDs dbPages fsPaths
         let pagesIndexClean = DI.removeMany (pagesIndex db) removedUIDs
@@ -120,3 +120,5 @@ mkField :: (Ord field, Ord keyRaw, Ord key) =>
            (doc -> [keyRaw]) ->
            DI.Field doc field key
 mkField fld mkKey extract = DI.Field fld (\doc -> map mkKey $ nodup $ extract doc)
+
+
