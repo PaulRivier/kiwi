@@ -32,6 +32,18 @@ deployment instructions from there, then come back to this page.
 
 ## From source
 
+
+### Cabal way (recommended)
+
+Get the source code, check GHC compiler version from head of file `cabal.project`, and install it for exemple with `ghcup`.
+
+Then, from source directory, run as user :
+
+    cabal install
+
+
+### Stack way (deprecated)
+
 Get the source code, open a terminal into this folder then run as
 user :
 

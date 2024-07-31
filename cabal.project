@@ -1,7 +1,4 @@
 packages: kiwi.cabal
--- NOTE: Due to revisions, this file may not work. See:
--- https://github.com/fpco/stackage-server/issues/232
-
 -- Stackage snapshot from: http://www.stackage.org/snapshot/lts-21.25
 -- Please place this file next to your .cabal file as cabal.config
 -- To only use tested packages, uncomment the following line:
