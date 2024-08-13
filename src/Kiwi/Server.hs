@@ -122,7 +122,7 @@ initServerState :: FP.FilePath -> Conf.KiwiConfig -> IO ServerState
 initServerState cfp conf = do
   kiwiDir' <- D.makeAbsolute (FP.takeDirectory cfp)
   let contentDir' = FP.combine kiwiDir' (Conf.contentDir conf)
-  sources <- filter (\(x:_) -> x /= '.') <$> D.listDirectory contentDir'
+  sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
   let staticDir'  = FP.joinPath [kiwiDir', (Conf.themeDir conf), "static"]
   -- let pagesRootDir = FP.combine contentDir' pagesFSDir
   tpl <- compileTemplate $ FP.joinPath [kiwiDir', (Conf.themeDir conf), "mustache"]
