@@ -7,7 +7,7 @@ cabal-version: 1.12
 -- hash: 6947de1824e30ae6fd4d2e5f08e65c78c8bcdb920fba5e3c2d78a9730822df32
 
 name:           kiwi
-version:        0.1.0.0
+version:        0.1.1.0
 description:    Please see the README on GitHub at <https://github.com/githubuser/kiwi#readme>
 homepage:       https://github.com/githubuser/kiwi#readme
 bug-reports:    https://github.com/githubuser/kiwi/issues

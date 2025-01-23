@@ -26,3 +26,8 @@ Performances :
    contenu scanné des pages dans un format binaire serialisé pour
    permettre un redémarrage rapide du serveur (voir lib store module
    Data.Store).
+
+
+Remplacer pandoc par un système plus léger, en compilation et en RAM ? Par exemple https://hackage.haskell.org/package/commonmark
+
+Faire une implémentation alternative dans un langage + léger, type Rust ? Voir zola par exemple.

@@ -139,7 +139,8 @@ loadPageIO fullPath relPath source md cmc scM = do
   case cM of
     Nothing -> error ("file not found : " ++ fullPath)
     Just c -> case (loadPage c source md cmc pageDir) of
-      Left _ -> error "Unable to read markdown"
+      Left _ -> let errorMsg = concat ["Error: unable to decode markdown from ", fullPath]
+                in error errorMsg
       Right p -> let meta = pandocMeta p
                      pId = fromMaybe (pathToPageId relPath) $ metaId meta in
         return $ Page { pageUID = (source, pId)

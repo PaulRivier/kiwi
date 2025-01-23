@@ -18,7 +18,7 @@ import           Kiwi.Search
 import           Kiwi.Types
 import           Kiwi.Pandoc (loadPageIO)
 import           Kiwi.Utils (traverseDir, tagSubSegments, segmentsToTag,
-                             nodup, concatMapM, isDotFile)
+                             nodup, concatMapM, isDotFile, isValidMdFilename)
 import qualified Utils.DocIndex as DI
 
 updatePagesDB :: FP.FilePath ->  FP.FilePath -> PagesDB ->  IO PagesDB
@@ -34,7 +34,8 @@ updatePagesDB contentDir' pagesDir db =
       True -> return db   -- nothing to do
       False -> do         -- some work to do
          -- pas de dossier caché
-        fsPaths <- concatMapM (\d -> traverseDir d (not . isDotFile)) pagesDirs
+        fsPathsRaw <- concatMapM (\d -> traverseDir d (not . isDotFile)) pagesDirs
+        let fsPaths = filter (isValidMdFilename . FP.takeFileName) fsPathsRaw
         newOrMod <- getNewOrMod contentDir' lu fsPaths
         let removedUIDs = getRemovedUIDs dbPages fsPaths
         let pagesIndexClean = DI.removeMany (pagesIndex db) removedUIDs

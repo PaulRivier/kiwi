@@ -206,6 +206,12 @@ isDotFile :: FP.FilePath -> Bool
 isDotFile ('.':_) = True
 isDotFile _ = False
 
+isValidMdFilename :: FP.FilePath -> Bool
+isValidMdFilename fp = let first = head fp
+                           ext = FP.takeExtension fp
+                       in isAlphaNum first &&
+                          elem ext [".md", ".markdown"]
+
 pathToPageId :: FP.FilePath -> T.Text
 pathToPageId = normalizePageId . T.pack
 

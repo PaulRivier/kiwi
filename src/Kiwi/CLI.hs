@@ -1,6 +1,10 @@
 module Kiwi.CLI (Config(..), ServerConfig(..), InitConfig(..), AccessConfig(..), AccessOp(..),
                  parseCLI ) where
 
+-- Afficher version Cabal
+import Paths_kiwi (version)
+import Data.Version (showVersion)
+
 import Options.Applicative
 import qualified System.FilePath as FP
 
@@ -67,7 +71,7 @@ parser = hsubparser
 spec :: ParserInfo Config
 spec = info (helper <*> parser)
             (fullDesc
-            <> progDesc "Kiwi is a powerful personal wiki system"
+            <> progDesc (concat ["Version ", showVersion version, ". Kiwi is a powerful personal wiki system."])
             <> header "Kiwi")
 
 parseCLI :: IO Config
