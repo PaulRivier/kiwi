@@ -489,6 +489,14 @@ h4:focus, h5:focus, h6:focus {
   border: none;
 }
 
+code {
+  color: #30AF41;
+}
+
+pre {
+  padding-bottom: 0.5em;
+}
+
 pre code {
   color: #30AF41;
 }
