@@ -11,7 +11,7 @@ module Utils.DocIndex where
 
 import Prelude hiding (id, last, init)
 -- import qualified Prelude
-import           Data.List (foldl', foldl1')
+import           Data.List ( foldl1')
 import           Data.Maybe (catMaybes)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S

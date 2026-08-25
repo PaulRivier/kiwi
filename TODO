@@ -28,6 +28,30 @@ Performances :
    Data.Store).
 
 
-Remplacer pandoc par un système plus léger, en compilation et en RAM ? Par exemple https://hackage.haskell.org/package/commonmark
+Code:
 
-Faire une implémentation alternative dans un langage + léger, type Rust ? Voir zola par exemple.
+Remplacer code perso cookies par le module Web.Scotty.Cookie
+
+
+
+Archi:
+
+Remplacer pandoc par un système plus léger, en compilation et en RAM ? Possibilités :
+- pandoc server
+  - on démarre un pandoc server
+  - on lui envoie du contenu markdown
+  - il retourne du contenu json
+  - on parse le contenu json avec pandoc-types
+  - on retourne le json modifié à pandoc server
+  - on récupère le html
+
+
+- utiliser un autre parser :
+  - https://github.com/jgm/cmark-hs
+  - cmark-gfm,
+  - https://hackage.haskell.org/package/commonmark
+
+
+
+Faire une implémentation alternative dans un autre langage, type Rust ?
+Voir zola par exemple.

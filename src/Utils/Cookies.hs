@@ -9,6 +9,7 @@ module Utils.Cookies
     ) where
 
 import Control.Monad ( liftM )
+import Control.Monad.IO.Class (MonadIO)
 
 import qualified Data.Text as TS
 import qualified Data.Text.Encoding as TS
@@ -26,6 +27,9 @@ import Web.Scotty.Trans
 import Web.Cookie
 
 
+-- TODO : scotty intègre maintenant des libs pour les cookies
+-- https://hackage-content.haskell.org/package/scotty-0.30/docs/Web-Scotty-Cookie.html
+
 makeSimpleCookie :: TS.Text -- ^ name
                  -> TS.Text -- ^ value
                  -> Integer -- ^ lifetime in seconds
@@ -36,35 +40,37 @@ makeSimpleCookie n v r = def { setCookieName  = TS.encodeUtf8 n
                              }
 
 
-setCookie :: (Monad m, ScottyError e)
+
+
+setCookie :: (MonadIO m)
           => SetCookie
-          -> ActionT e m ()
+          -> ActionT  m ()
 setCookie c = addHeader "Set-Cookie" (TL.decodeUtf8 . toLazyByteString $ renderSetCookie c)
 
 
 -- | 'makeSimpleCookie' and 'setCookie' combined.
-setSimpleCookie :: (Monad m, ScottyError e)
+setSimpleCookie :: (MonadIO m)
                 => TS.Text -- ^ name
                 -> TS.Text -- ^ value
                 -> Integer -- ^ lifetime in seconds
-                -> ActionT e m ()
+                -> ActionT m ()
 setSimpleCookie n v r = setCookie $ makeSimpleCookie n v r
 
 
-getCookie :: (Monad m, ScottyError e)
+getCookie :: (MonadIO m)
           => TS.Text -- ^ name
-          -> ActionT e m (Maybe TS.Text)
+          -> ActionT m (Maybe TS.Text)
 getCookie c = liftM (Map.lookup c) getCookies
 
 
 -- | Returns all cookies
-getCookies :: (Monad m, ScottyError e)
-           => ActionT e m (Map.Map TS.Text TS.Text)
+getCookies :: (MonadIO m)
+           => ActionT m (Map.Map TS.Text TS.Text)
 getCookies = liftM (Map.fromList . maybe [] parse) $ header "Cookie"
     where parse = parseCookiesText . BSL.toStrict . TL.encodeUtf8
 
 
-deleteCookie :: (Monad m, ScottyError e)
+deleteCookie :: (MonadIO m)
              => TS.Text -- ^ name
-             -> ActionT e m ()
+             -> ActionT m ()
 deleteCookie c = setCookie $ (makeSimpleCookie c "" 0)

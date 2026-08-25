@@ -6,6 +6,7 @@ module Kiwi.Server
 
 
 import           Control.Concurrent (forkIO)
+import           Control.Monad (when, forM_)
 import           Control.Monad.Reader
 import           Data.IORef (newIORef, readIORef, atomicWriteIORef)
 import           Data.List (stripPrefix, isInfixOf)
@@ -61,8 +62,8 @@ kiwiRoute :: ServerState -> Static.CacheContainer -> WebM ()
 kiwiRoute ss cache = do
   get "/" $ redirect "/browse/"
   get "/page/:source/:pId" $ do
-    source <- param "source"
-    pId <- param "pId"
+    source <- pathParam "source"
+    pId <- pathParam "pId"
     withLogin $ servePage (source, pId)
   -- getPath "^/page/:source/[^.]+" $ \p -> withLogin $ do
     
@@ -75,17 +76,17 @@ kiwiRoute ss cache = do
   --   keys <- param "keys"
   --   serveBrowseMeta meta keys
   get "/browse/:req" $ withLogin $ do
-    req <- TL.toStrict <$> param "req"
+    req <- TL.toStrict <$> pathParam "req"
     serveBrowseAll req
   get "/search" $ withLogin $ do
-    query <- param "query"
+    query <- queryParam "query"
     serveSearch query
   post "/reload" $ ifAdmin $ do
     withLogin updateDB
     html ""
   post "/edit-page" $ ifAdmin $ do
-    source <- param "page-source"
-    pId <- param "page-id"
+    source <- queryParam "page-source"
+    pId <- queryParam "page-id"
     serveEditPage (editorCommand ss) (source, pId)
   get  "/login" $ serveLogin
   post "/login" $ logUserIn
@@ -114,8 +115,8 @@ updateDB = do
   dbR <- serverM $ asks pagesDB
   db' <- liftIO $ readIORef dbR
   cd <- asksK contentDir
-  db  <- liftAndCatchIO $ DB.updatePagesDB cd pagesFSDir db'
-  liftAndCatchIO $ atomicWriteIORef dbR db
+  db  <- liftIO $ DB.updatePagesDB cd pagesFSDir db'
+  liftIO $ atomicWriteIORef dbR db
 
 
 initServerState :: FP.FilePath -> Conf.KiwiConfig -> IO ServerState

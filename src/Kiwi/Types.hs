@@ -1,7 +1,8 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, FlexibleInstances, DerivingStrategies #-}
 
 module Kiwi.Types where
 
+import           Control.Monad.IO.Unlift (MonadUnliftIO)
 import           Control.Monad.Reader
 import           Data.Char (toLower, isSpace)
 import           Data.IORef
@@ -11,7 +12,7 @@ import           Data.Maybe (catMaybes)
 import           Data.SearchEngine
 import qualified Data.Set as S
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
+-- import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
 import qualified System.FilePath as FP
 import qualified Text.Mustache as X
@@ -62,12 +63,13 @@ type Login = (T.Text, [T.Text], Time.UTCTime)  -- ^ (user id, groups, login time
 type Sessions = M.Map T.Text Login -- ^ Map Session-Key Login
 
 newtype ServerM a = ServerM { runServerM :: ReaderT ServerState IO a }
-  deriving (Applicative, Functor, Monad, MonadIO, MonadReader ServerState)
+  deriving (Applicative, Functor, Monad, MonadIO, MonadReader ServerState, MonadUnliftIO)
 
 
-type WebM a = ScottyT TL.Text ServerM a
-type ActM a = ActionT TL.Text ServerM a
-
+-- type WebM a = ScottyT TL.Text ServerM a
+-- type ActM a = ActionT TL.Text ServerM a
+type WebM a = ScottyT ServerM a
+type ActM a = ActionT ServerM a
 
 data PagesDB =
   PagesDB { defaultMeta   :: MetaData

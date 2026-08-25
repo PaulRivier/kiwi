@@ -76,6 +76,7 @@ library
     , text
     , text-icu
     , time
+    , unliftio-core 
     , utf8-string
     , wai
     , wai-extra

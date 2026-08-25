@@ -41,6 +41,13 @@ Then, from source directory, run as user :
 
     cabal install
 
+You may need to install the following packages on your system :
+
+- libgmp-dev
+- zlib1g-dev
+- binutils-gold (the gold linker may be required)
+- libicu-dev
+- pkg-config
 
 ### Stack way (deprecated)
 

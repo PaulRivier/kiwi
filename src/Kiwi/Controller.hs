@@ -13,7 +13,7 @@ import qualified Data.Time as Time
 import qualified Network.HTTP.Types.Status as Net
 import qualified System.FilePath as FP
 import qualified System.Process as Proc
-import           Web.Scotty.Trans (param, redirect, status, html, liftAndCatchIO)
+import           Web.Scotty.Trans (formParam, redirect, status, html)
 
 import           Kiwi.Types (ActM)
 import qualified Kiwi.Types as K
@@ -121,7 +121,7 @@ serveEditPage editorM pgId =
       case findPage db pgId of
         Nothing -> serveNotFound
         Just p -> do
-          _ <- liftAndCatchIO $ Proc.spawnProcess cmd $ args ++ [K.pageAbsoluteFSPath p]
+          _ <- liftIO $ Proc.spawnProcess cmd $ args ++ [K.pageAbsoluteFSPath p]
           html "ok"
       
 
@@ -132,19 +132,19 @@ serveLogin = do
 
 logUserIn :: ActM ()
 logUserIn = do
-  name <- param "username"
-  pass <- param "password"
+  name <- formParam "username"
+  pass <- formParam "password"
   accounts <- asksK K.accounts
   kd <- asksK K.kiwiDir
   case U.verifyLogin accounts name pass of
     Nothing -> serveNotFound -- TODO : proper response
     Just (user, groups) -> do
       sess <- getSessions
-      key <- liftAndCatchIO $ U.randomText 128
-      now <- liftAndCatchIO $ Time.getCurrentTime
+      key <- liftIO $ U.randomText 128
+      now <- liftIO $ Time.getCurrentTime
       let newSess = M.insert key (user, groups, now) sess
       U.updateSessions newSess
-      liftAndCatchIO $ U.dumpSessions newSess $ FP.combine kd "_sessions"
+      liftIO $ U.dumpSessions newSess $ FP.combine kd "_sessions"
       -- setHeader "Set-Cookie" (TL.fromStrict key)
       U.setKiwiCookie key
       redirect "/page/Home"
@@ -161,7 +161,7 @@ logUserOut = do
     Just auth -> do
       let newSess = M.delete auth sess
       U.updateSessions newSess
-      liftAndCatchIO $ U.dumpSessions newSess $ FP.combine kd "_sessions"
+      liftIO $ U.dumpSessions newSess $ FP.combine kd "_sessions"
       redirect "/"
 
 

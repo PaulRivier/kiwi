@@ -2,6 +2,7 @@
 
 module Kiwi.Utils where
 
+import           Control.Monad (forM, replicateM, liftM)
 import           Control.Monad.Reader
 import qualified Crypto.Hash.SHA256 as H
 import qualified Data.ByteString.Base16 as B16
