@@ -85,8 +85,8 @@ kiwiRoute ss cache = do
     withLogin updateDB
     html ""
   post "/edit-page" $ ifAdmin $ do
-    source <- queryParam "page-source"
-    pId <- queryParam "page-id"
+    source <- formParam "page-source"
+    pId <- formParam "page-id"
     serveEditPage (editorCommand ss) (source, pId)
   get  "/login" $ serveLogin
   post "/login" $ logUserIn
