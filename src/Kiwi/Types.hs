@@ -16,7 +16,7 @@ import qualified Data.Text as T
 import qualified Data.Time as Time
 import qualified System.FilePath as FP
 import qualified Text.Mustache as X
-import qualified Text.Pandoc as P
+import qualified Text.Pandoc.Definition as PD
 import           Web.Scotty.Trans
 
 import qualified Utils.DocIndex as DI
@@ -105,7 +105,7 @@ data Page =
   Page { pageUID  :: PageUID   -- ^ page uid, used for routing
        , pageAbsoluteFSPath :: FP.FilePath  -- ^ path to file, absolute
        , pageMTime :: Time.UTCTime -- ^ time of file modification from filesystem
-       , pageDoc :: P.Pandoc
+       , pageDoc :: PD.Pandoc
        , pageTitle :: T.Text
        , pageTags :: [TagId]
        , pageLang :: Lang
@@ -122,7 +122,7 @@ type TagId = T.Text
 type TagSegments = [TagId]
 
 data PandocPage =
-  PandocPage { pandocDoc :: P.Pandoc
+  PandocPage { pandocDoc :: PD.Pandoc
              , pandocMeta :: MetaData
              , pandocPageLinks :: [PageUID]
              }

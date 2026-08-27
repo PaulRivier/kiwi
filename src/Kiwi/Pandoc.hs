@@ -4,6 +4,9 @@ module Kiwi.Pandoc where
 
 import           Control.Applicative ((<|>))
 import           Control.Monad.Writer.Lazy (runWriter, tell)
+import qualified Commonmark as Cm
+import qualified Commonmark.Pandoc as CmP
+
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe, catMaybes)
 import qualified Data.Text as T
@@ -11,6 +14,8 @@ import qualified Data.Time as Time
 import qualified System.Directory as D
 import qualified System.FilePath as FP
 import qualified Text.Pandoc as P
+import qualified Text.Pandoc.Builder as PB
+import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 -- import qualified Text.Pandoc.Shared as PS
 import           Text.Read (readMaybe)
@@ -21,9 +26,9 @@ import           Kiwi.Utils (getFileContent, splitOnFirst, (>:), for,  splitMeta
 import qualified Kiwi.Utils as U
 
 
-loadPage :: T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
+loadPagePD :: T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
             FP.FilePath -> Either String PandocPage
-loadPage c source md cmc dir = case splitOnFirst "\n\n" c of
+loadPagePD c source md cmc dir = case splitOnFirst "\n\n" c of
   Nothing -> Left "Metadata is not valid"
   Just (metaC, content) -> 
     let docMeta = parseMetaData metaC
@@ -56,6 +61,64 @@ loadPage c source md cmc dir = case splitOnFirst "\n\n" c of
                                     M.lookup field meta
 
 
+-- -- | Fonction principale
+-- main :: IO ()
+-- main = do
+--     input <- TIO.getContents
+
+--     let opts = defaultReaderOptions
+--     case commonmarkToPandoc opts input of
+--         Left err -> putStrLn $ "Erreur de parsing : " ++ show err
+--         Right pandocAst -> do
+--             let filteredAst = filterUrls pandocAst
+--             -- Conversion de l'AST Pandoc vers le type Html de commonmark
+--             let html :: Commonmark.Types.Html ()
+--                 html = Commonmark.Pandoc.pandocToHtml filteredAst
+--             TLIO.putStr $ renderHtml html
+
+loadPageCM :: T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
+              FP.FilePath -> Either String PandocPage
+loadPageCM c source md cmc dir = case splitOnFirst "\n\n" c of
+  Nothing -> Left "Metadata is not valid"
+  Just (metaC, content) -> 
+    let docMeta = parseMetaData metaC
+        meta = md { metaId    = T.concat <$> M.lookup "id" docMeta
+                  , metaTitle = findWith (metaTitle md) (T.intercalate " ")
+                                         "title" docMeta
+                  , metaTags = findWith (metaTags md) (splitMeta . T.intercalate ",")
+                                        "tags" docMeta
+                  , metaAccess = findWith (metaAccess md) (splitMeta . T.intercalate ",")
+                                          "access" docMeta
+                  , metaLang = fromMaybe (metaLang md)
+                                         ( M.lookup "lang" docMeta >>=
+                                           readMaybe . T.unpack . last )
+                  , metaCustom = parseCustomMeta docMeta cmc
+                  }
+        dirT = T.pack $ dir
+        imagesDir = findWith dirT T.concat "images-dir" docMeta
+        filesDir  = findWith dirT T.concat "files-dir" docMeta
+        -- cmOpts = Cm.defaultSyntaxSpec
+        -- tokens = Cm.tokenize "TODO" content
+
+    in case (Cm.commonmarkWith Cm.defaultSyntaxSpec "TODO" content :: Maybe (Either Cm.ParseError (CmP.Cm () PB.Blocks))) of
+      Nothing -> Left $ "Unknown error"
+      Just x -> case x of
+         Left e -> Left $ show e
+         Right cmBlocks->
+           let doc' = PB.setTitle (PB.str $ metaTitle md) $ PB.doc (CmP.unCm cmBlocks)
+               (doc, collected) = walkDoc source dirT imagesDir filesDir doc'
+               colLinks = [ (source, l) | CollectedPageLink l <- collected ]
+           in Right (PandocPage doc meta colLinks)
+  where
+    -- mdConf = P.def { P.readerExtensions = P.pandocExtensions }
+    findWith def join' field meta = fromMaybe def $
+                                    fmap join' $
+                                    M.lookup field meta
+
+
+loadPage = loadPageCM
+
+
 
 data LinkType = PageLink T.Text
               | AnchorLink T.Text
@@ -64,28 +127,28 @@ data LinkType = PageLink T.Text
               | OtherLink T.Text
 
 walkDoc :: T.Text -> T.Text -> T.Text -> T.Text ->
-           P.Pandoc -> (P.Pandoc, [CollectedFromDoc])
+           PD.Pandoc -> (P.Pandoc, [CollectedFromDoc])
 walkDoc source pageDir imagesDir filesDir doc =
   runWriter (PW.walkM (fixInlines pageDir imagesDir filesDir) doc)
     where
       -- chemin des images
       fixInlines _ ipd _ (P.Image attr desc (rawLink, lName)) = do
-        return $ P.Image attr desc ((fixImage ipd rawLink), "fig:" <> lName)
+        return $ PD.Image attr desc ((fixImage ipd rawLink), "fig:" <> lName)
       -- chemin des pages, fichiers, liens externes
       fixInlines ppd ipd fpd (P.Link attr txt (rawLink, lName)) = do
         let parsedLink = parseLink rawLink
         case parsedLink of   -- (newAttr, newLink, newTxt)
           PageLink l  -> do
             tell [CollectedPageLink $ absolutePageId ppd l]
-            return $ P.Link (addClass "kiwi-link-page" attr) txt 
+            return $ PD.Link (addClass "kiwi-link-page" attr) txt 
                             (pathToPage ppd l, lName)
-          AnchorLink l -> return $ P.Link (addClass "kiwi-link-anchor" attr) txt 
+          AnchorLink l -> return $ PD.Link (addClass "kiwi-link-anchor" attr) txt 
                                           (l, lName)
-          ImageLink l -> return $ P.Link (addClass "kiwi-link-image" attr) txt 
+          ImageLink l -> return $ PD.Link (addClass "kiwi-link-image" attr) txt 
                                          (pathToImage ipd l, lName)
-          FileLink l  -> return $ P.Link (addClass "kiwi-link-file" attr) txt
+          FileLink l  -> return $ PD.Link (addClass "kiwi-link-file" attr) txt
                                          (pathToFile fpd l, lName)
-          OtherLink l -> return $ P.Link (addClass "kiwi-link-external" attr) txt
+          OtherLink l -> return $ PD.Link (addClass "kiwi-link-external" attr) txt
                                          (l, lName)
       -- reste
       fixInlines _ _ _ x = return $ x
@@ -97,10 +160,10 @@ walkDoc source pageDir imagesDir filesDir doc =
                               (if T.isPrefixOf "#" l then Just (AnchorLink l) else Nothing)
                     in fromMaybe (OtherLink l) ltM
 
-      addClass :: T.Text -> P.Attr -> P.Attr
+      addClass :: T.Text -> PD.Attr -> PD.Attr
       addClass c (idAttr, classAttr, kvs) = (idAttr, c:classAttr, kvs)
 
-      -- setId :: T.Text -> P.Attr -> P.Attr
+      -- setId :: T.Text -> PD.Attr -> PD.Attr
       -- setId i (_, classAttr, kvs) = (i, classAttr, kvs)
 
       fixImage :: T.Text -> T.Text -> T.Text

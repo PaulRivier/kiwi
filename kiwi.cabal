@@ -54,6 +54,8 @@ library
     , base16-bytestring
     , blaze-builder
     , bytestring
+    , commonmark
+    , commonmark-pandoc
     , config-ini
     , containers
     , cookie
@@ -97,6 +99,8 @@ executable kiwi
     , base16-bytestring
     , blaze-builder
     , bytestring
+    , commonmark
+    , commonmark-pandoc
     , config-ini
     , containers
     , cookie
@@ -141,6 +145,8 @@ test-suite kiwi-test
     , base16-bytestring
     , blaze-builder
     , bytestring
+    , commonmark
+    , commonmark-pandoc
     , config-ini
     , containers
     , cookie
