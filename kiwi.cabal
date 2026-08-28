@@ -1,16 +1,11 @@
 cabal-version: 2.2
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
---
--- see: https://github.com/sol/hpack
---
--- hash: 6947de1824e30ae6fd4d2e5f08e65c78c8bcdb920fba5e3c2d78a9730822df32
 
 name:           kiwi
 version:        0.1.2.0
-description:    Please see the README on GitHub at <https://github.com/githubuser/kiwi#readme>
-homepage:       https://github.com/githubuser/kiwi#readme
-bug-reports:    https://github.com/githubuser/kiwi/issues
+description:    Please see the README on GitHub at <https://github.com/PaulRivier/kiwi>
+homepage:       https://github.com/PaulRivier/kiwi
+bug-reports:    https://github.com/PaulRivier/kiwi
 author:         Paul Rivier
 maintainer:     Paul Rivier
 copyright:      2020 Paul Rivier
@@ -23,30 +18,14 @@ extra-source-files:
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/kiwi
+  location: https://github.com/PaulRivier/kiwi
 
-library
-  exposed-modules:
-      Kiwi
-      Kiwi.CLI
-      Kiwi.ConfigFile
-      Kiwi.Controller
-      Kiwi.DefaultPages
-      Kiwi.Locales
-      Kiwi.PagesDB
-      Kiwi.Pandoc
-      Kiwi.Search
-      Kiwi.Server
-      Kiwi.Types
-      Kiwi.Utils
-      Kiwi.View
-      Utils.Cookies
-      Utils.DocIndex
-  other-modules:
-      Paths_kiwi
-  hs-source-dirs:
-      src
-  ghc-options: -Wall -O2
+
+
+common ghc-opts
+  ghc-options: -Wall -threaded 
+
+common deps
   build-depends:
       aeson
     , async
@@ -67,7 +46,7 @@ library
     , http-types
     , mtl
     , optparse-applicative
-    , pandoc
+    -- , pandoc
     , pandoc-types
     , process
     , random
@@ -83,95 +62,46 @@ library
     , wai
     , wai-extra
     , wai-middleware-static
+
+-- Shared language edition
+common lang
   default-language: Haskell2010
+
+  
+library
+  import:  ghc-opts, deps, lang
+  exposed-modules:
+      Kiwi
+      Kiwi.CLI
+      Kiwi.ConfigFile
+      Kiwi.Controller
+      Kiwi.DefaultPages
+      Kiwi.Locales
+      Kiwi.HtmlWriter
+      Kiwi.PagesDB
+      Kiwi.Pandoc
+      Kiwi.Search
+      Kiwi.Server
+      Kiwi.Types
+      Kiwi.Utils
+      Kiwi.View
+      Utils.Cookies
+      Utils.DocIndex
+  other-modules: Paths_kiwi
+  hs-source-dirs: src
 
 executable kiwi
+  import:  ghc-opts, deps, lang
+  build-depends: kiwi
   main-is: Main.hs
-  other-modules:
-      Paths_kiwi
-  hs-source-dirs:
-      app
-  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -O2
-  build-depends:
-      aeson
-    , async
-    , base >=4.7 && <5
-    , base16-bytestring
-    , blaze-builder
-    , bytestring
-    , commonmark
-    , commonmark-pandoc
-    , config-ini
-    , containers
-    , cookie
-    , cryptohash
-    , directory
-    , filepath
-    , full-text-search
-    , hashable
-    , http-types
-    , kiwi
-    , mtl
-    , optparse-applicative
-    , pandoc
-    , pandoc-types
-    , process
-    , random
-    , raw-strings-qq
-    , scotty
-    , snowball
-    , stache
-    , text
-    , text-icu
-    , time
-    , utf8-string
-    , wai
-    , wai-extra
-    , wai-middleware-static
-  default-language: Haskell2010
+  other-modules: Paths_kiwi
+  hs-source-dirs: app
+  ghc-options: -rtsopts -with-rtsopts=-N
+
 
 test-suite kiwi-test
+  import:  ghc-opts, deps, lang
   type: exitcode-stdio-1.0
   main-is: Spec.hs
-  other-modules:
-      Paths_kiwi
-  hs-source-dirs:
-      test
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-      aeson
-    , async
-    , base >=4.7 && <5
-    , base16-bytestring
-    , blaze-builder
-    , bytestring
-    , commonmark
-    , commonmark-pandoc
-    , config-ini
-    , containers
-    , cookie
-    , cryptohash
-    , directory
-    , filepath
-    , full-text-search
-    , hashable
-    , http-types
-    , kiwi
-    , mtl
-    , optparse-applicative
-    , pandoc
-    , pandoc-types
-    , process
-    , random
-    , raw-strings-qq
-    , scotty
-    , snowball
-    , stache
-    , text
-    , text-icu
-    , time
-    , utf8-string
-    , wai
-    , wai-extra
-    , wai-middleware-static
-  default-language: Haskell2010
+  other-modules: Paths_kiwi
+  hs-source-dirs: test

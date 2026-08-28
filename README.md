@@ -48,16 +48,8 @@ You may need to install the following packages on your system :
 - binutils-gold (the gold linker may be required)
 - libicu-dev
 - pkg-config
+- binutils-gold (gold linker)
 
-### Stack way (deprecated)
-
-Get the source code, open a terminal into this folder then run as
-user :
-
-    stack install
-
-Hopefully the build will complete successfully, and install a binary
-in your local bin folder.
 
 # Getting started
 

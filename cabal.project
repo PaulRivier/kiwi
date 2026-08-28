@@ -1,8 +1,20 @@
-package *
-  split-sections: True
---  ghc-options: -optl-fuse-ld=bfd
-    
 packages: .
 import: https://www.stackage.org/lts-24.56/cabal.config
 
 
+package *
+  split-sections: True
+  optimization: 2
+  ghc-options:
+    -optl-Wl,--gc-sections
+    -optl-s
+    -optl-fuse-ld=gold
+
+
+-- package *
+--   split-sections: True
+--   ghc-options: -optl-fuse-ld=bfd
+--   ghc-options: -O2 -optl-Wl,--gc-sections -optl-s
+
+    
+-- packages: .

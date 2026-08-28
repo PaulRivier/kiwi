@@ -11,7 +11,8 @@ import           Data.SearchEngine
 import qualified Data.Set as S
 import qualified Data.Text as T
 import           NLP.Snowball as SB
-import qualified Text.Pandoc as P
+import qualified Text.Pandoc.Definition as PD
+import qualified Text.Pandoc.Walk as PW
 
 import           Kiwi.Types as K
 
@@ -45,10 +46,22 @@ pageSearchConfig lg =
     -- [tag] ainsi que les termes qui le composent
     extractTagTokens lg' t = (T.concat ["[", T.toLower t, "]"]) : extractTerms lg' t
 
-pageContent :: P.Pandoc -> T.Text
-pageContent doc = case (P.runPure $ P.writePlain P.def doc) of
-                    Right r ->  r
-                    Left _ -> T.empty
+-- pageContent :: P.Pandoc -> T.Text
+-- pageContent doc = case (P.runPure $ P.writePlain P.def doc) of
+--                     Right r ->  r
+--                     Left _ -> T.empty
+
+pageContent :: PD.Pandoc -> T.Text
+pageContent = T.unwords . T.words . PW.query textOf
+  where
+    textOf :: PD.Inline -> T.Text
+    textOf (PD.Str s)    = s
+    textOf (PD.Code _ s) = s
+    textOf (PD.Math _ s) = s
+    textOf PD.Space      = " "
+    textOf PD.SoftBreak  = " "
+    textOf PD.LineBreak  = " "
+    textOf _          = ""
 
 extractTerms :: Algorithm -> T.Text -> [T.Text]
 extractTerms lg = map normalizeText .

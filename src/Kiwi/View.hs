@@ -10,7 +10,7 @@ import qualified Data.Text as T
 -- import qualified Data.Time as Time
 import qualified Data.Text.Lazy as TL
 import qualified Text.Mustache as X
-import qualified Text.Pandoc as P
+-- import qualified Text.Pandoc as P
 -- import           Web.Scotty.Trans (liftAndCatchIO)
 
 import qualified Kiwi.Locales as Loc
@@ -18,7 +18,7 @@ import qualified Kiwi.Types as K
 import           Kiwi.Types (ActM)
 import           Kiwi.Utils (prettyTag, asksK, fst3)
 import qualified Kiwi.Utils as U
-
+import           Kiwi.HtmlWriter (writeHtml5)
 
 
 linkJSON :: (T.Text, T.Text) -> J.Value
@@ -49,9 +49,7 @@ renderLayout t c pgi = do
 
 renderPage :: K.Page -> [K.Page] -> ActM TL.Text
 renderPage p blp =
-  let doc = case (P.runPure $ P.writeHtml5String P.def (K.pageDoc p)) of
-              Right r -> r
-              Left e -> T.pack $ show e in
+  let doc = writeHtml5 (K.pageDoc p) in
   do
     tpl <- getTemplate
     loc <- getLocalesJSON
