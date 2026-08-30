@@ -6,12 +6,12 @@ module Kiwi.Pandoc where
 import           Control.Applicative ((<|>))
 import           Control.Monad.Writer.Lazy (runWriter, tell)
 import qualified Commonmark as Cm
+import qualified Commonmark.Extensions as CmEx
 import qualified Commonmark.Pandoc as CmP
 
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe, catMaybes)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 
 import qualified Data.Time as Time
 import qualified System.Directory as D
@@ -29,59 +29,10 @@ import           Kiwi.Utils (getFileContent, splitOnFirst, (>:), for,  splitMeta
 import qualified Kiwi.Utils as U
 
 
--- loadPagePD :: T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
---             FP.FilePath -> Either String PandocPage
--- loadPagePD c source md cmc dir = case splitOnFirst "\n\n" c of
---   Nothing -> Left "Metadata is not valid"
---   Just (metaC, content) -> 
---     let docMeta = parseMetaData metaC
---         meta = md { metaId    = T.concat <$> M.lookup "id" docMeta
---                   , metaTitle = findWith (metaTitle md) (T.intercalate " ")
---                                          "title" docMeta
---                   , metaTags = findWith (metaTags md) (splitMeta . T.intercalate ",")
---                                         "tags" docMeta
---                   , metaAccess = findWith (metaAccess md) (splitMeta . T.intercalate ",")
---                                           "access" docMeta
---                   , metaLang = fromMaybe (metaLang md)
---                                          ( M.lookup "lang" docMeta >>=
---                                            readMaybe . T.unpack . last )
---                   , metaCustom = parseCustomMeta docMeta cmc
---                   }
---         dirT = T.pack $ dir
---         imagesDir = findWith dirT T.concat "images-dir" docMeta
---         filesDir  = findWith dirT T.concat "files-dir" docMeta
 
---     in case (P.runPure $ P.readCommonMark mdConf content) of
---          Left e -> Left $ show e
---          Right doc'->
---            let (doc, collected) = walkDoc source dirT imagesDir filesDir doc'
---                colLinks = [ (source, l) | CollectedPageLink l <- collected ]
---            in Right (PandocPage doc meta colLinks)
---   where
---     mdConf = P.def { P.readerExtensions = P.pandocExtensions }
---     findWith def join' field meta = fromMaybe def $
---                                     fmap join' $
---                                     M.lookup field meta
-
-
--- -- | Fonction principale
--- main :: IO ()
--- main = do
---     input <- TIO.getContents
-
---     let opts = defaultReaderOptions
---     case commonmarkToPandoc opts input of
---         Left err -> putStrLn $ "Erreur de parsing : " ++ show err
---         Right pandocAst -> do
---             let filteredAst = filterUrls pandocAst
---             -- Conversion de l'AST Pandoc vers le type Html de commonmark
---             let html :: Commonmark.Types.Html ()
---                 html = Commonmark.Pandoc.pandocToHtml filteredAst
---             TLIO.putStr $ renderHtml html
-
-loadPageCM :: T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
+loadPage :: FP.FilePath -> T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
               FP.FilePath -> Either String PandocPage
-loadPageCM c source md cmc dir = case splitOnFirst "\n\n" c of
+loadPage path c source md cmc dir = case splitOnFirst "\n\n" c of
   Nothing -> Left "Metadata is not valid"
   Just (metaC, content) -> 
     let docMeta = parseMetaData metaC
@@ -100,10 +51,13 @@ loadPageCM c source md cmc dir = case splitOnFirst "\n\n" c of
         dirT = T.pack $ dir
         imagesDir = findWith dirT T.concat "images-dir" docMeta
         filesDir  = findWith dirT T.concat "files-dir" docMeta
-        -- cmOpts = Cm.defaultSyntaxSpec
-        -- tokens = Cm.tokenize "TODO" content
+        syntaxSpec = Cm.defaultSyntaxSpec <>
+                     CmEx.strikethroughSpec <> CmEx.pipeTableSpec <> CmEx.autolinkSpec <>
+                     CmEx.taskListSpec <> CmEx.footnoteSpec 
 
-    in case (Cm.commonmarkWith Cm.defaultSyntaxSpec "TODO" content :: Maybe (Either Cm.ParseError (CmP.Cm () PB.Blocks))) of
+
+    in case (Cm.commonmarkWith syntaxSpec path content
+             :: Maybe (Either Cm.ParseError (CmP.Cm () PB.Blocks))) of
       Nothing -> Left $ "Unknown error"
       Just x -> case x of
          Left e -> Left $ show e
@@ -118,8 +72,6 @@ loadPageCM c source md cmc dir = case splitOnFirst "\n\n" c of
                                     fmap join' $
                                     M.lookup field meta
 
-
-loadPage = loadPageCM
 
 
 
@@ -204,7 +156,7 @@ loadPageIO fullPath relPath source md cmc scM = do
   let rootTag = fromMaybe [] (scRootTag <$> scM)
   case cM of
     Nothing -> error ("file not found : " ++ fullPath)
-    Just c -> case (loadPage c source md cmc pageDir) of
+    Just c -> case (loadPage fullPath c source md cmc pageDir) of
       Left _ -> let errorMsg = concat ["Error: unable to decode markdown from ", fullPath]
                 in error errorMsg
       Right p -> let meta = pandocMeta p
@@ -257,5 +209,40 @@ parseMetaData t = let metaLines = T.lines t
         
                          
                          
+
+
+-- loadPagePD :: T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
+--             FP.FilePath -> Either String PandocPage
+-- loadPagePD c source md cmc dir = case splitOnFirst "\n\n" c of
+--   Nothing -> Left "Metadata is not valid"
+--   Just (metaC, content) -> 
+--     let docMeta = parseMetaData metaC
+--         meta = md { metaId    = T.concat <$> M.lookup "id" docMeta
+--                   , metaTitle = findWith (metaTitle md) (T.intercalate " ")
+--                                          "title" docMeta
+--                   , metaTags = findWith (metaTags md) (splitMeta . T.intercalate ",")
+--                                         "tags" docMeta
+--                   , metaAccess = findWith (metaAccess md) (splitMeta . T.intercalate ",")
+--                                           "access" docMeta
+--                   , metaLang = fromMaybe (metaLang md)
+--                                          ( M.lookup "lang" docMeta >>=
+--                                            readMaybe . T.unpack . last )
+--                   , metaCustom = parseCustomMeta docMeta cmc
+--                   }
+--         dirT = T.pack $ dir
+--         imagesDir = findWith dirT T.concat "images-dir" docMeta
+--         filesDir  = findWith dirT T.concat "files-dir" docMeta
+
+--     in case (P.runPure $ P.readCommonMark mdConf content) of
+--          Left e -> Left $ show e
+--          Right doc'->
+--            let (doc, collected) = walkDoc source dirT imagesDir filesDir doc'
+--                colLinks = [ (source, l) | CollectedPageLink l <- collected ]
+--            in Right (PandocPage doc meta colLinks)
+--   where
+--     mdConf = P.def { P.readerExtensions = P.pandocExtensions }
+--     findWith def join' field meta = fromMaybe def $
+--                                     fmap join' $
+--                                     M.lookup field meta
 
 

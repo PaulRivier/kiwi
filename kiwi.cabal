@@ -32,8 +32,11 @@ common deps
     , base >=4.7 && <5
     , base16-bytestring
     , blaze-builder
+    , blaze-html
+    , blaze-markup
     , bytestring
     , commonmark
+    , commonmark-extensions    
     , commonmark-pandoc
     , config-ini
     , containers
