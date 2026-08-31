@@ -58,19 +58,19 @@ blockToHtml blk = case blk of
           then ol0 ! A.start (H.toValue (T.pack (show start)))
           else ol0
   PD.BulletList items -> H.ul (mconcat (map (H.li . blocksToHtml) items))
-  PD.DefinitionList _ -> comment "definition lists not supported by this minimal writer"
+  PD.DefinitionList items -> H.dl (mconcat (map defItemToHtml items))
   PD.Header lvl attr ils -> applyAttrs attr (headerTag lvl (inlinesToHtml ils))
   PD.HorizontalRule -> H.hr
   PD.Table attr caption colspecs thead tbodies tfoot ->
     applyAttrs attr $
       H.table $
-        captionToHtml caption
+        captionToHtml H.caption caption
           <> colgroupToHtml colspecs
           <> tableHeadToHtml thead
           <> mconcat (map tableBodyToHtml tbodies)
           <> tableFootToHtml tfoot
   PD.Figure attr caption blocks ->
-    applyAttrs attr (H.figure (blocksToHtml blocks <> figCaptionToHtml caption))
+    applyAttrs attr (H.figure (blocksToHtml blocks <> captionToHtml H.figcaption caption))
   PD.Div attr bs -> applyAttrs attr (H.div (blocksToHtml bs))
 
 
@@ -92,20 +92,20 @@ headerTag _ = H.h6
 -- (Our own type, so it needs no qualification.)
 data CellKind = ColHeader | RowHeader | DataCell
 
-comment :: T.Text -> H.Html
-comment t = H.preEscapedToHtml ("<!-- " <> t <> " -->")
+unsupported :: T.Text -> H.Html
+unsupported feature =  H.div $ H.toHtml ("UNSUPPORTED FEATURE: " <> feature)
 
-captionToHtml :: PD.Caption -> H.Html
-captionToHtml (PD.Caption _short bs)
+captionToHtml :: (H.Html -> H.Html) -> PD.Caption -> H.Html
+captionToHtml h (PD.Caption _short bs)
   | null bs = mempty
-  | otherwise = H.caption (blocksToHtml bs)
+  | otherwise = h (blocksToHtml bs)
 
--- Figure uses the same Caption type as Table, just rendered as
--- <figcaption> instead of <caption>.
-figCaptionToHtml :: PD.Caption -> H.Html
-figCaptionToHtml (PD.Caption _short bs)
-  | null bs = mempty
-  | otherwise = H.figcaption (blocksToHtml bs)
+-- Each DefinitionList item is (term, [definition]) where a definition is
+-- itself [Block] (a <dd> can hold multiple blocks); a term can have several
+-- definitions, hence several <dd>s per <dt>.
+defItemToHtml :: ([PD.Inline], [[PD.Block]]) -> H.Html
+defItemToHtml (term, defs) =
+  H.dt (inlinesToHtml term) <> mconcat (map (H.dd . blocksToHtml) defs)
 
 colgroupToHtml :: [PD.ColSpec] -> H.Html
 colgroupToHtml colspecs
@@ -194,7 +194,7 @@ inlineToHtml il = case il of
     applyAttrs attr (addTitle title (H.a ! A.href (H.toValue url) $ inlinesToHtml ils))
   PD.Image attr ils (url, title) ->
     applyAttrs attr (addTitle title (H.img ! A.src (H.toValue url) ! A.alt (H.toValue (inlinesToPlain ils))))
-  PD.Note _ -> comment "--- No support for Notes ---"
+  PD.Note _ -> unsupported "--- No support for Notes ---"
   PD.Span attr ils -> applyAttrs attr (H.span (inlinesToHtml ils))
   where
     addTitle t h = if T.null t then h else h ! A.title (H.toValue t)
