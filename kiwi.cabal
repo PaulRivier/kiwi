@@ -58,8 +58,8 @@ common deps
     , snowball
     , stache
     , text
-    , text-icu
     , time
+    , unicode-transforms
     , unliftio-core 
     , utf8-string
     , wai

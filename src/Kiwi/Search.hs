@@ -5,8 +5,11 @@ module Kiwi.Search (
   , extractTerms
   ) where
 
-import           Data.Text.ICU.Char
-import           Data.Text.ICU.Normalize2
+-- import           Data.Text.ICU.Char
+-- import           Data.Text.ICU.Normalize2
+import Data.Char (generalCategory, GeneralCategory(NonSpacingMark))
+import Data.Text.Normalize (normalize, NormalizationMode(NFD))
+
 import           Data.SearchEngine
 import qualified Data.Set as S
 import qualified Data.Text as T
@@ -75,9 +78,15 @@ tokenizeText brk = filter (not . T.null) .
   where
     isBreak c = S.member c brk
 
+
+
 normalizeText :: T.Text -> T.Text
-normalizeText = T.filter (not . property Diacritic) .
+normalizeText = T.filter ((/= NonSpacingMark) . generalCategory) .
                 normalize NFD
+
+-- normalizeText :: T.Text -> T.Text
+-- normalizeText = T.filter (not . property Diacritic) .
+--                 normalize NFD
 
 breakSet :: S.Set Char
 breakSet = S.fromList " \n&~\"#'{([-|`\\_^@)]=}+%*<>,?;.:/!§$€«» ’‘"

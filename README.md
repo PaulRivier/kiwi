@@ -20,7 +20,12 @@ content :
 Kiwi uses [CommonMark](<https://commonmark.org/>) flavor of Markdown
 for contents.
 
-At this stage Kiwi is alpha software, use it with caution.
+Kiwi is beta software, use at your own risk. Some notes:
+- Since it does never write to content files, there is no risk of data
+  loss
+- The access control system is alpha, if you really need guaranteed
+  access control reliability, consider reviewing this code, or getting in
+  touch with the author about it.
 
 # Install
 
@@ -45,9 +50,8 @@ You may need to install the following packages on your system :
 
 - libgmp-dev
 - zlib1g-dev
-- binutils-gold (the gold linker may be required)
-- libicu-dev
 - pkg-config
+- binutils-gold (the gold linker may be required)
 
 
 # Getting started
@@ -67,14 +71,11 @@ configuration file.
 In case your folder is not empty, Kiwi will give up, only writing
 *kiwi.ini.default* file to help you update your kiwi.ini file.
 
-At this step, you should symlink the bundled 'themes' folder to your
-kiwi folder. Alternatively, edit your *kiwi.ini* to point "themes-dir"
-to the theme you want in the bundled themes folder. Themes are
-separated from code, therefore they are very easy to add to Kiwi,
-check how existing themes are defined.
-
-    cd ~/Kiwi
-    ln -s ~/PATH-TO-KIWI-GIT-CLONE/themes themes
+At this step, you should copy or symlink the bundled 'themes' folder
+inside your "kiwi" data folder. Alternatively, edit your *kiwi.ini* to
+point "themes-dir" to the theme you want in the bundled themes folder.
+Themes are separated from code, therefore they are very easy to add to
+Kiwi, check how existing themes are defined.
 
 Create your own user account and get admin privileges (this is
 important, type 'admin' when prompted for your groups) :
