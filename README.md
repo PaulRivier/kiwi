@@ -48,7 +48,6 @@ You may need to install the following packages on your system :
 - binutils-gold (the gold linker may be required)
 - libicu-dev
 - pkg-config
-- binutils-gold (gold linker)
 
 
 # Getting started

@@ -1,0 +1,92 @@
+name: Build & Release Kiwi
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*.*.*'
+
+# Nécessaire pour que le job puisse créer/modifier des releases GitHub
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux x64
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer GHC + Cabal
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.10.3'   # correspond au snapshot lts-24.56 importé dans cabal.project
+          cabal-version: '3.16'
+
+      - name: Installer les dépendances système
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgmp-dev zlib1g-dev binutils-gold libicu-dev pkg-config
+
+      - name: Cache Cabal
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cabal/packages
+            ~/.cabal/store
+            dist-newstyle
+          key: cabal-${{ runner.os }}-${{ hashFiles('cabal.project', 'cabal.project.freeze', 'kiwi.cabal') }}
+          restore-keys: |
+            cabal-${{ runner.os }}-
+
+      - name: Résoudre les dépendances
+        run: cabal update
+
+      - name: Compiler l'exécutable
+        run: cabal build exe:kiwi
+
+      - name: Préparer le paquet binaire
+        run: |
+          BIN_PATH=$(cabal list-bin kiwi)
+          mkdir -p dist-pkg
+          cp "$BIN_PATH" dist-pkg/kiwi
+          strip dist-pkg/kiwi
+          cp -r themes dist-pkg/
+          cp README.md ChangeLog.md LICENSE dist-pkg/ 2>/dev/null || true
+          tar -C dist-pkg -czf kiwi-linux-x64.tar.gz .
+
+      - name: Uploader comme artefact de build (debug / historique)
+        uses: actions/upload-artifact@v4
+        with:
+          name: kiwi-linux-x64
+          path: kiwi-linux-x64.tar.gz
+          retention-days: 30
+
+      # --- Cas 1 : simple push sur master -> binaire "alpha" glissant ---
+      # La release "alpha" est réutilisée à chaque fois : ses assets sont
+      # remplacés, elle ne s'accumule pas dans la liste des releases.
+      - name: Publier / mettre à jour la release "alpha"
+        if: github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: alpha
+          name: "Alpha (dernier master)"
+          body: |
+            Build automatique depuis le commit ${{ github.sha }}.
+            Version de développement, non stable — à utiliser avec prudence.
+          prerelease: true
+          make_latest: false
+          files: kiwi-linux-x64.tar.gz
+
+      # --- Cas 2 : push d'un tag de version -> release officielle ---
+      - name: Publier la release de version
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Kiwi ${{ github.ref_name }}"
+          prerelease: false
+          make_latest: true
+          generate_release_notes: true
+          files: kiwi-linux-x64.tar.gz
