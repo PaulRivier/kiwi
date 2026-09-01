@@ -2,7 +2,7 @@ cabal-version: 2.2
 
 
 name:           kiwi
-version:        0.2
+version:        0.2.0
 description:    Please see the README on GitHub at <https://github.com/PaulRivier/kiwi>
 homepage:       https://github.com/PaulRivier/kiwi
 bug-reports:    https://github.com/PaulRivier/kiwi
