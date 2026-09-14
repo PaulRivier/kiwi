@@ -28,7 +28,7 @@ jobs:
       - name: Installer les dépendances système
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgmp-dev zlib1g-dev binutils-gold libicu-dev pkg-config
+          sudo apt-get install -y libgmp-dev zlib1g-dev binutils-gold pkg-config
 
       - name: Cache Cabal
         uses: actions/cache@v4
@@ -71,11 +71,10 @@ jobs:
         if: github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: alpha
-          name: "Alpha (dernier master)"
+          tag_name: development
+          name: "Development"
           body: |
-            Build automatique depuis le commit ${{ github.sha }}.
-            Version de développement, non stable — à utiliser avec prudence.
+            Auto build of dev version from commit ${{ github.sha }}.
           prerelease: true
           make_latest: false
           files: kiwi-linux-x64.tar.gz

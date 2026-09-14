@@ -13,7 +13,8 @@ import Data.Text.Normalize (normalize, NormalizationMode(NFD))
 import           Data.SearchEngine
 import qualified Data.Set as S
 import qualified Data.Text as T
-import           NLP.Snowball as SB
+import           Text.Snowball as SB
+
 import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 
@@ -68,7 +69,7 @@ pageContent = T.unwords . T.words . PW.query textOf
 
 extractTerms :: Algorithm -> T.Text -> [T.Text]
 extractTerms lg = map normalizeText .
-                  stems lg .
+                  map (stem lg) .
                   tokenizeText breakSet
 
 tokenizeText :: S.Set Char -> T.Text -> [T.Text]
