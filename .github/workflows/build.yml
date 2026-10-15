@@ -1,91 +1,74 @@
-name: Build & Release Kiwi
+# Builds the release binary, on demand only: Actions tab → "Build binaries"
+# → "Run workflow" (or: gh workflow run build.yml).
+#
+# Linux only: static binary (musl, GHC with native bignum), in an Alpine
+# image, with cabal.project.musl. The binary is packaged with the themes
+# and the documentation, since kiwi needs a theme to run.
+#
+# The package is attached to the run as an artifact (Summary page of the
+# run), publish it with release.yml. The compiled dependencies are cached
+# between runs, so only the first run compiles everything.
+
+name: Build binaries
 
 on:
-  push:
-    branches:
-      - master
-    tags:
-      - 'v*.*.*'
+  workflow_dispatch:
 
-# Nécessaire pour que le job puisse créer/modifier des releases GitHub
-permissions:
-  contents: write
+env:
+  GHC_VERSION: 9.10.3
+  EXE: kiwi
 
 jobs:
-  build-linux:
-    name: Build Linux x64
-    runs-on: ubuntu-24.04
+  linux:
+    runs-on: ubuntu-latest
+    container: docker.io/benz0li/ghc-musl:9.10.3-int-native
+    env:
+      CABAL_DIR: /cabal
+      PROJECT_FILE: cabal.project.musl
+      BUILD_DIR: dist-musl
     steps:
-      - name: Récupérer le code
-        uses: actions/checkout@v4
+      # git for checkout, GNU tar and zstd for actions/cache, file for the check
+      - name: Install tools
+        run: apk add --no-cache git tar zstd file
 
-      - name: Installer GHC + Cabal
-        uses: haskell-actions/setup@v2
+      - uses: actions/checkout@v7
+
+      - name: Read version
+        id: version
+        run: echo "version=$(awk 'tolower($1) == "version:" { print $2; exit }' "$EXE.cabal")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cabal store
+        uses: actions/cache@v6
         with:
-          ghc-version: '9.10.3'   # correspond au snapshot lts-24.56 importé dans cabal.project
-          cabal-version: '3.16'
+          path: /cabal/store
+          key: linux-musl-${{ env.GHC_VERSION }}-${{ hashFiles('*.cabal', 'cabal.project*', 'stackage/*') }}
+          restore-keys: linux-musl-${{ env.GHC_VERSION }}-
 
-      - name: Installer les dépendances système
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgmp-dev zlib1g-dev pkg-config
-
-      - name: Cache Cabal
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cabal/packages
-            ~/.cabal/store
-            dist-newstyle
-          key: cabal-${{ runner.os }}-${{ hashFiles('cabal.project', 'stackage/*.config', 'kiwi.cabal') }}
-          restore-keys: |
-            cabal-${{ runner.os }}-
-
-      - name: Résoudre les dépendances
+      - name: Update package index
         run: cabal update
 
-      - name: Compiler l'exécutable
-        run: cabal build exe:kiwi
+      - name: Build dependencies
+        run: cabal build --project-file="$PROJECT_FILE" --builddir="$BUILD_DIR" --only-dependencies "exe:$EXE"
 
-      - name: Préparer le paquet binaire
+      - name: Build
+        run: cabal build --project-file="$PROJECT_FILE" --builddir="$BUILD_DIR" "exe:$EXE"
+
+      - name: Package
+        id: package
         run: |
-          BIN_PATH=$(cabal list-bin kiwi)
-          mkdir -p dist-pkg
-          cp "$BIN_PATH" dist-pkg/kiwi
-          strip dist-pkg/kiwi
-          cp -r themes dist-pkg/
-          cp README.md ChangeLog.md LICENSE dist-pkg/ 2>/dev/null || true
-          tar -C dist-pkg -czf kiwi-linux-x64.tar.gz .
+          name="$EXE-${{ steps.version.outputs.version }}-linux-x86_64"
+          mkdir -p "pkg/$name" out
+          bin="pkg/$name/$EXE"
+          cp "$(cabal list-bin --project-file="$PROJECT_FILE" --builddir="$BUILD_DIR" "exe:$EXE")" "$bin"
+          strip "$bin"
+          file "$bin" | tee /dev/stderr | grep -Eq 'statically linked|static-pie linked'
+          cp -r themes README.md ChangeLog.md LICENSE "pkg/$name/"
+          tar -C pkg -czf "out/$name.tar.gz" "$name"
+          cd out && sha256sum -- * > SHA256SUMS-linux
+          echo "name=$name" >> "$GITHUB_OUTPUT"
 
-      - name: Uploader comme artefact de build (debug / historique)
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: kiwi-linux-x64
-          path: kiwi-linux-x64.tar.gz
-          retention-days: 30
-
-      # --- Cas 1 : simple push sur master -> binaire "alpha" glissant ---
-      # La release "alpha" est réutilisée à chaque fois : ses assets sont
-      # remplacés, elle ne s'accumule pas dans la liste des releases.
-      - name: Publier / mettre à jour la release "alpha"
-        if: github.ref == 'refs/heads/master'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: development
-          name: "Development"
-          body: |
-            Auto build of dev version from commit ${{ github.sha }}.
-          prerelease: true
-          make_latest: false
-          files: kiwi-linux-x64.tar.gz
-
-      # --- Cas 2 : push d'un tag de version -> release officielle ---
-      - name: Publier la release de version
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "Kiwi ${{ github.ref_name }}"
-          prerelease: false
-          make_latest: true
-          generate_release_notes: true
-          files: kiwi-linux-x64.tar.gz
+          name: ${{ steps.package.outputs.name }}
+          path: out/*
+          if-no-files-found: error

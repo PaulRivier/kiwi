@@ -1,0 +1,80 @@
+# Publishes the binaries of a successful "Build binaries" run as a draft
+# release, without downloading them locally:
+#   Actions tab → "Publish release" → "Run workflow", with the ID of the build
+#   run (the number at the end of its URL) and the tag of the release.
+# or: gh workflow run release.yml -f run_id=37908997742 -f tag=v0.3.0.0
+#
+# The release is created as a draft: check it on the Releases page, edit the
+# notes if needed, then click "Publish release".
+
+name: Publish release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: ID of the "Build binaries" run (number at the end of its URL)
+        required: true
+      tag:
+        description: Tag of the release, e.g. v0.3.0.0 (created on the built commit if it does not exist)
+        required: true
+
+permissions:
+  contents: write # create the tag and the release
+  actions: read # read the run and download its artifacts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ inputs.run_id }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      # The run must be a successful run of build.yml; its commit becomes the
+      # target of the tag. An existing tag must point to that same commit.
+      - name: Check the build run
+        id: run
+        run: |
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")"
+          path="$(jq -r .path <<<"$run")"
+          conclusion="$(jq -r .conclusion <<<"$run")"
+          sha="$(jq -r .head_sha <<<"$run")"
+          echo "Run $RUN_ID: $path, $conclusion, commit $sha"
+          if [ "$path" != ".github/workflows/build.yml" ]; then
+            echo "::error::run $RUN_ID is not a run of build.yml"; exit 1
+          fi
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::run $RUN_ID did not succeed ($conclusion)"; exit 1
+          fi
+          if tagged="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha 2>/dev/null)"; then
+            if [ "$tagged" != "$sha" ]; then
+              echo "::error::tag $TAG already exists on commit $tagged, not on the built commit $sha"; exit 1
+            fi
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Download the binaries of the run
+        uses: actions/download-artifact@v8
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: dist
+          merge-multiple: true
+
+      - name: Create the draft release
+        env:
+          SHA: ${{ steps.run.outputs.sha }}
+        run: |
+          cd dist
+          # one checksum file for all the platforms
+          cat SHA256SUMS-* > SHA256SUMS
+          rm SHA256SUMS-*
+          sha256sum --check SHA256SUMS
+          ls -l
+          gh release create "$TAG" ./* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SHA" \
+            --title "$TAG" \
+            --generate-notes \
+            --draft
