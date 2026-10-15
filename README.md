@@ -24,27 +24,38 @@ Kiwi is beta software, use at your own risk. Some notes:
 - Since it does never write to content files, there is no risk of data
   loss
 - The access control system is alpha, if you really need guaranteed
-  access control reliability, consider reviewing this code, or getting in
-  touch with the author about it.
+  access control reliability, consider reviewing this code (it is
+  short and simple), or getting in touch with the author about it.
 
 # Install
 
 ## From released binaries
 
-Binaries are provided for GNU/Linux x64 systems, you can find them
-from https://github.com/PaulRivier/kiwi/releases . Follow the
+Static binaries are provided for GNU/Linux x64 systems, you can find
+them from https://github.com/PaulRivier/kiwi/releases . Follow the
 deployment instructions from there, then come back to this page.
 
 ## From source
 
 
-### Cabal way (recommended)
+### podman way (easy)
+
+This is for GNU/Linux x64 builds, based on Alpine/musl/ghc with native
+integers.
+
+From the project directory, run :
+
+    ./podman-build.sh
+    
+It should build the static binary in the `release` directory.
+
+### Cabal way
 
 Get the source code, check GHC compiler version from head of file `cabal.project`, and install it for example with `ghcup`.
 
 Then, from source directory, run as user :
 
-    cabal install
+    cabal install --project-file=cabal.project.devel
 
 You may need to install the following packages on your system :
 
