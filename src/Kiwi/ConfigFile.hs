@@ -78,7 +78,7 @@ configParser = do
 customMetaParser :: T.Text -> SectionParser K.CustomMetaConfig
 customMetaParser name' = do
   cmcType <- fieldOf "type" readable
-  cmcThreshold <- fieldDefOf "browse-threshold" number 1.0
+  cmcThreshold <- fieldDefOf "threshold" number 1.0
   return K.CustomMetaConfig { K.cmcName = name'
                             , K.cmcType = cmcType
                             , K.cmcThreshold = cmcThreshold
