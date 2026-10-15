@@ -53,14 +53,12 @@ kiwiServer cfp c cache = do
 
 kiwiRoute :: ServerState -> Static.CacheContainer -> WebM ()
 kiwiRoute ss cache = do
-  get "/" $ redirect "/browse/"
+  get "/" $ redirect "/browse"
   get "/page/:source/:pId" $ do
     source <- pathParam "source"
     pId <- pathParam "pId"
     withLogin $ servePage (source, pId)
-  get "/browse/:req" $ withLogin $ do
-    req <- TL.toStrict <$> pathParam "req"
-    serveBrowseAll req
+  get "/browse" $ withLogin $ queryParams >>= serveBrowseAll
   get "/search" $ withLogin $ do
     query <- queryParam "query"
     serveSearch query
@@ -162,6 +160,7 @@ compileTemplate dir =
   make "agenda" <*>
   make "search-results" <*>
   make "not-found" <*>
+  make "bad-request" <*>
   make "forbidden"
   where
     make t = X.compileMustacheDir t dir

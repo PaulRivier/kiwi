@@ -24,7 +24,9 @@ loc_english = Locales
   , loc_Today = "Today"
   , loc_ToCome = "To come"
   , loc_NotFound = "This page does not exists"
+  , loc_BadRequest = "Invalid request"
   , loc_Forbidden = "Forbidden access"
+  , loc_RemoveFilter = "Remove this filter"
   , loc_LoginFailed = "Wrong username or password"
   -- , loc_TimeLocale = enTimeLocale
   }
@@ -41,7 +43,9 @@ loc_french = Locales
   , loc_Today = "Aujourd'hui"
   , loc_ToCome = "À venir"
   , loc_NotFound = "Cette page n'existe pas"
+  , loc_BadRequest = "Requête invalide"
   , loc_Forbidden = "Accès interdit"
+  , loc_RemoveFilter = "Retirer ce filtre"
   , loc_LoginFailed = "Identifiant ou mot de passe incorrect"
   -- , loc_TimeLocale = frTimeLocale
   }

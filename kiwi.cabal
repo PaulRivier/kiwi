@@ -65,7 +65,6 @@ library
     , time
     , unicode-transforms
     , unliftio-core
-    , utf8-string
     , wai-extra
     , wai-middleware-static
   exposed-modules:
@@ -102,6 +101,7 @@ test-suite kiwi-test
       base >=4.7 && <5
     , containers
     , hspec
+    , http-types
     , kiwi
     , pandoc-types
     , text

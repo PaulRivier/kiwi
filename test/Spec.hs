@@ -5,7 +5,9 @@ import qualified Data.Map as M
 import           Data.Maybe (fromMaybe)
 import qualified Data.Set as S
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Time as Time
+import qualified Network.HTTP.Types.URI as URI
 import           Test.Hspec
 import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
@@ -201,18 +203,59 @@ tagsSpec = do
 
 browseReqSpec :: Spec
 browseReqSpec = do
-  it "roundtrips encodeReq / decodeReq" $ do
-    let req = M.fromList [ (FieldTag, [KeyText "a>b", KeyText "é ç/&?"])
-                         , (FieldCustom "date", [KeyDay (Time.fromGregorian 2020 2 29)])
-                         , (FieldSource, [KeyText "my"]) ]
-    U.decodeReq (U.encodeReq req) `shouldBe` req
+  let cmcs = [ CustomMetaConfig "author" CmtText 1
+             , CustomMetaConfig "year" CmtInt 1
+             , CustomMetaConfig "date" CmtDate 1
+             , CustomMetaConfig "done" CmtBool 1 ]
+      -- decode the query string of an URL, as scotty does
+      decodeUrl url = U.decodeReq cmcs $ map (fmap $ fromMaybe "") $
+                      URI.parseQueryText $ TE.encodeUtf8 $ T.dropWhile (/= '?') url
+      req = M.fromList . map (fmap S.fromList)
 
-  it "decodes an invalid request as empty" $
-    U.decodeReq "garbage" `shouldBe` M.empty
+  it "roundtrips browseUrl / decodeReq" $ do
+    let r = req [ (FieldTag, [KeyText "a>b", KeyText "x\\>y", KeyText "é ç/&?=+#%;"])
+                , (FieldCustom "author", [KeyText "Smith & Wesson"])
+                , (FieldCustom "year", [KeyInt 1999, KeyInt (-3)])
+                , (FieldCustom "date", [KeyDay (Time.fromGregorian 2020 2 29)])
+                , (FieldCustom "done", [KeyBool True])
+                , (FieldSource, [KeyText "my source"]) ]
+    decodeUrl (U.browseUrl r) `shouldBe` Right r
 
-  it "adds keys to a request" $
+  it "builds readable URLs, in a stable order" $ do
+    U.browseUrl M.empty `shouldBe` "/browse"
+    U.browseUrl (req [ (FieldCustom "done", [KeyBool False])
+                     , (FieldTag, [KeyText "maison>produits"])
+                     , (FieldSource, [KeyText "a-p"])
+                     , (FieldCustom "date", [KeyDay (Time.fromGregorian 2020 2 9)]) ])
+      `shouldBe` "/browse?source=a-p&tag=maison%3Eproduits&m.date=2020-02-09&m.done=false"
+
+  it "refuses unknown parameters and invalid values" $ do
+    let isLeft = either (const True) (const False)
+    mapM_ (\url -> decodeUrl url `shouldSatisfy` isLeft)
+      [ "/browse?foo=bar", "/browse?author=Smith", "/browse?m.unknown=x"
+      , "/browse?m.year=12a", "/browse?m.date=2020-02-30", "/browse?m.done=yes"
+      , "/browse?tag=", "/browse?tag=>", "/browse?source=" ]
+
+  it "normalizes the tags of a request" $ do
+    decodeUrl "/browse?tag=maison%20%3E%20produits"
+      `shouldBe` Right (req [(FieldTag, [KeyText "maison>produits"])])
+    decodeUrl "/browse?tag=a&tag=a%3Eb&tag=a%3Eb%3Ec&tag=ab&tag=b"
+      `shouldBe` Right (req [(FieldTag, [KeyText "a>b>c", KeyText "ab", KeyText "b"])])
+
+  it "adds keys to a request, without the parents of a tag" $ do
     U.addToReq (U.createReq (FieldTag, KeyText "a")) (FieldTag, KeyText "b")
-      `shouldBe` M.fromList [(FieldTag, [KeyText "b", KeyText "a"])]
+      `shouldBe` req [(FieldTag, [KeyText "a", KeyText "b"])]
+    U.addToReq (U.createReq (FieldTag, KeyText "a")) (FieldTag, KeyText "a>b")
+      `shouldBe` req [(FieldTag, [KeyText "a>b"])]
+    U.addToReq (U.createReq (FieldTag, KeyText "a\\>b")) (FieldTag, KeyText "a>b")
+      `shouldBe` req [(FieldTag, [KeyText "a\\>b", KeyText "a>b"])]
+
+  it "removes keys from a request" $ do
+    let r = req [(FieldTag, [KeyText "a", KeyText "b"]), (FieldSource, [KeyText "s"])]
+    U.removeFromReq r (FieldTag, KeyText "a")
+      `shouldBe` req [(FieldTag, [KeyText "b"]), (FieldSource, [KeyText "s"])]
+    U.removeFromReq r (FieldSource, KeyText "s")
+      `shouldBe` req [(FieldTag, [KeyText "a", KeyText "b"])]
 
 
 passwordSpec :: Spec

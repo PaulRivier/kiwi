@@ -43,23 +43,25 @@ servePage pgId = do
     Nothing -> serveNotFound
 
 
--- TODO : this works but should be improved and clarified
-serveBrowseAll :: T.Text -> ActM ()
-serveBrowseAll r' = do
+-- | Browse page: the pages matching the request, and links to narrow it
+-- (next tags, sources, custom fields keys) or to remove one of its keys.
+serveBrowseAll :: [(T.Text, T.Text)] -> ActM ()
+serveBrowseAll params = do
   db <- getRestrictedDB
-  let req = U.decodeReq r'
-  response <- metaIndex db req
-  html response
+  case U.decodeReq (K.customMetaConfig db) params of
+    Left err -> serveBadRequest err
+    Right req -> metaIndex db req >>= html
   where
     metaIndex db req =
       let idx = K.pagesIndex db
           subset = if M.null req then idx
                    else DI.narrow idx $ U.reqToQuery req
+          reqKeySet f = M.findWithDefault S.empty f req
+          reqKeys = S.toList . reqKeySet
           -- tags specific handling
           allTagsSegs = tagsListSubSegments $ K.fromKeys $
                         DI.getFieldKeys subset K.FieldTag
-          queryTagsSegs = tagsListSubSegments $ K.fromKeys $
-                          M.findWithDefault [] K.FieldTag req
+          queryTagsSegs = tagsListSubSegments $ K.fromKeys $ reqKeys K.FieldTag
           nextTags = filterRootTags $ fastListDiff allTagsSegs queryTagsSegs
           tags = (K.FieldTag, map (K.KeyText . U.segmentsToTag) nextTags)
           -- sources specific handling
@@ -67,31 +69,28 @@ serveBrowseAll r' = do
           -- custom fields
           fieldsAndKeys = map (fks subset) $ relevantFields subset (K.customMetaConfig db)
           -- menu construction
-          menu = tags : (filterOut req (sources : fieldsAndKeys))
-          nextStep = map (\(f, keys) -> (f, map (nextStepLink req f) keys)) $ menu
-      in V.renderBrowseAll nextStep $ DI.documentsList subset
-      where fks idx f = (f, DI.getFieldKeys idx f)
-
-    -- produce a label and a link to a query
-    nextStepLink :: U.BrowseAllReq -> K.MetaField -> K.DocIndexKey -> (T.Text, T.Text)
-    nextStepLink r f k = let nextReq = U.addToReq r (f,k) 
-                             link = U.encodeReq nextReq
-                             label = case f of
-                               K.FieldTag -> makeTagLabel k
-                               _ -> U.showKeyLabel k
-                         in (label, link)
-
-    makeTagLabel (K.KeyText tag) = case U.tagToSegments tag of
-      (t:[]) -> t
-      segs      -> T.concat ["> ", last segs]
-    makeTagLabel _ = "Not a tag"
-
-    filterOut :: U.BrowseAllReq -> [(K.MetaField, [K.DocIndexKey])] ->
-                 [(K.MetaField, [K.DocIndexKey])]
-    filterOut req fks = mapMaybe notInReq fks
-      where notInReq (f, ks) = case fastListDiff ks (M.findWithDefault [] f req) of
+          menu = tags : (filterOut (sources : fieldsAndKeys))
+          nextStep = map (\(f, keys) -> (f, map (nextStepLink f) keys)) $ menu
+          -- keys already in the request are not proposed again
+          filterOut = mapMaybe $ \(f, ks) ->
+            case filter (`S.notMember` reqKeySet f) ks of
               [] -> Nothing
               a  -> Just (f, a)
+          -- keys of the request, with a link to remove them
+          active = [ (f, keyLabel f k, U.browseUrl $ U.removeFromReq req (f,k))
+                   | (f, ks) <- M.toList req, k <- S.toList ks ]
+          -- produce a label and a link to a narrower request
+          nextStepLink f k = (nextStepLabel f k, U.browseUrl $ U.addToReq req (f,k))
+      in V.renderBrowseAll nextStep active $ DI.documentsList subset
+      where fks idx f = (f, DI.getFieldKeys idx f)
+
+    nextStepLabel K.FieldTag (K.KeyText tag) = case U.tagToSegments tag of
+      (t:[]) -> t
+      segs      -> T.concat ["> ", last segs]
+    nextStepLabel f k = keyLabel f k
+
+    keyLabel K.FieldTag (K.KeyText tag) = U.prettyTag tag
+    keyLabel _ k = U.showKeyLabel k
 
     relevantFields idx cmcs =
       let cardinal = DI.cardinal idx
@@ -171,6 +170,13 @@ serveNotFound :: ActM ()
 serveNotFound = do
   r <- V.renderNotFound
   status Net.status404
+  html r
+
+
+serveBadRequest :: T.Text -> ActM ()
+serveBadRequest err = do
+  r <- V.renderBadRequest err
+  status Net.status400
   html r
 
 

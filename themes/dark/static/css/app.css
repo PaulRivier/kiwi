@@ -352,6 +352,31 @@ div.sources-selection ul.sources-list li a:hover {
 }
 
 
+div.filters-selection ul.filters-list {
+  margin: 0 0 0.5em 0;
+  padding: 0;
+  list-style-type: none;
+}
+
+div.filters-selection ul.filters-list li {
+  border: 1px solid rgba(var(--kiwi-text-color-rgb), 0.3);
+  border-radius: 6px;
+  padding: 0;
+  margin: 0 10px 0 0;
+}
+
+div.filters-selection ul.filters-list li a {
+  display: block;
+  padding: 2px 8px;
+  text-decoration: none;
+  color: rgba(var(--kiwi-text-color-rgb), 0.7);
+}
+
+div.filters-selection ul.filters-list li a:hover {
+  color: rgba(var(--kiwi-text-color-rgb), 1);
+}
+
+
 
 div.custom-meta-selection fieldset {
   color: var(--kiwi-text-color);

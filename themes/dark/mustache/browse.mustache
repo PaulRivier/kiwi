@@ -1,5 +1,17 @@
 <div class="tags-page">
 
+  <div class="filters-selection">
+    {{# filters }}
+    <ul class="flex-hz filters-list">
+      {{# items }}
+      <li>
+	    <a href="{{ target }}" title="{{ locales.remove-filter }}">{{# field }}{{ field }} : {{/ field }}{{ label }} &times;</a>
+      </li>
+      {{/ items }}
+    </ul>
+    {{/ filters }}
+  </div>
+
   <div class="sources-selection">
     {{# sources }}
     <ul class="flex-hz sources-list">

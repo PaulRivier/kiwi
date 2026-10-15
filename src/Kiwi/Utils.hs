@@ -35,8 +35,9 @@ module Kiwi.Utils
   , reqToQuery
   , createReq
   , addToReq
+  , removeFromReq
+  , browseUrl
   , decodeReq
-  , encodeReq
   , showKeyLabel
     -- * Files, pages ids and URLs
   , isDotFile
@@ -61,14 +62,13 @@ module Kiwi.Utils
   ) where
 
 import           Control.Concurrent.MVar (readMVar, modifyMVar_)
-import           Control.Monad (forM)
+import           Control.Monad (forM, foldM)
 import           Control.Monad.Reader
 import qualified Crypto.Error as CE
 import qualified Crypto.KDF.Argon2 as Argon2
 import qualified Crypto.Random as CR
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
-import qualified Data.ByteString.UTF8 as BS8
 import           Data.Char (isAlphaNum)
 import           Data.IORef
 import qualified Data.List as L
@@ -286,25 +286,85 @@ qHasField f = DI.HasField f
 -- qLowerThanOrEq f key = DI.LowerThanOrEq f $ toKey key
 
 
--- Others DocIndex and URI construction utils
-type BrowseAllReq = M.Map MetaField [DocIndexKey]
+-- Browse requests
+
+-- | Filter of the browse page: the pages must have all the keys of every
+-- field. In URLs, it is a query string with one parameter per key, e.g.
+-- @/browse?source=s&tag=a%3Eb&tag=c&m.author=Smith@: "source", "tag", and
+-- "m." followed by the name of a custom metadata field.
+type BrowseAllReq = M.Map MetaField (S.Set DocIndexKey)
 
 reqToQuery :: BrowseAllReq -> DI.Query MetaField DocIndexKey
-reqToQuery r = DI.And $ map (\(f,ks) -> DI.All f $ S.fromList ks) $ M.toList r
+reqToQuery r = DI.And $ map (uncurry DI.All) $ M.toList r
 
 createReq :: (MetaField, DocIndexKey) -> BrowseAllReq
-createReq (f,k) = M.fromList [(f,[k])]
+createReq = addToReq M.empty
 
+-- | Add a key to a request. The parents of a new tag are removed, since
+-- pages are indexed with all the parents of their tags.
 addToReq :: BrowseAllReq -> (MetaField, DocIndexKey) -> BrowseAllReq
-addToReq r (f,k) = M.insertWith (++) f [k] r
+addToReq r (f,k) = M.insertWith S.union f (S.singleton k) $ case (f,k) of
+  (FieldTag, KeyText t) -> M.adjust (S.filter (not . isParentOf t)) FieldTag r
+  _ -> r
+  where
+    isParentOf t (KeyText p) = let ps = tagToSegments p
+                                   ts = tagToSegments t
+                               in ps /= ts && L.isPrefixOf ps ts
+    isParentOf _ _ = False
 
-decodeReq :: T.Text -> BrowseAllReq
-decodeReq r = case readMaybe $ BS8.toString $ URI.urlDecode False $ TE.encodeUtf8 r of
-  Just m -> M.fromList m
-  Nothing -> M.empty
+removeFromReq :: BrowseAllReq -> (MetaField, DocIndexKey) -> BrowseAllReq
+removeFromReq r (f,k) = M.update remove f r
+  where remove ks = let ks' = S.delete k ks
+                    in if S.null ks' then Nothing else Just ks'
 
-encodeReq :: BrowseAllReq -> T.Text
-encodeReq m = TE.decodeUtf8 $ URI.urlEncode False $ BS8.fromString $ show $ M.toList m
+-- | Link to the browse page of a request. Fields and keys are always in the
+-- same order, so a request has only one URL.
+browseUrl :: BrowseAllReq -> T.Text
+browseUrl r = T.append "/browse" $ TE.decodeUtf8 $ URI.renderQuery True
+  [ (TE.encodeUtf8 n, Just $ TE.encodeUtf8 v)
+  | (f, ks) <- M.toList r, Just n <- [fieldParam f]
+  , k <- S.toList ks, Just v <- [keyParam k] ]
+  where
+    fieldParam FieldSource = Just "source"
+    fieldParam FieldTag = Just "tag"
+    fieldParam (FieldCustom n) = Just $ T.append "m." n
+    fieldParam _ = Nothing
+    keyParam (KeyText t) = Just t
+    keyParam (KeyInt i) = Just $ T.pack $ show i
+    keyParam (KeyDay d) = Just $ T.pack $ Time.showGregorian d
+    keyParam (KeyBool b) = Just $ if b then "true" else "false"
+    keyParam _ = Nothing
+
+-- | Decode the parameters of a browse URL (see 'BrowseAllReq'). Custom
+-- fields must be in the config, and their keys are read according to its
+-- type. Unknown parameters and invalid keys are errors.
+decodeReq :: [CustomMetaConfig] -> [(T.Text, T.Text)] -> Either T.Text BrowseAllReq
+decodeReq cmcs = foldM addParam M.empty
+  where
+    addParam r (n, v) = do
+      (f, readKey) <- maybe (Left $ T.append "unknown parameter: " n) Right $
+                      fieldReader n
+      k <- maybe (Left $ T.concat ["invalid value for ", n, ": ", v]) Right $
+           readKey v
+      return $ addToReq r (f, k)
+
+    fieldReader "source" = Just (FieldSource, readText)
+    fieldReader "tag" = Just (FieldTag, readText . segmentsToTag . tagToSegments)
+    fieldReader n = do
+      name <- T.stripPrefix "m." n
+      cmc <- L.find ((== name) . cmcName) cmcs
+      return (FieldCustom name, readCustom $ cmcType cmc)
+
+    readText t = if T.null t then Nothing else Just $ KeyText t
+
+    readCustom CmtText = readText
+    readCustom CmtInt = fmap KeyInt . readMaybe . T.unpack
+    readCustom CmtDate = fmap KeyDay .
+      Time.parseTimeM False Time.defaultTimeLocale "%Y-%-m-%-d" . T.unpack
+    readCustom CmtBool = \b -> case b of
+      "true" -> Just $ KeyBool True
+      "false" -> Just $ KeyBool False
+      _ -> Nothing
 
 showKeyLabel :: DocIndexKey -> T.Text
 showKeyLabel k = case k of

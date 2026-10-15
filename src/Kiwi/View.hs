@@ -4,6 +4,7 @@ module Kiwi.View
   , renderSearchResults
   , renderLoginForm
   , renderNotFound
+  , renderBadRequest
   , renderForbidden
   ) where
 
@@ -79,7 +80,7 @@ renderPage p blp =
     renderLayout (K.pageTitle p) layoutContent pgi
   where 
     browseTag t = browseLink K.FieldTag (K.KeyText t)
-    browseLink f k = T.concat ["/browse/", U.encodeReq $ U.createReq (f,k)]
+    browseLink f k = U.browseUrl $ U.createReq (f,k)
     customMeta = map customMeta1 $ K.pageCustomMeta p
       where customMeta1 cmd =
               object [ "name" .= K.cmdName cmd
@@ -89,19 +90,25 @@ renderPage p blp =
 
 
 
+-- | Links (label, target) to narrow the request, by field
 type BrowseMenu = [(K.MetaField, [(T.Text, T.Text)])]
 
-renderBrowseAll :: BrowseMenu -> [K.Page] -> ActM TL.Text
-renderBrowseAll menu pages = do
+-- | Keys of the request: field, label, and link to remove the key
+type BrowseFilters = [(K.MetaField, T.Text, T.Text)]
+
+renderBrowseAll :: BrowseMenu -> BrowseFilters -> [K.Page] -> ActM TL.Text
+renderBrowseAll menu filters pages = do
   loc <- getLocales
   locJ <- getLocalesJSON
   tpl <- getTemplate
-  let c = object [ ("sources", mkSources)
+  let c = object [ ("filters", mkFilters)
+                 , ("sources", mkSources)
                  , ("tags", mkTags)
                  , ("custom-meta", mkCustomMeta)
                  , ("pages", mkPages)
                  , ("locales", locJ) ]
-      mkTags = toJSONListHack $ map tagJSON $ sortOn fst $
+      mkFilters = toJSONListHack $ map filterJSON filters
+      mkTags = toJSONListHack $ map linkJSON $ sortOn fst $
                fromMaybe [] $ lookup K.FieldTag menu
       mkCustomMeta = toJSONListHack $ map customMetaJSON $
                      [(n, vs) | (K.FieldCustom n, vs)  <- menu ]
@@ -112,12 +119,17 @@ renderBrowseAll menu pages = do
       lc = X.renderMustache (K.browseTemplate tpl) c
   renderLayout (K.loc_Tags loc) lc Nothing
   where
-    tagJSON :: (T.Text, T.Text) -> J.Value
-    tagJSON (label, tagsChain) = linkJSON (label, T.concat ["/browse/", tagsChain])
-
     customMetaJSON :: (T.Text, [(T.Text, T.Text)]) -> J.Value
     customMetaJSON (field, keys) = object [ ("field", toJSON field)
-                                          , ("keys", toJSONListHack $ map tagJSON keys) ]
+                                          , ("keys", toJSONListHack $ map linkJSON keys) ]
+
+    -- the field name is only given for custom fields
+    filterJSON :: (K.MetaField, T.Text, T.Text) -> J.Value
+    filterJSON (f, label, target) = object [ "field" .= customName f
+                                           , "label" .= label
+                                           , "target" .= target ]
+    customName (K.FieldCustom n) = Just n
+    customName _ = Nothing
   
       
 renderSearchResults :: [K.Page] -> ActM TL.Text
@@ -151,6 +163,17 @@ renderNotFound = do
   renderLayout (K.loc_NotFound loc) layoutContent Nothing
 
 
+-- | Invalid request, with the reason
+renderBadRequest :: T.Text -> ActM TL.Text
+renderBadRequest err = do
+  loc <- getLocales
+  locJ <- getLocalesJSON
+  tpl <- getTemplate
+  let c = object [ "error" .= err, "locales" .= locJ ]
+      layoutContent = X.renderMustache (K.badRequestTemplate tpl) c
+  renderLayout (K.loc_BadRequest loc) layoutContent Nothing
+
+
 renderForbidden :: ActM TL.Text
 renderForbidden = do
   loc <- getLocales
@@ -174,7 +197,9 @@ getLocalesJSON = do
                   , "today" .= K.loc_Today l
                   , "to-come" .= K.loc_ToCome l
                   , "not-found" .= K.loc_NotFound l
-                  , "forbidden" .= K.loc_Forbidden l]
+                  , "bad-request" .= K.loc_BadRequest l
+                  , "forbidden" .= K.loc_Forbidden l
+                  , "remove-filter" .= K.loc_RemoveFilter l ]
 
 
 

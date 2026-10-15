@@ -86,6 +86,7 @@ data KiwiTemplate =
                , agendaTemplate :: X.Template
                , searchTemplate :: X.Template
                , notFoundTemplate :: X.Template
+               , badRequestTemplate :: X.Template
                , forbiddenTemplate :: X.Template
                }
 
@@ -337,7 +338,9 @@ data Locales = Locales
   , loc_Today :: T.Text
   , loc_ToCome :: T.Text
   , loc_NotFound :: T.Text
+  , loc_BadRequest :: T.Text
   , loc_Forbidden :: T.Text
+  , loc_RemoveFilter :: T.Text
   , loc_LoginFailed :: T.Text
   -- , loc_TimeLocale :: Time.TimeLocale
   }
