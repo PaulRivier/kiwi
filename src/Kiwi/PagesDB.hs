@@ -1,4 +1,3 @@
--- {-# LANGUAGE FlexibleContexts, OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
 
 module Kiwi.PagesDB where

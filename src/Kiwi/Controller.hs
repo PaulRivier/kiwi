@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Kiwi.Controller  where
 
 import           Control.Monad.Reader

@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Kiwi where
 
 import           Control.Concurrent.Async (mapConcurrently)

@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Kiwi.View where
 
 import           Data.Aeson (ToJSON(..), (.=), toJSON, object)

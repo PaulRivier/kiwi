@@ -1,8 +1,7 @@
-cabal-version: 2.2
-
+cabal-version:      3.4
 
 name:           kiwi
-version:        0.2.1
+version:        0.2.1.1
 description:    Please see the README on GitHub at <https://github.com/PaulRivier/kiwi>
 homepage:       https://github.com/PaulRivier/kiwi
 bug-reports:    https://github.com/PaulRivier/kiwi
@@ -21,9 +20,13 @@ source-repository head
   location: https://github.com/PaulRivier/kiwi
 
 
-
 common ghc-opts
-  ghc-options: -Wall -threaded 
+  default-language:   GHC2021
+  default-extensions: OverloadedStrings
+  ghc-options:        -Wall -Wunused-packages
+                      -Werror=incomplete-patterns
+                      -Wcompat
+                      -Wredundant-constraints
 
 common deps
   build-depends:
@@ -102,7 +105,7 @@ executable kiwi
   main-is: Main.hs
   other-modules: Paths_kiwi
   hs-source-dirs: app
-  ghc-options: -rtsopts -with-rtsopts=-N
+  ghc-options:  -threaded
 
 
 test-suite kiwi-test

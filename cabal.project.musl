@@ -1,0 +1,11 @@
+-- Small static binary (Alpine / musl).
+-- Usage: cabal build --project-file=cabal.project.release
+import: cabal.project
+
+package *
+  split-sections: True
+  executable-static: True
+  optimization: 1
+  ghc-options:
+    -optl-Wl,--gc-sections
+    -optl-s

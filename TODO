@@ -1,57 +1,29 @@
 TODO
 ====
 
-Bugs:
- - ~~strike~~ est interprété en <sub> par pandoc
+SQLITE
+- utiliser SQLITE pour les pages parsées et la recherche full-text
 
 Recherche:
-
  - améliorer le paramétrage du moteur de recherche
 
 
 Interface :
-
  - faire une page d'accueil plus sympa, avec les dernières modifications etc.
 
 
-Performances :
 
- - mesures sur ma machine :
-   - chargement 10000 pages/seconde soit 0.0001s/p
-   - occupation ram ~ 300ko/ page
-
- - au dela de 100 pages (300Mo), il semble préférable de ne pas garder
-   le contenu des pages en mémoire, mais seulement leurs metadonnées
-   (tags, titre, etc.). De plus, il peut être souhaitable de dumper le
-   contenu scanné des pages dans un format binaire serialisé pour
-   permettre un redémarrage rapide du serveur (voir lib store module
-   Data.Store).
+Sécu
+- changer le hashage des MDP de sha256 à argon
 
 
 Code:
-
-Remplacer code perso cookies par le module Web.Scotty.Cookie
-
+- Remplacer code perso cookies par le module Web.Scotty.Cookie
+- ConfigFile.hs : utiliser un fichier séparé pour la config par défaut,
+  et l'inclure avec file-embed
 
 
 Archi:
-
-Remplacer pandoc par un système plus léger, en compilation et en RAM ? Possibilités :
-- pandoc server
-  - on démarre un pandoc server
-  - on lui envoie du contenu markdown
-  - il retourne du contenu json
-  - on parse le contenu json avec pandoc-types
-  - on retourne le json modifié à pandoc server
-  - on récupère le html
-
-
-- utiliser un autre parser :
-  - https://github.com/jgm/cmark-hs
-  - cmark-gfm,
-  - https://hackage.haskell.org/package/commonmark
-
-
-
-Faire une implémentation alternative dans un autre langage, type Rust ?
-Voir zola par exemple.
+- Paramétrer le niveau de log
+- Faire une implémentation alternative dans un autre langage, type Rust ?
+  Voir zola par exemple.

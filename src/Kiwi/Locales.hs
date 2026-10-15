@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Kiwi.Locales where
 
 import           Data.Time

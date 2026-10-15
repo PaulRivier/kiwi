@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Kiwi.Utils where
 
 import           Control.Monad (forM, replicateM, liftM)

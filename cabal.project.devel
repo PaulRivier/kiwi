@@ -1,0 +1,11 @@
+-- Mode développement
+
+import: cabal.project
+
+-- for local code
+optimization: 0
+
+--  dependencies keep the default optimization (-O1) so that cache
+-- remain shared with every other builds and projects
+package *
+  optimization: 1
