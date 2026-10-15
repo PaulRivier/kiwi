@@ -8,13 +8,9 @@ import           Control.Monad (when, forM_)
 import           Control.Monad.Reader
 import           Data.IORef (newIORef, readIORef, atomicWriteIORef)
 import           Data.List (stripPrefix, isInfixOf)
--- import           Data.Maybe (catMaybes)
 import qualified Data.Map.Strict as M
 import qualified Data.SearchEngine as SE
--- import           Data.Text (Text, intercalate)
--- import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
--- import qualified Network.Wai as WAI
 import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import qualified Network.Wai.Middleware.Static as Static
 import           Network.Wai.Middleware.Static ((>->), (<|>))
@@ -31,8 +27,6 @@ import           Kiwi.Types
 import           Kiwi.Utils
 import qualified Utils.DocIndex as DI
 
--- gets :: (AppState -> a) -> ServerM a
--- gets f = ask >>= return . f
 
 pagesFSDir, imagesFSDir, filesFSDir :: FilePath
 pagesFSDir = "pages"
@@ -63,16 +57,6 @@ kiwiRoute ss cache = do
     source <- pathParam "source"
     pId <- pathParam "pId"
     withLogin $ servePage (source, pId)
-  -- getPath "^/page/:source/[^.]+" $ \p -> withLogin $ do
-    
-  --   servePage p
-  -- get "/browse/tags/:tags" $ withLogin $ do
-  --   tags <- param "tags"
-  --   serveTagged tags
-  -- get "/browse-meta/:meta/:keys" $ withLogin $ do
-  --   meta <- param "meta"
-  --   keys <- param "keys"
-  --   serveBrowseMeta meta keys
   get "/browse/:req" $ withLogin $ do
     req <- TL.toStrict <$> pathParam "req"
     serveBrowseAll req
@@ -123,7 +107,6 @@ initServerState cfp conf = do
   let contentDir' = FP.combine kiwiDir' (Conf.contentDir conf)
   sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
   let staticDir'  = FP.joinPath [kiwiDir', (Conf.themeDir conf), "static"]
-  -- let pagesRootDir = FP.combine contentDir' pagesFSDir
   tpl <- compileTemplate $ FP.joinPath [kiwiDir', (Conf.themeDir conf), "mustache"]
   accounts' <- loadAccounts $ FP.combine kiwiDir' "_accounts"
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"

@@ -218,38 +218,5 @@ parseMetaData t = let metaLines = T.lines t
                          
 
 
--- loadPagePD :: T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
---             FP.FilePath -> Either String PandocPage
--- loadPagePD c source md cmc dir = case splitOnFirst "\n\n" c of
---   Nothing -> Left "Metadata is not valid"
---   Just (metaC, content) -> 
---     let docMeta = parseMetaData metaC
---         meta = md { metaId    = T.concat <$> M.lookup "id" docMeta
---                   , metaTitle = findWith (metaTitle md) (T.intercalate " ")
---                                          "title" docMeta
---                   , metaTags = findWith (metaTags md) (splitMeta . T.intercalate ",")
---                                         "tags" docMeta
---                   , metaAccess = findWith (metaAccess md) (splitMeta . T.intercalate ",")
---                                           "access" docMeta
---                   , metaLang = fromMaybe (metaLang md)
---                                          ( M.lookup "lang" docMeta >>=
---                                            readMaybe . T.unpack . last )
---                   , metaCustom = parseCustomMeta docMeta cmc
---                   }
---         dirT = T.pack $ dir
---         imagesDir = findWith dirT T.concat "images-dir" docMeta
---         filesDir  = findWith dirT T.concat "files-dir" docMeta
-
---     in case (P.runPure $ P.readCommonMark mdConf content) of
---          Left e -> Left $ show e
---          Right doc'->
---            let (doc, collected) = walkDoc source dirT imagesDir filesDir doc'
---                colLinks = [ (source, l) | CollectedPageLink l <- collected ]
---            in Right (PandocPage doc meta colLinks)
---   where
---     mdConf = P.def { P.readerExtensions = P.pandocExtensions }
---     findWith def join' field meta = fromMaybe def $
---                                     fmap join' $
---                                     M.lookup field meta
 
 

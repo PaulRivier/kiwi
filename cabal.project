@@ -8,19 +8,3 @@ with-compiler: ghc-9.10.3
 constraints: full-text-search ==0.2.2.3
            , snowball ==0.1.0.2
 
--- package *
---   -- split-sections: True
---   optimization: 1
---   ghc-options:
---     -optl-Wl,--gc-sections
---     -optl-s
---     -optl-fuse-ld=gold
-
-
--- package *
---   split-sections: True
---   ghc-options: -optl-fuse-ld=bfd
---   ghc-options: -O2 -optl-Wl,--gc-sections -optl-s
-
-    
--- packages: .

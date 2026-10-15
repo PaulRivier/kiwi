@@ -1,5 +1,5 @@
 -- Small static binary (Alpine / musl).
--- Usage: cabal build --project-file=cabal.project.release
+-- Usage: cabal build --project-file=cabal.project.musl
 import: cabal.project
 
 package *
