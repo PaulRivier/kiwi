@@ -4,18 +4,22 @@
 module Kiwi.Pandoc where
 
 import           Control.Applicative ((<|>))
+import           Control.Exception (IOException, try)
 import           Control.Monad.Writer.Lazy (runWriter, tell)
 import qualified Commonmark as Cm
 import qualified Commonmark.Extensions as CmEx
 import qualified Commonmark.Pandoc as CmP
 
+import qualified Data.ByteString as BS
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe, catMaybes)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 
 import qualified Data.Time as Time
 import qualified System.Directory as D
 import qualified System.FilePath as FP
+import           System.IO.Error (ioeGetErrorString)
 -- import qualified Text.Pandoc as P
 import qualified Text.Pandoc.Builder as PB
 import qualified Text.Pandoc.Definition as PD
@@ -24,7 +28,7 @@ import qualified Text.Pandoc.Walk as PW
 import           Text.Read (readMaybe)
 
 import           Kiwi.Types
-import           Kiwi.Utils (getFileContent, splitOnFirst, (>:), for,  splitMeta,
+import           Kiwi.Utils (splitOnFirst, (>:), for,  splitMeta,
                              pathToPageId)
 import qualified Kiwi.Utils as U
 
@@ -32,10 +36,11 @@ import qualified Kiwi.Utils as U
 
 loadPage :: FP.FilePath -> T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
               FP.FilePath -> Either String PandocPage
-loadPage path c source md cmc dir = case splitOnFirst "\n\n" c of
-  Nothing -> Left "Metadata is not valid"
-  Just (metaC, content) -> 
-    let docMeta = parseMetaData metaC
+loadPage path c source md cmc dir =
+    -- windows line endings are normalized, and a file without blank line
+    -- is considered as metadata only, with empty content
+    let (metaC, content) = fromMaybe (normC, T.empty) $ splitOnFirst "\n\n" normC
+        docMeta = parseMetaData metaC
         meta = md { metaId    = T.concat <$> M.lookup "id" docMeta
                   , metaTitle = findWith (metaTitle md) (T.intercalate " ")
                                          "title" docMeta
@@ -67,6 +72,7 @@ loadPage path c source md cmc dir = case splitOnFirst "\n\n" c of
                colLinks = [ (source, l) | CollectedPageLink l <- collected ]
            in Right (PandocPage doc meta colLinks)
   where
+    normC = T.replace "\r\n" "\n" c
     -- mdConf = P.def { P.readerExtensions = P.pandocExtensions }
     findWith def join' field meta = fromMaybe def $
                                     fmap join' $
@@ -146,22 +152,23 @@ walkDoc source pageDir imagesDir filesDir doc =
 
 loadPageIO :: FP.FilePath -> FP.FilePath -> T.Text ->
               MetaData -> [CustomMetaConfig] -> Maybe SourceConfig ->
-              IO Page
+              IO (Either String Page)
 loadPageIO fullPath relPath source md cmc scM = do
-  cM <- getFileContent fullPath
-  mt <- D.getModificationTime fullPath
+  -- file may have been removed since directory listing
+  fileE <- try $ (,) <$> BS.readFile fullPath <*> D.getModificationTime fullPath
   let pageDir = case FP.takeDirectory relPath of
         "." -> ""
         x   -> x
   let rootTag = fromMaybe [] (scRootTag <$> scM)
-  case cM of
-    Nothing -> error ("file not found : " ++ fullPath)
-    Just c -> case (loadPage fullPath c source md cmc pageDir) of
-      Left _ -> let errorMsg = concat ["Error: unable to decode markdown from ", fullPath]
-                in error errorMsg
+  return $ case fileE of
+    Left (e :: IOException) -> Left $ "unable to read file : " ++ ioeGetErrorString e
+    Right (bytes, mt) -> case TE.decodeUtf8' bytes of
+     Left e -> Left $ "not a valid UTF-8 file : " ++ show e
+     Right c -> case (loadPage fullPath c source md cmc pageDir) of
+      Left e -> Left $ "unable to decode markdown : " ++ e
       Right p -> let meta = pandocMeta p
                      pId = fromMaybe (pathToPageId relPath) $ metaId meta in
-        return $ Page { pageUID = (source, pId)
+        Right $ Page { pageUID = (source, pId)
                       , pageAbsoluteFSPath = fullPath
                       , pageMTime = mt
                       , pageDoc = pandocDoc p

@@ -2,6 +2,8 @@
 
 module Kiwi.PagesDB where
 
+import           Control.Exception (IOException, try)
+import           Control.Monad (forM_)
 import           Data.List (find)
 -- import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe)
@@ -12,6 +14,7 @@ import qualified Data.Time.Calendar as Cal
 import qualified Data.Time.Clock as C
 import qualified System.Directory as D
 import qualified System.FilePath as FP
+import           System.IO (hPutStrLn, stderr)
 
 import           Kiwi.Search
 import           Kiwi.Types
@@ -47,10 +50,15 @@ updatePagesDB contentDir' pagesDir db =
     -- TODO : gérer des conditions de rechargement
     getCondition = return False
 
+    -- pages that can not be loaded are ignored, with a warning on stderr
     getNewOrMod cd date fsPaths = do
       fsPathsAndMTime <- mapM addMTime fsPaths
-      let updatedPaths = map fst $ filter (\(_,mt) -> mt > date) fsPathsAndMTime
-      mapM (loadPage cd) updatedPaths
+      let updatedPaths = map fst $ filter (\(_,mt) -> maybe True (> date) mt)
+                                          fsPathsAndMTime
+      results <- mapM (\p -> (p,) <$> loadPage cd p) updatedPaths
+      forM_ [ (p, e) | (p, Left e) <- results ] $ \(p, e) ->
+        hPutStrLn stderr $ concat ["Warning: page ignored, ", p, " : ", e]
+      return [ pg | (_, Right pg) <- results ]
 
     getRemovedUIDs dbPages fsPaths =
       let fsPathsSet = S.fromList fsPaths
@@ -58,11 +66,13 @@ updatePagesDB contentDir' pagesDir db =
           missing = filter notInPaths dbPages
       in map pageUID missing
 
+    -- file may have been removed since directory listing : no mtime, it
+    -- will then be reported by loadPage
     addMTime path = do
-      mt <- D.getModificationTime path
-      return (path, mt)
+      mtE <- try $ D.getModificationTime path
+      return (path, either (\(_ :: IOException) -> Nothing) Just mtE)
 
-    loadPage :: FP.FilePath -> FP.FilePath -> IO Page
+    loadPage :: FP.FilePath -> FP.FilePath -> IO (Either String Page)
     loadPage cd fullPath =
       let splitPath = FP.splitDirectories $ FP.makeRelative cd fullPath
           source = T.pack $ concat $ take 1 splitPath
