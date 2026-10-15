@@ -1,4 +1,4 @@
-module Kiwi where
+module Kiwi (runKiwiRun) where
 
 import           Control.Concurrent.Async (mapConcurrently)
 import           Control.Exception (bracket_)

@@ -4,6 +4,7 @@ module Kiwi.Server
 
 
 import           Control.Concurrent (forkIO)
+import           Control.Concurrent.MVar (newMVar, withMVar)
 import           Control.Monad (when, forM_)
 import           Control.Monad.Reader
 import           Data.IORef (newIORef, readIORef, atomicWriteIORef)
@@ -92,13 +93,17 @@ kiwiRoute ss cache = do
     
 
 
+-- | Reloads are serialized by pagesDBLock, so that two concurrent reloads
+-- can not overwrite each other. Readers are never blocked.
 updateDB :: ActM ()
 updateDB = do
-  dbR <- serverM $ asks pagesDB
-  db' <- liftIO $ readIORef dbR
+  dbR <- asksK pagesDB
+  lock <- asksK pagesDBLock
   cd <- asksK contentDir
-  db  <- liftIO $ DB.updatePagesDB cd pagesFSDir db'
-  liftIO $ atomicWriteIORef dbR db
+  liftIO $ withMVar lock $ \_ -> do
+    db' <- readIORef dbR
+    db  <- DB.updatePagesDB cd pagesFSDir db'
+    atomicWriteIORef dbR db
 
 
 initServerState :: FP.FilePath -> Conf.KiwiConfig -> IO ServerState
@@ -110,13 +115,14 @@ initServerState cfp conf = do
   tpl <- compileTemplate $ FP.joinPath [kiwiDir', (Conf.themeDir conf), "mustache"]
   accounts' <- loadAccounts $ FP.combine kiwiDir' "_accounts"
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"
-  sessR <- newIORef sess
+  sessM <- newMVar sess
   db <- DB.updatePagesDB contentDir' pagesFSDir
           (DB.emptyPagesDB (Conf.defaultMeta conf)
                            (Conf.customMetaConfig conf)
                            (Conf.sourcesConfig conf))
   _ <- warmUpSearchEngine (searchEngine db)
   dbR <- newIORef db
+  dbLock <- newMVar ()
   return $ ServerState {
       kiwiName   = Conf.name conf
     , contentDir = contentDir'
@@ -127,9 +133,10 @@ initServerState cfp conf = do
     , uiLang       = findInterfaceLang (Conf.uiLang conf)
     , template     = tpl
     , accounts     = accounts'
-    , sessions     = sessR
+    , sessions     = sessM
     , login        = Nothing
     , pagesDB      = dbR
+    , pagesDBLock  = dbLock
     , tocSetting   = Conf.toc conf
     , secureCookie = Conf.secureCookie conf
   }

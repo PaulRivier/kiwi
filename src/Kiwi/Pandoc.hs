@@ -1,18 +1,23 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Kiwi.Pandoc where
+module Kiwi.Pandoc
+  ( loadPageIO
+  , loadPage         -- exported for tests
+  , parseMetaData    -- exported for tests
+  , parseCustomMeta  -- exported for tests
+  ) where
 
 import           Control.Applicative ((<|>))
 import           Control.Exception (IOException, try)
-import           Control.Monad.Writer.Lazy (runWriter, tell)
 import qualified Commonmark as Cm
 import qualified Commonmark.Extensions as CmEx
 import qualified Commonmark.Pandoc as CmP
 
 import qualified Data.ByteString as BS
+import           Data.Functor ((<&>))
 import qualified Data.Map as M
-import           Data.Maybe (fromMaybe, catMaybes)
+import           Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
@@ -28,8 +33,7 @@ import qualified Text.Pandoc.Walk as PW
 import           Text.Read (readMaybe)
 
 import           Kiwi.Types
-import           Kiwi.Utils (splitOnFirst, (>:), for,  splitMeta,
-                             pathToPageId)
+import           Kiwi.Utils (splitOnFirst, splitMeta, pathToPageId)
 import qualified Kiwi.Utils as U
 
 
@@ -87,32 +91,37 @@ data LinkType = PageLink T.Text
               | FileLink T.Text
               | OtherLink T.Text
 
+-- | Fix links and images paths, and collect links to other pages.
+-- Links are collected from the original document, before paths are fixed.
 walkDoc :: T.Text -> T.Text -> T.Text -> T.Text ->
            PD.Pandoc -> (PD.Pandoc, [CollectedFromDoc])
 walkDoc source pageDir imagesDir filesDir doc =
-  runWriter (PW.walkM (fixInlines pageDir imagesDir filesDir) doc)
+  (PW.walk fixInlines doc, PW.query collect doc)
     where
       -- chemin des images
-      fixInlines _ ipd _ (PD.Image attr desc (rawLink, lName)) = do
-        return $ PD.Image attr desc ((fixImage ipd rawLink), "fig:" <> lName)
+      fixInlines (PD.Image attr desc (rawLink, lName)) =
+        PD.Image attr desc ((fixImage imagesDir rawLink), "fig:" <> lName)
       -- chemin des pages, fichiers, liens externes
-      fixInlines ppd ipd fpd (PD.Link attr txt (rawLink, lName)) = do
-        let parsedLink = parseLink rawLink
-        case parsedLink of   -- (newAttr, newLink, newTxt)
-          PageLink l  -> do
-            tell [CollectedPageLink $ absolutePageId ppd l]
-            return $ PD.Link (addClass "kiwi-link-page" attr) txt 
-                            (pathToPage ppd l, lName)
-          AnchorLink l -> return $ PD.Link (addClass "kiwi-link-anchor" attr) txt 
-                                          (l, lName)
-          ImageLink l -> return $ PD.Link (addClass "kiwi-link-image" attr) txt 
-                                         (pathToImage ipd l, lName)
-          FileLink l  -> return $ PD.Link (addClass "kiwi-link-file" attr) txt
-                                         (pathToFile fpd l, lName)
-          OtherLink l -> return $ PD.Link (addClass "kiwi-link-external" attr) txt
-                                         (l, lName)
+      fixInlines (PD.Link attr txt (rawLink, lName)) =
+        case parseLink rawLink of
+          PageLink l   -> PD.Link (addClass "kiwi-link-page" attr) txt
+                                  (pathToPage pageDir l, lName)
+          AnchorLink l -> PD.Link (addClass "kiwi-link-anchor" attr) txt
+                                  (l, lName)
+          ImageLink l  -> PD.Link (addClass "kiwi-link-image" attr) txt
+                                  (pathToImage imagesDir l, lName)
+          FileLink l   -> PD.Link (addClass "kiwi-link-file" attr) txt
+                                  (pathToFile filesDir l, lName)
+          OtherLink l  -> PD.Link (addClass "kiwi-link-external" attr) txt
+                                  (l, lName)
       -- reste
-      fixInlines _ _ _ x = return $ x
+      fixInlines x = x
+
+      collect :: PD.Inline -> [CollectedFromDoc]
+      collect (PD.Link _ _ (rawLink, _)) = case parseLink rawLink of
+        PageLink l -> [CollectedPageLink $ absolutePageId pageDir l]
+        _          -> []
+      collect _ = []
 
       parseLink :: T.Text -> LinkType
       parseLink l = let ltM = (PageLink  <$> T.stripPrefix ("page:") l) <|>
@@ -183,15 +192,15 @@ loadPageIO fullPath relPath source md cmc scM = do
 
 
 parseCustomMeta :: M.Map T.Text [T.Text] -> [CustomMetaConfig] -> [CustomMetaData]
-parseCustomMeta m c = catMaybes $ for c $
+parseCustomMeta m = mapMaybe $
   \cmc -> case M.lookup (cmcName cmc) m of
     Nothing -> Nothing
     Just v  -> let cmdKs = doRead (cmcType cmc) $ concatMap (splitMeta) v
                in Just $ CustomMetaData (cmcName cmc) cmdKs
-  where 
+  where
     doRead CmtText = map KeyText
-    doRead CmtInt  = map KeyInt . catMaybes . map (readMaybe . T.unpack)
-    doRead CmtDate = map KeyDay . catMaybes . map readDateMaybe
+    doRead CmtInt  = map KeyInt . mapMaybe (readMaybe . T.unpack)
+    doRead CmtDate = map KeyDay . mapMaybe readDateMaybe
     doRead CmtBool = map KeyBool . map readBool
 
     readDateMaybe :: T.Text -> Maybe Time.Day
@@ -206,9 +215,9 @@ parseCustomMeta m c = catMaybes $ for c $
 parseMetaData :: T.Text -> M.Map T.Text [T.Text]
 parseMetaData t = let metaLines = T.lines t
   in M.fromListWith (flip (++)) $ 
-     catMaybes $ map parseMetaLine metaLines
+     mapMaybe parseMetaLine metaLines
   where
-    parseMetaLine l = (splitOnFirst ":" l) >:
+    parseMetaLine l = splitOnFirst ":" l <&>
                       \(k,v) -> (T.strip k, [T.strip v])
 
                         

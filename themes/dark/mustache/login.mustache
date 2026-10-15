@@ -10,6 +10,9 @@
   {{^ login }}
   <div class="login-form">
     <form action="/login" method="post" class="login pure-form">
+      {{# login-error }}
+      <p class="login-error">{{ login-error }}</p>
+      {{/ login-error }}
       <ul class="flex-vz">
 	    <li>
           <input name="username" type="text" placeholder="Username" class="login-id" required>

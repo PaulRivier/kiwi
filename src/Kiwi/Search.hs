@@ -2,7 +2,6 @@
 
 module Kiwi.Search (
   initPageSearchEngine
-  , extractTerms
   ) where
 
 -- import           Data.Text.ICU.Char

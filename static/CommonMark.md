@@ -80,7 +80,7 @@ The following snippet of text is _rendered as italicized text_.
 
 ## Strikethrough
 
-In addition, you can do strickthrough.
+In addition, you can do strikethrough.
 
 ```
 ~~Strike through this text.~

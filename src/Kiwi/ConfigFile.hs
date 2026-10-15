@@ -1,6 +1,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Kiwi.ConfigFile where
+module Kiwi.ConfigFile
+  ( KiwiConfig(..)
+  , parseConfig
+  , defaultConfigFileContent
+  ) where
 
 import qualified Data.ByteString as BS
 import           Data.Ini.Config

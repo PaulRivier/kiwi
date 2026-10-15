@@ -1,8 +1,19 @@
-module Kiwi.Controller  where
+module Kiwi.Controller
+  ( servePage
+  , serveBrowseAll
+  , serveSearch
+  , serveEditPage
+  , serveLogin
+  , logUserIn
+  , logUserOut
+  , serveNotFound
+  , withLogin
+  , ifAdmin
+  ) where
 
 import           Control.Monad.Reader
 import qualified Data.Map.Strict as M
-import           Data.Maybe (catMaybes)
+import           Data.Maybe (mapMaybe)
 import qualified Data.SearchEngine as SE
 import qualified Data.Set as S
 import qualified Data.Text as T
@@ -77,7 +88,7 @@ serveBrowseAll r' = do
 
     filterOut :: U.BrowseAllReq -> [(K.MetaField, [K.DocIndexKey])] ->
                  [(K.MetaField, [K.DocIndexKey])]
-    filterOut req fks = catMaybes $ map (notInReq) fks
+    filterOut req fks = mapMaybe notInReq fks
       where notInReq (f, ks) = case fastListDiff ks (M.findWithDefault [] f req) of
               [] -> Nothing
               a  -> Just (f, a)
@@ -101,7 +112,7 @@ serveSearch :: T.Text -> ActM ()
 serveSearch query = do
   db <- getRestrictedDB
   let matches = SE.query (K.searchEngine db) (T.words query)
-      pages = catMaybes $ map (findPage db) matches
+      pages = mapMaybe (findPage db) matches
     in case pages of
          (p:[]) -> redirect (TL.fromStrict $ U.pageUrl p)  -- un seul résultat, on y va
          _      -> do r <- V.renderSearchResults pages
@@ -123,25 +134,24 @@ serveEditPage editorM pgId =
 
 serveLogin :: ActM ()
 serveLogin = do
-  r <- V.renderLoginForm
+  r <- V.renderLoginForm False
   html r
 
+-- | On failure, the login form is displayed again with an error message
 logUserIn :: ActM ()
 logUserIn = do
   name <- formParam "username"
   pass <- formParam "password"
   accounts <- asksK K.accounts
-  kd <- asksK K.kiwiDir
   case U.verifyLogin accounts name pass of
-    Nothing -> serveNotFound -- TODO : proper response
+    Nothing -> do
+      r <- V.renderLoginForm True
+      status Net.status401
+      html r
     Just (user, groups) -> do
-      sess <- getSessions
       key <- liftIO $ U.randomText 128
       now <- liftIO $ Time.getCurrentTime
-      let newSess = M.insert key (user, groups, now) sess
-      U.updateSessions newSess
-      liftIO $ U.dumpSessions newSess $ FP.combine kd "_sessions"
-      -- setHeader "Set-Cookie" (TL.fromStrict key)
+      U.modifySessions $ M.insert key (user, groups, now)
       U.setKiwiCookie key
       redirect "/"
 
@@ -149,15 +159,11 @@ logUserIn = do
 logUserOut :: ActM ()
 logUserOut = do
   U.deleteKiwiCookie
-  sess <- getSessions
   authM <- U.getKiwiCookie
-  kd <- asksK K.kiwiDir
   case authM of
     Nothing -> html "" -- TODO
     Just auth -> do
-      let newSess = M.delete auth sess
-      U.updateSessions newSess
-      liftIO $ U.dumpSessions newSess $ FP.combine kd "_sessions"
+      U.modifySessions $ M.delete auth
       redirect "/"
 
 
@@ -179,13 +185,16 @@ findPage :: K.PagesDB -> K.PageUID -> Maybe K.Page
 findPage db pgId = DI.findDoc (K.pagesIndex db) pgId 
 
 
+-- | Set login from session cookie, if the session exists and has not expired
 withLogin :: ActM a -> ActM a
 withLogin run = do
   authM <- U.getKiwiCookie
   sess <- getSessions
+  now <- liftIO $ Time.getCurrentTime
   let login' = case authM of
         Nothing -> Nothing
-        Just auth -> M.lookup auth sess
+        Just auth -> M.lookup auth sess >>= \l ->
+          if U.isSessionValid now l then Just l else Nothing
   local (setLogin login') run
   where
     setLogin l ss = ss { K.login = l }

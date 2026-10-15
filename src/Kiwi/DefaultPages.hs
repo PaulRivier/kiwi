@@ -1,7 +1,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 
-module Kiwi.DefaultPages where
+module Kiwi.DefaultPages
+  ( defaultHomePage
+  , commonmarkDocPage
+  ) where
 
 
 import qualified Data.ByteString as BS

@@ -1,2 +1,316 @@
+module Main (main) where
+
+import           Data.Char (isAscii, isAlphaNum)
+import qualified Data.Map as M
+import           Data.Maybe (fromMaybe)
+import qualified Data.Set as S
+import qualified Data.Text as T
+import qualified Data.Time as Time
+import           Test.Hspec
+import qualified Text.Pandoc.Definition as PD
+import qualified Text.Pandoc.Walk as PW
+
+import           Kiwi.Pandoc (loadPage, parseMetaData, parseCustomMeta)
+import           Kiwi.Types
+import qualified Kiwi.Utils as U
+import qualified Utils.DocIndex as DI
+
+
 main :: IO ()
-main = putStrLn "Test suite not yet implemented"
+main = hspec $ do
+  describe "Kiwi.Pandoc.loadPage" loadPageSpec
+  describe "Kiwi.Pandoc metadata" metaDataSpec
+  describe "Kiwi.Utils tags" tagsSpec
+  describe "Kiwi.Utils browse requests" browseReqSpec
+  describe "Kiwi.Utils passwords" passwordSpec
+  describe "Utils.DocIndex" docIndexSpec
+
+
+--------------------------------------------------------------------------------
+-- Pandoc
+
+defMeta :: MetaData
+defMeta = MetaData { metaId = Nothing
+                   , metaTitle = "untitled"
+                   , metaTags = ["untagged"]
+                   , metaAccess = ["private"]
+                   , metaLang = English
+                   , metaCustom = []
+                   }
+
+-- | Load a page from source "src", located in pages subfolder "sub"
+load :: T.Text -> PandocPage
+load = loadIn "sub"
+
+loadIn :: FilePath -> T.Text -> PandocPage
+loadIn dir c = case loadPage "test.md" c "src" defMeta [] dir of
+  Left e -> error e
+  Right p -> p
+
+-- | (classes, url) of every link, and url of every image
+links :: PandocPage -> [([T.Text], T.Text)]
+links = PW.query f . pandocDoc
+  where f (PD.Link (_, cls, _) _ (url, _)) = [(cls, url)]
+        f _ = []
+
+images :: PandocPage -> [T.Text]
+images = PW.query f . pandocDoc
+  where f (PD.Image _ _ (url, _)) = [url]
+        f _ = []
+
+blocks :: PandocPage -> [PD.Block]
+blocks p = let PD.Pandoc _ bs = pandocDoc p in bs
+
+loadPageSpec :: Spec
+loadPageSpec = do
+  it "reads metadata header and content" $ do
+    let p = load "title: My title\ntags: a, b > c\naccess: public\nlang: french\n\nHello"
+        m = pandocMeta p
+    metaTitle m `shouldBe` "My title"
+    metaTags m `shouldBe` ["a", "b > c"]
+    metaAccess m `shouldBe` ["public"]
+    metaLang m `shouldBe` French
+    blocks p `shouldBe` [PD.Para [PD.Str "Hello"]]
+
+  it "uses default metadata when fields are missing" $ do
+    let m = pandocMeta $ load "foo: bar\n\nHello"
+    metaTitle m `shouldBe` "untitled"
+    metaTags m `shouldBe` ["untagged"]
+    metaAccess m `shouldBe` ["private"]
+    metaLang m `shouldBe` English
+    metaId m `shouldBe` Nothing
+
+  it "joins repeated fields" $ do
+    let m = pandocMeta $ load "title: a\ntags: t1\ntags: t2, t3\n\n"
+    metaTags m `shouldBe` ["t1", "t2", "t3"]
+
+  it "reads custom id" $
+    metaId (pandocMeta $ load "id: my-id\n\n") `shouldBe` Just "my-id"
+
+  it "accepts windows line endings" $ do
+    let p = load "title: T\r\ntags: x\r\n\r\nline 1\r\nline 2"
+    metaTitle (pandocMeta p) `shouldBe` "T"
+    metaTags (pandocMeta p) `shouldBe` ["x"]
+    blocks p `shouldBe` [PD.Para [PD.Str "line", PD.Space, PD.Str "1",
+                                  PD.SoftBreak, PD.Str "line", PD.Space, PD.Str "2"]]
+
+  it "accepts a file with header only" $ do
+    let p = load "title: Only header"
+    metaTitle (pandocMeta p) `shouldBe` "Only header"
+    blocks p `shouldBe` []
+
+  it "fixes relative and absolute page links, and collects them" $ do
+    let p = load "title: t\n\n[a](<page:Other>) [b](<page:/Top/Page>)"
+    links p `shouldBe` [ (["kiwi-link-page"], "/page/src/sub:Other")
+                       , (["kiwi-link-page"], "/page/src/Top:Page") ]
+    pandocPageLinks p `shouldBe` [("src", "sub:Other"), ("src", "Top:Page")]
+
+  it "fixes page links from a page at top of pages folder" $ do
+    let p = loadIn "" "title: t\n\n[a](<page:Other>)"
+    links p `shouldBe` [(["kiwi-link-page"], "/page/src/Other")]
+    pandocPageLinks p `shouldBe` [("src", "Other")]
+
+  it "fixes image and file links" $ do
+    let p = load "title: t\n\n[i](<image:a.png>) [j](<image:/b.png>) \
+                 \[f](<file:c.ods>) [g](<file:/d.ods>)"
+    links p `shouldBe` [ (["kiwi-link-image"], "/image/src/sub/a.png")
+                       , (["kiwi-link-image"], "/image/src/b.png")
+                       , (["kiwi-link-file"], "/file/src/sub/c.ods")
+                       , (["kiwi-link-file"], "/file/src/d.ods") ]
+    pandocPageLinks p `shouldBe` []
+
+  it "keeps anchors and external links" $ do
+    let p = load "title: t\n\n[a](#section) [b](https://example.org)"
+    links p `shouldBe` [ (["kiwi-link-anchor"], "#section")
+                       , (["kiwi-link-external"], "https://example.org") ]
+
+  it "fixes images paths" $ do
+    let p = load "title: t\n\n![x](<image:a.png>) ![y](<image:/b.png>) ![z](http://e.org/c.png)"
+    images p `shouldBe` ["/image/src/sub/a.png", "/image/src/b.png", "http://e.org/c.png"]
+
+  it "uses images-dir and files-dir metadata" $ do
+    let p = load "title: t\nimages-dir: pics\nfiles-dir: docs\n\n\
+                 \![x](<image:a.png>) [f](<file:c.ods>)"
+    images p `shouldBe` ["/image/src/pics/a.png"]
+    links p `shouldBe` [(["kiwi-link-file"], "/file/src/docs/c.ods")]
+
+
+metaDataSpec :: Spec
+metaDataSpec = do
+  it "parses metadata lines" $
+    parseMetaData "title: a: b\nnot meta\ntags: x\n tags : y "
+      `shouldBe` M.fromList [("title", ["a: b"]), ("tags", ["x", "y"])]
+
+  it "parses custom metadata according to their type" $ do
+    let cfg = [ CustomMetaConfig "date" CmtDate 1
+              , CustomMetaConfig "count" CmtInt 1
+              , CustomMetaConfig "flag" CmtBool 1
+              , CustomMetaConfig "authors" CmtText 1
+              , CustomMetaConfig "absent" CmtText 1 ]
+        m = parseMetaData "date: 2020-1-5, 2021-12-31, bad\ncount: 3, x, 12\n\
+                          \flag: Yes\nauthors: John, Jack\\, Jr"
+        res = [ (cmdName c, cmdKeys c) | c <- parseCustomMeta m cfg ]
+    res `shouldBe` [ ("date", [ KeyDay (Time.fromGregorian 2020 1 5)
+                              , KeyDay (Time.fromGregorian 2021 12 31) ])
+                   , ("count", [KeyInt 3, KeyInt 12])
+                   , ("flag", [KeyBool True])
+                   , ("authors", [KeyText "John", KeyText "Jack, Jr"]) ]
+
+  it "reads booleans" $ do
+    let cfg = [CustomMetaConfig "b" CmtBool 1]
+        m = parseMetaData "b: true, 1, yes, no, false, other"
+    map cmdKeys (parseCustomMeta m cfg)
+      `shouldBe` [map KeyBool [True, True, True, False, False, False]]
+
+
+--------------------------------------------------------------------------------
+-- Utils
+
+tagsSpec :: Spec
+tagsSpec = do
+  it "splits metadata on commas, with escaping" $
+    U.splitMeta "a, b\\, c, ,d" `shouldBe` ["a", "b, c", "d"]
+
+  it "splits on several escaped separators" $
+    U.splitMeta "a\\,b\\,c, d" `shouldBe` ["a,b,c", "d"]
+
+  it "keeps other backslashes" $
+    U.splitMeta "a\\b, c\\" `shouldBe` ["a\\b", "c\\"]
+
+  it "splits tags in segments" $
+    U.tagToSegments "loisir > sport>escalade" `shouldBe` ["loisir", "sport", "escalade"]
+
+  it "computes tag sub segments" $
+    U.tagSubSegments "loisir>sport>escalade"
+      `shouldBe` [["loisir"], ["loisir", "sport"], ["loisir", "sport", "escalade"]]
+
+  it "roundtrips segments with escaped >" $ do
+    U.segmentsToTag ["a>b", "c"] `shouldBe` "a\\>b>c"
+    U.tagToSegments (U.segmentsToTag ["a>b", "c"]) `shouldBe` ["a>b", "c"]
+
+  it "prefixes and normalizes tags" $
+    U.prefixNormalizeTag ["root"] "a > b" `shouldBe` "root>a>b"
+
+  it "pretty prints tags" $
+    U.prettyTag "a>b" `shouldBe` "a > b"
+
+  it "keeps only root tags" $
+    U.filterRootTags [["a"], ["a", "b"], ["c", "d"], ["c", "d", "e"]]
+      `shouldBe` [["a"], ["c", "d"]]
+
+
+browseReqSpec :: Spec
+browseReqSpec = do
+  it "roundtrips encodeReq / decodeReq" $ do
+    let req = M.fromList [ (FieldTag, [KeyText "a>b", KeyText "é ç/&?"])
+                         , (FieldCustom "date", [KeyDay (Time.fromGregorian 2020 2 29)])
+                         , (FieldSource, [KeyText "my"]) ]
+    U.decodeReq (U.encodeReq req) `shouldBe` req
+
+  it "decodes an invalid request as empty" $
+    U.decodeReq "garbage" `shouldBe` M.empty
+
+  it "adds keys to a request" $
+    U.addToReq (U.createReq (FieldTag, KeyText "a")) (FieldTag, KeyText "b")
+      `shouldBe` M.fromList [(FieldTag, [KeyText "b", KeyText "a"])]
+
+
+passwordSpec :: Spec
+passwordSpec = do
+  let salt = "0123456789abcdef"
+      hash = fromMaybe (error "hashPassword failed") $ U.hashPassword salt "secret"
+      accounts = [Account "paul" salt hash ["admin", "family"]]
+
+  it "hashes passwords deterministically, as hex" $ do
+    U.hashPassword salt "secret" `shouldBe` Just hash
+    T.length hash `shouldBe` 64
+    U.hashPassword salt "other" `shouldNotBe` Just hash
+    U.hashPassword "fedcba9876543210" "secret" `shouldNotBe` Just hash
+
+  it "refuses salts shorter than 8 bytes" $
+    U.hashPassword "short" "secret" `shouldBe` Nothing
+
+  it "verifies logins" $ do
+    U.verifyLogin accounts "paul" "secret" `shouldBe` Just ("paul", ["admin", "family"])
+    U.verifyLogin accounts "paul" "wrong" `shouldBe` Nothing
+    U.verifyLogin accounts "nobody" "secret" `shouldBe` Nothing
+
+  it "generates random alphanumeric texts" $ do
+    t0 <- U.randomText 0
+    t0 `shouldBe` ""
+    t1 <- U.randomText 128
+    t2 <- U.randomText 128
+    T.length t1 `shouldBe` 128
+    T.all (\c -> isAscii c && isAlphaNum c) t1 `shouldBe` True
+    t1 `shouldNotBe` t2
+
+
+--------------------------------------------------------------------------------
+-- DocIndex
+
+-- | (id, tags, year)
+type Doc = (Int, [T.Text], Int)
+
+docId :: Doc -> Int
+docId (i, _, _) = i
+
+docsIndex :: [Doc] -> DI.DocIndex Doc Int String DocIndexKey
+docsIndex = DI.insertMany $ DI.init docId
+  [ DI.Field "tag" (\(_, ts, _) -> map KeyText ts)
+  , DI.Field "year" (\(_, _, y) -> [KeyInt y]) ]
+
+sampleDocs :: [Doc]
+sampleDocs = [ (1, ["a", "b"], 2019)
+             , (2, ["a"], 2020)
+             , (3, ["c"], 2021)
+             , (4, [], 2022) ]
+
+ids :: DI.DocIndex Doc Int String DocIndexKey -> DI.Query String DocIndexKey -> [Int]
+ids idx q = S.toList $ DI.queryIdSet idx q
+
+docIndexSpec :: Spec
+docIndexSpec = do
+  let idx = docsIndex sampleDocs
+      tag t = DI.Only "tag" (KeyText t)
+      year y = KeyInt y
+
+  it "stores and finds documents" $ do
+    DI.cardinal idx `shouldBe` 4
+    DI.findDoc idx 2 `shouldBe` Just (2, ["a"], 2020)
+    DI.findDoc idx 5 `shouldBe` Nothing
+
+  it "indexes field keys" $
+    DI.getFieldKeys idx "tag" `shouldBe` map KeyText ["a", "b", "c"]
+
+  it "runs And / Or / All / Any queries" $ do
+    ids idx (tag "a") `shouldBe` [1, 2]
+    ids idx (DI.And [tag "a", tag "b"]) `shouldBe` [1]
+    ids idx (DI.Or [tag "b", tag "c"]) `shouldBe` [1, 3]
+    ids idx (DI.All "tag" $ S.fromList [KeyText "a", KeyText "b"]) `shouldBe` [1]
+    ids idx (DI.Any "tag" $ S.fromList [KeyText "b", KeyText "c"]) `shouldBe` [1, 3]
+    ids idx (DI.HasField "tag") `shouldBe` [1, 2, 3]
+    ids idx (DI.And []) `shouldBe` []
+
+  it "runs range queries, bounds included" $ do
+    ids idx (DI.Range "year" (year 2020) (year 2021)) `shouldBe` [2, 3]
+    ids idx (DI.Range "year" (year 2019) (year 2019)) `shouldBe` [1]
+    ids idx (DI.GreaterThanOrEq "year" (year 2021)) `shouldBe` [3, 4]
+    ids idx (DI.LowerThanOrEq "year" (year 2020)) `shouldBe` [1, 2]
+
+  it "removes documents and their keys" $ do
+    let idx' = DI.removeMany idx [1, 3]
+    DI.cardinal idx' `shouldBe` 2
+    ids idx' (tag "a") `shouldBe` [2]
+    DI.getFieldKeys idx' "tag" `shouldBe` [KeyText "a"]
+
+  it "replaces a document inserted twice" $ do
+    let idx' = DI.insert idx (2, ["z"], 2020)
+    DI.cardinal idx' `shouldBe` 4
+    ids idx' (tag "a") `shouldBe` [1]
+    ids idx' (tag "z") `shouldBe` [2]
+
+  it "narrows an index to a query" $ do
+    let idx' = DI.narrow idx (tag "a")
+    DI.cardinal idx' `shouldBe` 2
+    DI.getFieldKeys idx' "tag" `shouldBe` map KeyText ["a", "b"]
+    ids idx' (DI.HasField "year") `shouldBe` [1, 2]

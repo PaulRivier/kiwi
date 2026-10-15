@@ -200,6 +200,12 @@ form.login input {
 
 form.login button { width: 10em; }
 
+form.login p.login-error {
+  color: #e06c6c;
+  width: 10em;
+  margin: 8px 2px 0 2px;
+}
+
 
 div#login-box {
   display: flex;

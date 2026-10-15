@@ -1,7 +1,7 @@
 # Kiwi
 
 Kiwi is a minimalist content management system, using a database of
-Markdown files managed by the user. Kiwi is optmized for text
+Markdown files managed by the user. Kiwi is optimized for text
 contents. It aims to offer a powerful solution to handle all types of
 notes you want to write for yourself or share with others, and remain
 reliable and simple so that you feel comfortable with it.
@@ -40,7 +40,7 @@ deployment instructions from there, then come back to this page.
 
 ### Cabal way (recommended)
 
-Get the source code, check GHC compiler version from head of file `cabal.project`, and install it for exemple with `ghcup`.
+Get the source code, check GHC compiler version from head of file `cabal.project`, and install it for example with `ghcup`.
 
 Then, from source directory, run as user :
 
@@ -51,7 +51,6 @@ You may need to install the following packages on your system :
 - libgmp-dev
 - zlib1g-dev
 - pkg-config
-- binutils-gold (the gold linker may be required)
 
 
 # Getting started
@@ -124,6 +123,13 @@ Your pages should go in the *pages* folder, your images in the
 This is the main configuration file and it is self documented. Again,
 be sure that you theme-dir configuration is pointing to a real theme
 directory. Start with one bundled with this repository.
+
+If Kiwi is served through HTTPS (behind a reverse proxy for example),
+set `secure-cookie: yes` in the `[kiwi]` section: the session cookie
+will then only be sent over HTTPS connections. Keep it to `no` if you
+access Kiwi with plain HTTP, or login will not work.
+
+Sessions expire after one year, you then have to log in again.
 
 ## content folder
 
@@ -252,8 +258,8 @@ behaviour, however they provide the following properties :
   will save you strokes and help you move folders if you need to.
 - If meta *images-dir* is not set, links to an image are relative to
   current page subfolder in 'images' folder. In other word, from
-  document *pages/receipe/cake.md*, a link to *image:cacao.png* will
-  look for file *images/receipe/cacao.png*. If meta *images-dir* is
+  document *pages/recipe/cake.md*, a link to *image:cacao.png* will
+  look for file *images/recipe/cacao.png*. If meta *images-dir* is
   set, it takes precedence.
 - same applies to files
 
@@ -290,13 +296,13 @@ your content and control tags proliferation. Use it as demonstrated
 below :
 
     title: Japanese cake
-    tags: cooking > receipt > cake, favorite, area > Japan
+    tags: cooking > recipe > cake, favorite, area > Japan
 
 This will just work as you want it to work.
 
 If you prefer you can span tags on multiple lines :
 
-    tags: cooking > receipt > cake
+    tags: cooking > recipe > cake
     tags: favorite
     tags: area > Japan
 
@@ -332,7 +338,7 @@ russian, spanish, swedish and turkish.
 
 
     title: French fries : les Frites
-    tags: cooking > receipt, area > France
+    tags: cooking > recipe, area > France
 	lang: french
 
 
@@ -351,3 +357,10 @@ documents.
 
 Kiwi is unaware of your content history, however you are strongly
 encouraged to keep your content in a revision control system.
+
+# License
+
+Copyright (C) 2020 - Paul Rivier
+
+Kiwi is free software, released under the GNU General Public License,
+version 3 or later. See the *LICENSE* file.

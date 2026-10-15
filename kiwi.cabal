@@ -1,7 +1,7 @@
 cabal-version:      3.4
 
 name:           kiwi
-version:        0.2.1.1
+version:        0.3.0.0
 synopsis:       Minimalist wiki/CMS based on CommonMark files
 category:       Web
 description:    Please see the README on GitHub at <https://github.com/PaulRivier/kiwi>
@@ -98,7 +98,14 @@ executable kiwi
 
 test-suite kiwi-test
   import:  ghc-opts
-  build-depends: base >=4.7 && <5
+  build-depends:
+      base >=4.7 && <5
+    , containers
+    , hspec
+    , kiwi
+    , pandoc-types
+    , text
+    , time
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test

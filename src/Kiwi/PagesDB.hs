@@ -1,6 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 
-module Kiwi.PagesDB where
+module Kiwi.PagesDB
+  ( updatePagesDB
+  , emptyPagesDB
+  ) where
 
 import           Control.Exception (IOException, try)
 import           Control.Monad (forM_)
@@ -20,7 +23,7 @@ import           Kiwi.Search
 import           Kiwi.Types
 import           Kiwi.Pandoc (loadPageIO)
 import           Kiwi.Utils (traverseDir, tagSubSegments, segmentsToTag,
-                             nodup, concatMapM, isDotFile, isValidMdFilename)
+                             nodup, isDotFile, isValidMdFilename)
 import qualified Utils.DocIndex as DI
 
 updatePagesDB :: FP.FilePath ->  FP.FilePath -> PagesDB ->  IO PagesDB
@@ -36,7 +39,7 @@ updatePagesDB contentDir' pagesDir db =
       True -> return db   -- nothing to do
       False -> do         -- some work to do
          -- pas de dossier caché
-        fsPathsRaw <- concatMapM (\d -> traverseDir d (not . isDotFile)) pagesDirs
+        fsPathsRaw <- concat <$> mapM (\d -> traverseDir d (not . isDotFile)) pagesDirs
         let fsPaths = filter (isValidMdFilename . FP.takeFileName) fsPathsRaw
         newOrMod <- getNewOrMod contentDir' lu fsPaths
         let removedUIDs = getRemovedUIDs dbPages fsPaths

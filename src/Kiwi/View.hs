@@ -1,4 +1,11 @@
-module Kiwi.View where
+module Kiwi.View
+  ( renderPage
+  , renderBrowseAll
+  , renderSearchResults
+  , renderLoginForm
+  , renderNotFound
+  , renderForbidden
+  ) where
 
 import           Data.Aeson (ToJSON(..), (.=), toJSON, object)
 import qualified Data.Aeson as J
@@ -35,7 +42,7 @@ renderLayout t c pgi = do
   isAdmin <- U.isAdmin
   toc <- asksK K.tocSetting
   let ld = object [ "title" .= t
-                  , "toc-setting" .= (show toc)
+                  , "toc-setting" .= K.tocSettingValue toc
                   , "content" .= c
                   , "locales" .= loc
                   , "page-info" .= pgi
@@ -124,10 +131,13 @@ renderSearchResults pages = do
   renderLayout (K.loc_Search loc) lc Nothing
 
 
-renderLoginForm :: ActM TL.Text
-renderLoginForm = do
+-- | Login form, with an error message if previous attempt failed
+renderLoginForm :: Bool -> ActM TL.Text
+renderLoginForm failed = do
+  loc <- getLocales
   tpl <- getTemplate
-  let c = object []
+  let c = object [ "login-error" .= if failed then Just (K.loc_LoginFailed loc)
+                                    else Nothing ]
   let lc = X.renderMustache (K.loginTemplate tpl) c
   renderLayout "Log-in" lc Nothing
 

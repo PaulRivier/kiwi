@@ -28,7 +28,7 @@ jobs:
       - name: Installer les dépendances système
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgmp-dev zlib1g-dev binutils-gold pkg-config
+          sudo apt-get install -y libgmp-dev zlib1g-dev pkg-config
 
       - name: Cache Cabal
         uses: actions/cache@v4

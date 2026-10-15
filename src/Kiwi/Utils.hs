@@ -1,6 +1,67 @@
-module Kiwi.Utils where
+module Kiwi.Utils
+  ( -- * Server state access
+    asksK
+  , getDB
+  , getSessions
+  , modifySessions
+  , isSessionValid
+    -- * Cookies
+  , setKiwiCookie
+  , getKiwiCookie
+  , deleteKiwiCookie
+    -- * Accounts and passwords
+  , verifyLogin
+  , hashPassword
+  , isAdmin
+  , randomText
+    -- * Tags and metadata
+  , tagSubSegments
+  , tagToSegments
+  , tagsListSubSegments
+  , segmentsToTag
+  , prettyTag
+  , prefixNormalizeTag
+  , filterRootTags
+  , splitMeta
+    -- * Lists
+  , nodup
+  , fastListDiff
+    -- * DocIndex queries
+  , qAny
+  , qOnly
+  , qHasField
+    -- * Browse requests
+  , BrowseAllReq
+  , reqToQuery
+  , createReq
+  , addToReq
+  , decodeReq
+  , encodeReq
+  , showKeyLabel
+    -- * Files, pages ids and URLs
+  , isDotFile
+  , isValidMdFilename
+  , pathToPageId
+  , normalizePageId
+  , pageUrl
+  , pageUIDLink
+  , joinPathT
+    -- * Caching
+  , initWAICaching
+    -- * IO
+  , traverseDir
+  , getFileContent
+  , timeIO
+  , loadAccounts
+  , dumpAccounts
+  , loadSessions
+    -- * Misc
+  , splitOnFirst
+  , fst3
+  ) where
 
-import           Control.Monad (forM, liftM)
+import           Control.Concurrent.MVar (readMVar, modifyMVar_)
+import           Control.Monad (forM)
 import           Control.Monad.Reader
 import qualified Crypto.Error as CE
 import qualified Crypto.KDF.Argon2 as Argon2
@@ -12,7 +73,7 @@ import           Data.Char (isAlphaNum)
 import           Data.IORef
 import qualified Data.List as L
 import qualified Data.Map.Strict as M
-import           Data.Maybe (catMaybes, fromMaybe)
+import           Data.Maybe (mapMaybe, fromMaybe)
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -40,13 +101,31 @@ getDB = do
 
 getSessions :: ActM Sessions
 getSessions = do
-  sR <- serverM $ asks sessions
-  liftIO $ readIORef sR
+  sM <- asksK sessions
+  liftIO $ readMVar sM
 
-updateSessions :: Sessions -> ActM ()
-updateSessions newS = do
-  sR <- serverM $ asks sessions
-  liftIO $ atomicWriteIORef sR newS
+-- | Modify sessions and save them to disk. The MVar is held during the
+-- whole operation, so concurrent modifications (login, logout) are
+-- serialized and the file always matches the memory state. Expired
+-- sessions are purged at the same time.
+modifySessions :: (Sessions -> Sessions) -> ActM ()
+modifySessions f = do
+  sM <- asksK sessions
+  kd <- asksK kiwiDir
+  liftIO $ modifyMVar_ sM $ \s -> do
+    now <- Time.getCurrentTime
+    let newS = M.filter (isSessionValid now) $ f s
+    dumpSessions newS $ FP.combine kd "_sessions"
+    return newS
+
+-- | Maximum duration of a session, server side and for the cookie.
+sessionMaxAge :: Time.NominalDiffTime
+sessionMaxAge = 365 * Time.nominalDay
+
+-- | A session is valid if it has been opened less than 'sessionMaxAge' ago.
+isSessionValid :: Time.UTCTime -> Login -> Bool
+isSessionValid now (_, _, loginTime) =
+  Time.diffUTCTime now loginTime < sessionMaxAge
 
 getCookieName :: ActM T.Text
 getCookieName = do
@@ -70,8 +149,7 @@ kiwiCookie value = do
 setKiwiCookie :: T.Text -> ActM ()
 setKiwiCookie v = do
   c <- kiwiCookie v
-  let year = 365 * 24 * 60 * 60 -- number of seconds in a year
-  CK.setCookie $ c { CK.setCookieMaxAge = Just year }
+  CK.setCookie $ c { CK.setCookieMaxAge = Just (realToFrac sessionMaxAge) }
 
 getKiwiCookie :: ActM (Maybe T.Text)
 getKiwiCookie  = CK.getCookie =<< getCookieName
@@ -154,26 +232,33 @@ fastListDiff l1 l2 = S.toList $ S.difference (S.fromList l1) (S.fromList l2)
 splitMeta :: T.Text -> [TagId]
 splitMeta = splitTextEsc ','
 
+-- | Split on separator, unless it is escaped by a backslash. Other
+-- backslashes are kept as is. Parts are stripped, empty parts are dropped.
 splitTextEsc :: Char -> T.Text -> [T.Text]
-splitTextEsc sep = filter (not . T.null) . map T.strip . 
-                   joinAfterEsc . T.split (== sep)
+splitTextEsc sep = filter (not . T.null) . map (T.strip . T.pack . reverse) .
+                   go [] . T.unpack
   where
-    joinAfterEsc []       = []
-    joinAfterEsc (a:[])   = [a]
-    joinAfterEsc (a:b:rs) = case T.stripSuffix "\\" a of
-      Nothing -> a : joinAfterEsc (b:rs)
-      Just ax -> (T.concat [ax, T.singleton sep, b]) : joinAfterEsc rs
+    -- acc is the current part, reversed
+    go acc ('\\':c:rs) | c == sep = go (c:acc) rs
+    go acc (c:rs)      | c == sep = acc : go [] rs
+                       | otherwise = go (c:acc) rs
+    go acc []          = [acc]
 
 
 
 
 -- DocIndex request helpers
 
-qAll, qAny :: (FieldKey key) =>
-              field ->
-              [key] ->
-              DI.Query field DocIndexKey
-qAll f keys = DI.All f $ S.fromList $ map toKey keys
+-- qAll :: (FieldKey key) =>
+--         field ->
+--         [key] ->
+--         DI.Query field DocIndexKey
+-- qAll f keys = DI.All f $ S.fromList $ map toKey keys
+
+qAny :: (FieldKey key) =>
+        field ->
+        [key] ->
+        DI.Query field DocIndexKey
 qAny f keys = DI.Any f $ S.fromList $ map toKey keys
 
 qOnly :: (FieldKey key) =>
@@ -187,18 +272,18 @@ qHasField :: field ->
 qHasField f = DI.HasField f
 
 
-qRange :: (FieldKey key) =>
-         field ->
-         key -> key ->
-         DI.Query field DocIndexKey
-qRange f key1 key2 = DI.Range f (toKey key1) (toKey key2)
+-- qRange :: (FieldKey key) =>
+--          field ->
+--          key -> key ->
+--          DI.Query field DocIndexKey
+-- qRange f key1 key2 = DI.Range f (toKey key1) (toKey key2)
 
-qGreaterThanOrEq, qLowerThanOrEq :: (FieldKey key) =>
-                                    field ->
-                                    key ->
-                                    DI.Query field DocIndexKey
-qGreaterThanOrEq f key = DI.GreaterThanOrEq f $ toKey key
-qLowerThanOrEq f key = DI.LowerThanOrEq f $ toKey key
+-- qGreaterThanOrEq, qLowerThanOrEq :: (FieldKey key) =>
+--                                     field ->
+--                                     key ->
+--                                     DI.Query field DocIndexKey
+-- qGreaterThanOrEq f key = DI.GreaterThanOrEq f $ toKey key
+-- qLowerThanOrEq f key = DI.LowerThanOrEq f $ toKey key
 
 
 -- Others DocIndex and URI construction utils
@@ -329,7 +414,7 @@ loadAccounts p = do
   fcM <- getFileContent p
   case fcM of
     Nothing -> return []
-    Just c -> return $ catMaybes $ map readAccount $ T.lines c
+    Just c -> return $ mapMaybe readAccount $ T.lines c
   where
     readAccount l = case T.splitOn ":" l of
       (lg:salt:hash:grps:[]) -> Just $
@@ -343,6 +428,7 @@ dumpAccounts accounts' p =
   where dumpAccount a = T.intercalate ":" [ accountId a, accountSalt a, accountHash a,
                                             T.intercalate "," $ accountGroups a ]
   
+-- | Load sessions from file, expired sessions are dropped
 loadSessions :: FP.FilePath -> IO Sessions
 loadSessions p = do
   fcM <- getFileContent p
@@ -350,7 +436,8 @@ loadSessions p = do
   let dd = Time.addUTCTime (-100000) td
   case fcM of
     Nothing -> return M.empty
-    Just c -> return $ M.fromList $ catMaybes $ map (readSession dd) $ T.lines c
+    Just c -> return $ M.filter (isSessionValid td) $ M.fromList $
+              mapMaybe (readSession dd) $ T.lines c
   where
     -- sessionId:user:groups
     readSession dd l = case T.splitOn ":" l of
@@ -379,18 +466,6 @@ splitOnFirst sep t = case T.breakOn sep t of
   (_, "") -> Nothing
   (pref,rst) -> Just (pref, T.drop (T.length sep) rst)
 
-
-concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
-concatMapM f xs = liftM concat (mapM f xs)
-
-(>:) :: Functor f => f a -> (a -> b) -> f b
-(>:) = flip fmap
-
-for :: Functor f => f a -> (a -> b) -> f b
-for = flip fmap
-
--- (>$) :: a -> (a -> b) -> b
--- a >$ b = b a
 
 fst3 :: (a,b,c) -> a
 fst3 (a,_,_) = a

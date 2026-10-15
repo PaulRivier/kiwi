@@ -1,16 +1,52 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving, FlexibleInstances, DerivingStrategies #-}
 
-module Kiwi.Types where
+module Kiwi.Types
+  ( -- * Server
+    ServerState(..)
+  , KiwiTemplate(..)
+  , Account(..)
+  , Login
+  , Sessions
+  , ServerM(..)
+  , WebM
+  , ActM
+    -- * Pages and metadata
+  , PagesDB(..)
+  , MetaField(..)
+  , MetaData(..)
+  , Page(..)
+  , PageUID
+  , TagId
+  , TagSegments
+  , PandocPage(..)
+  , CollectedFromDoc(..)
+  , CustomMetaData(..)
+  , CustomMetaConfig(..)
+  , SourceConfig(..)
+  , CustomMetaType(..)
+  , DocIndexKey(..)
+  , FieldKey(..)
+    -- * Search engine
+  , PageSearchEngine
+  , PageField(..)
+    -- * Config, locales
+  , TocSetting(..)
+  , tocSettingValue
+  , Lang(..)
+  , UI_Lang(..)
+  , Locales(..)
+  ) where
 
+import           Control.Concurrent.MVar (MVar)
 import           Control.Monad.IO.Unlift (MonadUnliftIO)
 import           Control.Monad.Reader
 import           Data.Char (toLower, isSpace)
 import           Data.IORef
 import           Data.Ix (Ix)
 import qualified Data.Map.Strict as M
-import           Data.Maybe (catMaybes)
+import           Data.Maybe (mapMaybe)
 import           Data.SearchEngine
-import qualified Data.Set as S
+-- import qualified Data.Set as S
 import qualified Data.Text as T
 -- import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
@@ -31,9 +67,10 @@ data ServerState =
               , uiLang        :: UI_Lang
               , template      :: KiwiTemplate
               , accounts      :: [Account]
-              , sessions      :: IORef Sessions
+              , sessions      :: MVar Sessions
               , login         :: Maybe Login
               , pagesDB       :: IORef PagesDB
+              , pagesDBLock   :: MVar ()  -- ^ serializes pagesDB updates
               , tocSetting    :: TocSetting
               , secureCookie  :: Bool
               }
@@ -118,7 +155,7 @@ data Page =
 
 
 type PageUID = (T.Text, T.Text) -- ^ (source, page id)
-type PageSet = S.Set Page
+-- type PageSet = S.Set Page
 type TagId = T.Text
 type TagSegments = [TagId]
 
@@ -177,7 +214,7 @@ class Ord k => FieldKey k where
   toKeys :: [k] -> [DocIndexKey]
   toKeys = map toKey
   fromKeys :: [DocIndexKey] -> [k]
-  fromKeys = catMaybes . map fromKey
+  fromKeys = mapMaybe fromKey
 
 instance FieldKey T.Text where
   toKey = KeyText
@@ -223,12 +260,13 @@ data PageField = TitleField
 
 -- Config, locales ...
 data TocSetting = TocOn | TocOff | TocAuto
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Show)
 
-instance Show TocSetting where
-  show TocOn = "on"
-  show TocOff = "off"
-  show TocAuto = "auto"
+-- | Value of the setting, as given to templates
+tocSettingValue :: TocSetting -> T.Text
+tocSettingValue TocOn = "on"
+tocSettingValue TocOff = "off"
+tocSettingValue TocAuto = "auto"
 
 instance Read TocSetting where
   readsPrec _ s = case (trimStr $ map toLower s) of
@@ -300,7 +338,8 @@ data Locales = Locales
   , loc_ToCome :: T.Text
   , loc_NotFound :: T.Text
   , loc_Forbidden :: T.Text
-  , loc_TimeLocale :: Time.TimeLocale
+  , loc_LoginFailed :: T.Text
+  -- , loc_TimeLocale :: Time.TimeLocale
   }
   deriving (Show)
 
