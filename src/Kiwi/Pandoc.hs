@@ -67,7 +67,7 @@ loadPage path c source md cmc dir =
       Just x -> case x of
          Left e -> Left $ show e
          Right cmBlocks->
-           let doc' = PB.setTitle (PB.str $ metaTitle md) $ PB.doc (CmP.unCm cmBlocks)
+           let doc' = PB.doc (CmP.unCm cmBlocks)
                (doc, collected) = walkDoc source dirT imagesDir filesDir doc'
                colLinks = [ (source, l) | CollectedPageLink l <- collected ]
            in Right (PandocPage doc meta colLinks)

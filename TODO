@@ -12,15 +12,7 @@ Interface :
  - faire une page d'accueil plus sympa, avec les dernières modifications etc.
 
 
-
-Sécu
-- changer le hashage des MDP de sha256 à argon
-
-
 Code:
-- Remplacer code perso cookies par le module Web.Scotty.Cookie
-- ConfigFile.hs : utiliser un fichier séparé pour la config par défaut,
-  et l'inclure avec file-embed
 
 
 Archi:

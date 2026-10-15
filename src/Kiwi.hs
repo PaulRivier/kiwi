@@ -3,6 +3,7 @@ module Kiwi where
 import           Control.Concurrent.Async (mapConcurrently)
 import           Control.Exception (bracket_)
 import           Control.Monad (forM_)
+import qualified Data.ByteString as BS
 import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -52,7 +53,7 @@ runServer cache cfp = do
           putStrLn "Kiwi will now write a clean kiwi.ini to kiwi.ini.default \
                    \to help you fix your config"
           let kd = FP.takeDirectory cfp
-          writeFile (FP.combine kd "kiwi.ini.default") Conf.defaultConfigFileContent
+          BS.writeFile (FP.combine kd "kiwi.ini.default") Conf.defaultConfigFileContent
         Right conf -> kiwiServer cfp conf cache
 
 
@@ -68,14 +69,14 @@ initKiwiDir d = do
           putStrLn $ unlines ["Directory must be empty for initialisation",
                               "In case you want to update your kiwi.ini file, ",
                               "kiwi will copy current kiwi.ini file format to kiwi.ini.default"]
-          writeFile (FP.combine d "kiwi.ini.default") Conf.defaultConfigFileContent
+          BS.writeFile (FP.combine d "kiwi.ini.default") Conf.defaultConfigFileContent
         True -> createKiwi d
   where
     createKiwi r = do
       forM_ (dirs r) D.createDirectory
-      writeFile (FP.combine r "kiwi.ini") Conf.defaultConfigFileContent
-      writeFile (FP.combine r "content/my/pages/Home.md") DP.defaultHomePage
-      writeFile (FP.combine r "content/my/pages/CommonMark.md") DP.commonmarkDocPage
+      BS.writeFile (FP.combine r "kiwi.ini") Conf.defaultConfigFileContent
+      BS.writeFile (FP.combine r "content/my/pages/Home.md") DP.defaultHomePage
+      BS.writeFile (FP.combine r "content/my/pages/CommonMark.md") DP.commonmarkDocPage
       putStrLn $ unlines ["Kiwi directory created at " ++ r,
                           "You should now do the following steps :",
                           " - check kiwi.ini file",

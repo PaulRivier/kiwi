@@ -16,6 +16,10 @@ build-type:     Simple
 extra-doc-files:
     README.md
     ChangeLog.md
+-- files embedded at compile time (file-embed)
+extra-source-files:
+    static/*.md
+    static/*.default
 
 source-repository head
   type: git
@@ -46,20 +50,16 @@ library
     , containers
     , crypton
     , directory
+    , file-embed
     , filepath
     , full-text-search
     , http-types
     , mtl
     , optparse-applicative
-    -- , pandoc
     , pandoc-types
     , process
-    , raw-strings-qq
     , scotty
-    -- snowball versions > 0.1.0.2 depends on lib-icu, and this is too
-    -- problematic for packaging and portability. TODO better, fork
-    -- and update snowball package and avoid lib-icu.
-    , snowball == 0.1.0.2
+    , snowball
     , stache
     , text
     , time
@@ -90,7 +90,7 @@ library
 
 executable kiwi
   import:  ghc-opts
-  build-depends: base, kiwi
+  build-depends: base >=4.7 && <5, kiwi
   main-is: Main.hs
   hs-source-dirs: app
   ghc-options:  -threaded
@@ -98,7 +98,7 @@ executable kiwi
 
 test-suite kiwi-test
   import:  ghc-opts
-  build-depends: base
+  build-depends: base >=4.7 && <5
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test

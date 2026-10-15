@@ -1,0 +1,51 @@
+[kiwi]
+# Give a name to this kiwi
+name: My Kiwi
+# Path to your content, either absolute or relative to this file folder  
+content-directory: content
+# Path to your kiwi theme directory, either absolute or relative to this file folder.
+# Themes come bundled with distribution, you should link to one of them.
+theme-directory: themes/dark
+# Your favorite text editor command. File path will be added as last argument.
+# Leave empty or remove to disable.
+# examples :  emacsclient -n -s kiwi   ///   gedit   ///   gvim
+editor: gedit
+# Server port
+port: 3456
+# Default language for UI and fulltext search
+ui-lang: english
+# Do you want HTTP logs in the console (for debug) ?
+log: no
+# Do you want to display Toc : on | off | auto
+toc: on
+# Set to yes if kiwi is served through HTTPS (behind a reverse proxy for example):
+# the session cookie will then only be sent over HTTPS connections.
+# Keep to no if you access kiwi with plain HTTP, or login will not work.
+secure-cookie: no
+
+# built-in metadata default values
+[metadata-default]
+title: untitled
+tags: untagged
+# access : built-in special groups are 'admin' and 'public'
+# You can use any groups you want here, comma-separated
+access: admin
+lang: english
+
+# If you want more metadata. Threshold is the minimum ratio of relevance that must
+# be reached before the metadata is suggested in the metadata-browser.
+
+# [metadata category]
+# type: text
+# threshold: 0
+# 
+# [metadata authors]
+# type: text
+# threshold: 0.8
+
+
+# Some sources may be very specific, you may want to nest the tags under a parent tag
+# to preserve your browsing experience
+
+# [source dad-botanic]
+# root-tag: botanic
