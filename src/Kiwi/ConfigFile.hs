@@ -23,6 +23,7 @@ data KiwiConfig = KiwiConfig
   , sourcesConfig :: [K.SourceConfig]
   , logging :: Bool
   , toc :: K.TocSetting
+  , secureCookie :: Bool
   }
   
 
@@ -52,6 +53,7 @@ configParser = do
     lang'  <- fieldOf "ui-lang" readable
     logging' <- fieldOf "log" flag
     toc' <- fieldDefOf "toc" readable K.TocOn
+    secureCookie' <- fieldFlagDef "secure-cookie" False
     return KiwiConfig
       { name = name'
       , contentDir = contentDir'
@@ -64,6 +66,7 @@ configParser = do
       , sourcesConfig = toList sourcesConfig'
       , logging = logging'
       , toc = toc'
+      , secureCookie = secureCookie'
       }
 
 
@@ -115,6 +118,10 @@ ui-lang: english
 log: no
 # Do you want to display Toc : on | off | auto
 toc: on
+# Set to yes if kiwi is served through HTTPS (behind a reverse proxy for example):
+# the session cookie will then only be sent over HTTPS connections.
+# Keep to no if you access kiwi with plain HTTP, or login will not work.
+secure-cookie: no
 
 # built-in metadata default values
 [metadata-default]

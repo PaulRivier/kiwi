@@ -3,11 +3,8 @@ module Kiwi where
 import           Control.Concurrent.Async (mapConcurrently)
 import           Control.Exception (bracket_)
 import           Control.Monad (forM_)
-import qualified Crypto.Hash.SHA256 as H
-import qualified Data.ByteString.Base16 as B16
 import qualified Data.List as L
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Network.Wai.Middleware.Static as Static
 import qualified System.Directory as D
@@ -95,13 +92,14 @@ runAccess c = do
       pass <- noEcho TIO.getLine
       putStrLn "Groups (comma separated):"
       groups <- TIO.getLine
-      salt <- U.randomText 10
-      let block = T.concat [salt, pass]
-      let hash = TE.decodeUtf8 $ B16.encode $ H.hash $ TE.encodeUtf8 block
-      let acc = Account (T.pack l) salt hash (map T.strip $ T.splitOn "," groups)
-      let newAccounts = L.nubBy (\a b -> accountId a == accountId b) (acc:accounts')
-      U.dumpAccounts newAccounts accountsFilePath
-      putStrLn "Access created"
+      salt <- U.randomText 16
+      case U.hashPassword salt pass of
+        Nothing -> putStrLn "Error: unable to hash password"
+        Just hash -> do
+          let acc = Account (T.pack l) salt hash (map T.strip $ T.splitOn "," groups)
+          let newAccounts = L.nubBy (\a b -> accountId a == accountId b) (acc:accounts')
+          U.dumpAccounts newAccounts accountsFilePath
+          putStrLn "Access created"
     AccessRemove l -> do
       let newAccounts = filter (\a -> accountId a /= (T.pack l)) accounts'
       U.dumpAccounts newAccounts accountsFilePath

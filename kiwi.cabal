@@ -2,16 +2,18 @@ cabal-version:      3.4
 
 name:           kiwi
 version:        0.2.1.1
+synopsis:       Minimalist wiki/CMS based on CommonMark files
+category:       Web
 description:    Please see the README on GitHub at <https://github.com/PaulRivier/kiwi>
 homepage:       https://github.com/PaulRivier/kiwi
 bug-reports:    https://github.com/PaulRivier/kiwi
 author:         Paul Rivier
 maintainer:     Paul Rivier
 copyright:      2020 Paul Rivier
-license:        BSD-3-Clause
+license:        GPL-3.0-or-later
 license-file:   LICENSE
 build-type:     Simple
-extra-source-files:
+extra-doc-files:
     README.md
     ChangeLog.md
 
@@ -28,57 +30,44 @@ common ghc-opts
                       -Wcompat
                       -Wredundant-constraints
 
-common deps
+library
+  import:  ghc-opts
   build-depends:
       aeson
     , async
     , base >=4.7 && <5
     , base16-bytestring
-    , blaze-builder
     , blaze-html
-    , blaze-markup
     , bytestring
     , commonmark
-    , commonmark-extensions    
+    , commonmark-extensions
     , commonmark-pandoc
     , config-ini
     , containers
-    , cookie
-    , cryptohash
+    , crypton
     , directory
     , filepath
     , full-text-search
-    , hashable
     , http-types
     , mtl
     , optparse-applicative
     -- , pandoc
     , pandoc-types
     , process
-    , random
     , raw-strings-qq
     , scotty
     -- snowball versions > 0.1.0.2 depends on lib-icu, and this is too
     -- problematic for packaging and portability. TODO better, fork
     -- and update snowball package and avoid lib-icu.
-    , snowball == 0.1.0.2 
+    , snowball == 0.1.0.2
     , stache
     , text
     , time
     , unicode-transforms
-    , unliftio-core 
+    , unliftio-core
     , utf8-string
-    , wai
     , wai-extra
     , wai-middleware-static
-
--- Shared language edition
-common lang
-  default-language: Haskell2010
-
-  
-library
-  import:  ghc-opts, deps, lang
   exposed-modules:
       Kiwi
       Kiwi.CLI
@@ -94,23 +83,22 @@ library
       Kiwi.Types
       Kiwi.Utils
       Kiwi.View
-      Utils.Cookies
       Utils.DocIndex
   other-modules: Paths_kiwi
+  autogen-modules: Paths_kiwi
   hs-source-dirs: src
 
 executable kiwi
-  import:  ghc-opts, deps, lang
-  build-depends: kiwi
+  import:  ghc-opts
+  build-depends: base, kiwi
   main-is: Main.hs
-  other-modules: Paths_kiwi
   hs-source-dirs: app
   ghc-options:  -threaded
 
 
 test-suite kiwi-test
-  import:  ghc-opts, deps, lang
+  import:  ghc-opts
+  build-depends: base
   type: exitcode-stdio-1.0
   main-is: Spec.hs
-  other-modules: Paths_kiwi
   hs-source-dirs: test

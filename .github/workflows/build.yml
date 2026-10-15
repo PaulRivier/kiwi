@@ -37,7 +37,7 @@ jobs:
             ~/.cabal/packages
             ~/.cabal/store
             dist-newstyle
-          key: cabal-${{ runner.os }}-${{ hashFiles('cabal.project', 'cabal.project.freeze', 'kiwi.cabal') }}
+          key: cabal-${{ runner.os }}-${{ hashFiles('cabal.project', 'stackage/*.config', 'kiwi.cabal') }}
           restore-keys: |
             cabal-${{ runner.os }}-
 

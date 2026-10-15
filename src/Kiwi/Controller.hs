@@ -32,8 +32,6 @@ servePage pgId = do
     Nothing -> serveNotFound
 
 
-type BrowseAllReq = M.Map K.MetaField [K.DocIndexKey]
-
 -- TODO : this works but should be improved and clarified
 serveBrowseAll :: T.Text -> ActM ()
 serveBrowseAll r' = do
@@ -64,7 +62,7 @@ serveBrowseAll r' = do
       where fks idx f = (f, DI.getFieldKeys idx f)
 
     -- produce a label and a link to a query
-    nextStepLink :: BrowseAllReq -> K.MetaField -> K.DocIndexKey -> (T.Text, T.Text)
+    nextStepLink :: U.BrowseAllReq -> K.MetaField -> K.DocIndexKey -> (T.Text, T.Text)
     nextStepLink r f k = let nextReq = U.addToReq r (f,k) 
                              link = U.encodeReq nextReq
                              label = case f of
@@ -77,7 +75,7 @@ serveBrowseAll r' = do
       segs      -> T.concat ["> ", last segs]
     makeTagLabel _ = "Not a tag"
 
-    filterOut :: BrowseAllReq -> [(K.MetaField, [K.DocIndexKey])] ->
+    filterOut :: U.BrowseAllReq -> [(K.MetaField, [K.DocIndexKey])] ->
                  [(K.MetaField, [K.DocIndexKey])]
     filterOut req fks = catMaybes $ map (notInReq) fks
       where notInReq (f, ks) = case fastListDiff ks (M.findWithDefault [] f req) of
@@ -145,7 +143,7 @@ logUserIn = do
       liftIO $ U.dumpSessions newSess $ FP.combine kd "_sessions"
       -- setHeader "Set-Cookie" (TL.fromStrict key)
       U.setKiwiCookie key
-      redirect "/page/Home"
+      redirect "/"
 
 
 logUserOut :: ActM ()

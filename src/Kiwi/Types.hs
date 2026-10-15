@@ -35,6 +35,7 @@ data ServerState =
               , login         :: Maybe Login
               , pagesDB       :: IORef PagesDB
               , tocSetting    :: TocSetting
+              , secureCookie  :: Bool
               }
 
 

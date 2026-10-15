@@ -37,14 +37,13 @@ data DocIndex doc id field key =
            }
 
 
-init :: (Ord field, Ord id, Ord key) => 
-        ExtractId doc id ->
+init :: ExtractId doc id ->
         [Field doc field key] ->
         DocIndex doc id field key
 init ei fds = DocIndex ei fds M.empty M.empty
 
 
-findDoc :: (Ord field, Ord id, Ord key) =>
+findDoc :: (Ord id) =>
         DocIndex doc id field key ->
         id ->
         Maybe doc
@@ -105,7 +104,7 @@ removeMany !docIdx docs = foldl' remove docIdx docs
           
 
 
-makeFieldsKeysMap :: (Ord field, Ord id, Ord key) =>
+makeFieldsKeysMap :: (Ord field, Ord key) =>
                      [Field doc field key] ->
                      doc ->
                      id  ->
@@ -218,14 +217,14 @@ queryIdSet !docIdx q = case q of
 --   x -> x
 
 
-lookupFieldMap :: (Ord field, Ord id, Ord key) =>
+lookupFieldMap :: (Ord field) =>
                   DocIndexMap field key id ->
                   field -> 
                   FieldMap key id
 lookupFieldMap idx f = M.findWithDefault M.empty f idx
 
 
-elemsAtFieldKeys :: (Ord field, Ord id, Ord key) =>
+elemsAtFieldKeys :: (Ord field, Ord key) =>
                     DocIndexMap field key id ->
                     field -> S.Set key ->
                     [S.Set id]
@@ -233,7 +232,7 @@ elemsAtFieldKeys idx f keys = M.elems $
                               M.restrictKeys (lookupFieldMap idx f) keys
 
 
-lookupIndex :: (Ord field, Ord id, Ord key) =>
+lookupIndex :: (Ord field, Ord key) =>
         DocIndex doc id field key ->
         field ->
         key ->
@@ -242,13 +241,12 @@ lookupIndex docIdx f key = M.findWithDefault (S.empty) key $
                            M.findWithDefault M.empty f $
                            index docIdx
 
-getFields :: (Ord field) =>
-             DocIndex doc id field key ->
+getFields :: DocIndex doc id field key ->
              [field]
 getFields docIdx = M.keys (index docIdx)
 
 
-getFieldKeys :: (Ord field, Ord id, Ord key) =>
+getFieldKeys :: (Ord field) =>
                 DocIndex doc id field key ->
                 field ->
                 [key]

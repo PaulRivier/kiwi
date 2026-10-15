@@ -65,7 +65,7 @@ updatePagesDB contentDir' pagesDir db =
     loadPage :: FP.FilePath -> FP.FilePath -> IO Page
     loadPage cd fullPath =
       let splitPath = FP.splitDirectories $ FP.makeRelative cd fullPath
-          source = T.pack $ head splitPath
+          source = T.pack $ concat $ take 1 splitPath
           relPath = FP.dropExtension $ FP.joinPath $ drop 2 $ splitPath
           md = defaultMeta db
           cmc = customMetaConfig db
@@ -108,13 +108,13 @@ extractTags :: Page -> [TagId]
 extractTags p = concatMap expandSubTags $ pageTags p
   where expandSubTags = map segmentsToTag . tagSubSegments
   
-mkPageRelPath :: FP.FilePath -> FP.FilePath -> T.Text
-mkPageRelPath top pgPath =
-  T.pack $ FP.makeRelative top pgPath
+-- mkPageRelPath :: FP.FilePath -> FP.FilePath -> T.Text
+-- mkPageRelPath top pgPath =
+--   T.pack $ FP.makeRelative top pgPath
 
 
 
-mkField :: (Ord field, Ord keyRaw, Ord key) =>
+mkField :: (Ord keyRaw) =>
            field ->
            (keyRaw -> key) ->
            (doc -> [keyRaw]) ->

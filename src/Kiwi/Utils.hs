@@ -1,8 +1,11 @@
 module Kiwi.Utils where
 
-import           Control.Monad (forM, replicateM, liftM)
+import           Control.Monad (forM, liftM)
 import           Control.Monad.Reader
-import qualified Crypto.Hash.SHA256 as H
+import qualified Crypto.Error as CE
+import qualified Crypto.KDF.Argon2 as Argon2
+import qualified Crypto.Random as CR
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.UTF8 as BS8
 import           Data.Char (isAlphaNum)
@@ -18,14 +21,13 @@ import qualified Data.Time as Time
 import qualified Network.HTTP.Types.URI as URI
 import qualified Network.Wai.Middleware.Static as Static
 import           Network.HTTP.Types.Header (RequestHeaders)
-import           System.Random (randomRIO)
 import           System.CPUTime
 import qualified System.Directory as D
 import qualified System.FilePath as FP
 import           Text.Read (readMaybe)
+import qualified Web.Scotty.Cookie as CK
 
 import           Kiwi.Types
-import qualified Utils.Cookies as CK
 import qualified Utils.DocIndex as DI
 
 serverM :: MonadTrans t => ServerM a -> t ServerM a
@@ -51,17 +53,33 @@ getCookieName = do
   n <- asksK kiwiName
   return $ T.append "kiwi-" $ T.filter isAlphaNum n
 
+-- | Session cookie: not readable from javascript (HttpOnly), not sent
+-- on cross-site POST requests (SameSite=Lax), valid for the whole site,
+-- and only sent over HTTPS if secure-cookie is set in config.
+kiwiCookie :: T.Text -> ActM CK.SetCookie
+kiwiCookie value = do
+  cn <- getCookieName
+  secure <- asksK secureCookie
+  return $ (CK.makeSimpleCookie cn value)
+             { CK.setCookiePath     = Just "/"
+             , CK.setCookieHttpOnly = True
+             , CK.setCookieSameSite = Just CK.sameSiteLax
+             , CK.setCookieSecure   = secure
+             }
+
 setKiwiCookie :: T.Text -> ActM ()
 setKiwiCookie v = do
-  cn <- getCookieName
+  c <- kiwiCookie v
   let year = 365 * 24 * 60 * 60 -- number of seconds in a year
-  CK.setSimpleCookie cn v year
+  CK.setCookie $ c { CK.setCookieMaxAge = Just year }
 
 getKiwiCookie :: ActM (Maybe T.Text)
 getKiwiCookie  = CK.getCookie =<< getCookieName
 
 deleteKiwiCookie :: ActM ()
-deleteKiwiCookie = CK.deleteCookie =<< getCookieName
+deleteKiwiCookie = do
+  c <- kiwiCookie ""
+  CK.setCookie $ c { CK.setCookieMaxAge = Just 0 }
 
 
 asksK :: (ServerState -> a) -> ActM a
@@ -69,12 +87,24 @@ asksK = serverM . asks
 
 verifyLogin :: [Account] -> T.Text -> T.Text -> Maybe (T.Text, [T.Text])
 verifyLogin accounts' u p =
-  L.find (\a -> accountId a == u) accounts' >>= \a -> 
-  let block = T.concat [accountSalt a, p]
-      hashCandidate = TE.decodeUtf8 $ B16.encode $ H.hash $ TE.encodeUtf8 block
-  in case hashCandidate == accountHash a of
+  L.find (\a -> accountId a == u) accounts' >>= \a ->
+  case hashPassword (accountSalt a) p == Just (accountHash a) of
     True -> Just (accountId a, accountGroups a)
     False -> Nothing
+
+-- | hex encoded Argon2id hash of password, with given salt
+-- (fails if salt is shorter than 8 bytes)
+hashPassword :: T.Text -> T.Text -> Maybe T.Text
+hashPassword salt pass =
+  let hashM = Argon2.hash argon2Options (TE.encodeUtf8 pass) (TE.encodeUtf8 salt) 32
+  in TE.decodeUtf8 . B16.encode <$> CE.maybeCryptoError hashM
+  where
+    -- OWASP recommended parameters: 19 MiB, 2 iterations, 1 thread
+    argon2Options = Argon2.Options { Argon2.iterations = 2
+                                   , Argon2.memory = 19 * 1024
+                                   , Argon2.parallelism = 1
+                                   , Argon2.variant = Argon2.Argon2id
+                                   , Argon2.version = Argon2.Version13 }
 
 isAdmin :: ActM Bool
 isAdmin = do
@@ -87,7 +117,7 @@ isAdmin = do
 -- loisir > sport > escalade =>
 --   [ loisir, loisir > sport, loisir > sport > escalade ]
 tagSubSegments :: TagId -> [TagSegments]
-tagSubSegments = tail . L.inits . tagToSegments
+tagSubSegments = drop 1 . L.inits . tagToSegments
 
 tagToSegments :: TagId -> TagSegments
 tagToSegments = splitTextEsc '>'
@@ -102,8 +132,8 @@ segmentsToTag = T.intercalate (T.pack ">") .
 prettyTag :: TagId -> TagId
 prettyTag = T.intercalate (T.pack " > ") . tagToSegments
 
-normalizeTag :: TagId -> TagId
-normalizeTag = segmentsToTag . tagToSegments
+-- normalizeTag :: TagId -> TagId
+-- normalizeTag = segmentsToTag . tagToSegments
 
 prefixNormalizeTag :: TagSegments -> TagId -> TagId
 prefixNormalizeTag prefix = segmentsToTag . (prefix ++) . tagToSegments
@@ -139,32 +169,31 @@ splitTextEsc sep = filter (not . T.null) . map T.strip .
 
 -- DocIndex request helpers
 
-qAll, qAny :: (Ord field, Ord key, FieldKey key) =>
+qAll, qAny :: (FieldKey key) =>
               field ->
               [key] ->
               DI.Query field DocIndexKey
 qAll f keys = DI.All f $ S.fromList $ map toKey keys
 qAny f keys = DI.Any f $ S.fromList $ map toKey keys
 
-qOnly :: (Ord field, Ord key, FieldKey key) =>
+qOnly :: (FieldKey key) =>
          field ->
          key ->
          DI.Query field DocIndexKey
 qOnly f key = DI.Only f $ toKey key
 
-qHasField :: (Ord field) =>
-         field ->
+qHasField :: field ->
          DI.Query field DocIndexKey
 qHasField f = DI.HasField f
 
 
-qRange :: (Ord field, Ord key, FieldKey key) =>
+qRange :: (FieldKey key) =>
          field ->
          key -> key ->
          DI.Query field DocIndexKey
 qRange f key1 key2 = DI.Range f (toKey key1) (toKey key2)
 
-qGreaterThanOrEq, qLowerThanOrEq :: (Ord field, Ord key, FieldKey key) =>
+qGreaterThanOrEq, qLowerThanOrEq :: (FieldKey key) =>
                                     field ->
                                     key ->
                                     DI.Query field DocIndexKey
@@ -206,10 +235,9 @@ isDotFile ('.':_) = True
 isDotFile _ = False
 
 isValidMdFilename :: FP.FilePath -> Bool
-isValidMdFilename fp = let first = head fp
-                           ext = FP.takeExtension fp
-                       in isAlphaNum first &&
-                          elem ext [".md", ".markdown"]
+isValidMdFilename [] = False
+isValidMdFilename fp@(first:_) = isAlphaNum first &&
+                                 elem (FP.takeExtension fp) [".md", ".markdown"]
 
 pathToPageId :: FP.FilePath -> T.Text
 pathToPageId = normalizePageId . T.pack
@@ -228,8 +256,8 @@ pageUIDLink p = let (_,i) = pageUID p in
 urlEncodeText :: T.Text -> T.Text
 urlEncodeText = TE.decodeUtf8 . URI.urlEncode False . TE.encodeUtf8 
 
-urlDecodeText :: T.Text -> T.Text
-urlDecodeText = TE.decodeUtf8 . URI.urlDecode False . TE.encodeUtf8 
+-- urlDecodeText :: T.Text -> T.Text
+-- urlDecodeText = TE.decodeUtf8 . URI.urlDecode False . TE.encodeUtf8
 
 joinPathT :: [T.Text] -> T.Text
 joinPathT = T.pack . FP.joinPath . map T.unpack
@@ -269,12 +297,22 @@ getFileContent p = do
     else return Nothing
 
 
+-- | Random alphanumeric text of length l, from a cryptographically
+-- secure generator (used for session keys and password salts).
 randomText :: Int -> IO T.Text
-randomText l = T.pack <$> replicateM l randAlphaNum
+randomText l = go l T.empty
  where
-   randAlphaNum = do
-     i <- randomRIO (0, (length alphaNum)  - 1)
-     return $ alphaNum !! i
+   go n acc
+     | n <= 0 = return acc
+     | otherwise = do
+         bytes <- CR.getRandomBytes (n + 8) :: IO BS.ByteString
+         -- rejection sampling: keep only bytes below 248 (4 * 62), so that
+         -- every character has the same probability
+         let chars = T.pack $ map toChar $ filter (< limit) $ BS.unpack bytes
+             new = T.take n chars
+         go (n - T.length new) (acc <> new)
+   limit = fromIntegral (4 * length alphaNum)
+   toChar w = alphaNum !! (fromIntegral w `mod` length alphaNum)
    alphaNum = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']
 
 timeIO :: IO a -> IO (a, Double)
@@ -333,8 +371,8 @@ dumpSessions sessions' p =
 
 
 -- association list merge, left-priority
-mergeAssoc :: Eq a => [[(a,b)]] -> [(a,b)]
-mergeAssoc = L.nubBy (\(x,_) (y,_) -> x == y) . concat
+-- mergeAssoc :: Eq a => [[(a,b)]] -> [(a,b)]
+-- mergeAssoc = L.nubBy (\(x,_) (y,_) -> x == y) . concat
 
 splitOnFirst :: T.Text -> T.Text -> Maybe (T.Text, T.Text)
 splitOnFirst sep t = case T.breakOn sep t of
@@ -351,8 +389,8 @@ concatMapM f xs = liftM concat (mapM f xs)
 for :: Functor f => f a -> (a -> b) -> f b
 for = flip fmap
 
-(>$) :: a -> (a -> b) -> b
-a >$ b = b a
+-- (>$) :: a -> (a -> b) -> b
+-- a >$ b = b a
 
 fst3 :: (a,b,c) -> a
 fst3 (a,_,_) = a
