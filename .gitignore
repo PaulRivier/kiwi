@@ -1,10 +1,7 @@
-.stack-work/
 cabal.project.local
-dist-newstyle/
-dist-musl/
+dist/
 release/
+
 *~
 .#*
 \#*#
-data/
-tests/

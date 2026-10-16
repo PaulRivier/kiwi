@@ -6,12 +6,12 @@
 # Usage, from the root directory of the project:
 #   podman-build.sh [--update] [--clean]
 #   --update   refresh the Hackage package index before building
-#   --clean    remove the build directory (dist-musl) before building
+#   --clean    remove the build directory (dist/musl) before building
 #
 # - Rootless podman maps the root user of the container to the current user:
 #   every file written in the project belongs to that user.
-# - The build uses its own directory (dist-musl), separate from the
-#   dist-newstyle of the host development builds.
+# - The build uses its own directory (dist/musl), separate from the
+#   builds of the host (build.sh, dist/TARGET).
 # - The cabal state (package index, compiled dependencies) is kept between
 #   runs in $CACHE_DIR, shared by all the projects built with the same image,
 #   so each dependency is compiled only once.
@@ -29,7 +29,7 @@ IMAGE="${IMAGE:-docker.io/benz0li/ghc-musl:9.10.3-int-native}"
 # One cache per image: the compiled dependencies depend on the exact compiler.
 CACHE_DIR="${CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/cabal-musl/${IMAGE##*:}}"
 PROJECT_FILE=cabal.project.musl
-BUILD_DIR=dist-musl
+BUILD_DIR=dist/musl
 OUT_DIR=release
 
 
@@ -91,7 +91,7 @@ podman run --rm \
     fi
     set -- --project-file="$PROJECT_FILE" --builddir="$BUILD_DIR"
     cabal build "$@" "exe:$EXE"
-    target="$OUT_DIR/$EXE-$VERSION-linux-$(uname -m)"
+    target="$OUT_DIR/$EXE-$VERSION-musl-linux-$(uname -m)"
     cp "$(cabal list-bin "$@" "exe:$EXE")" "$target"
     strip "$target"
     echo "$target" > "$OUT_DIR/.last-build"
