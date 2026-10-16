@@ -30,7 +30,6 @@ module Kiwi.Types
   , PageField(..)
     -- * Config, locales
   , TocSetting(..)
-  , tocSettingValue
   , Lang(..)
   , UI_Lang(..)
   , Locales(..)
@@ -245,11 +244,11 @@ data PageField = TitleField
 data TocSetting = TocOn | TocOff | TocAuto
   deriving (Eq, Ord, Show)
 
--- | Value of the setting, as given to templates
-tocSettingValue :: TocSetting -> T.Text
-tocSettingValue TocOn = "on"
-tocSettingValue TocOff = "off"
-tocSettingValue TocAuto = "auto"
+-- -- | Value of the setting, as given to templates
+-- tocSettingValue :: TocSetting -> T.Text
+-- tocSettingValue TocOn = "on"
+-- tocSettingValue TocOff = "off"
+-- tocSettingValue TocAuto = "auto"
 
 instance Read TocSetting where
   readsPrec _ s = case (trimStr $ map toLower s) of
@@ -324,6 +323,15 @@ data Locales = Locales
   , loc_Forbidden :: T.Text
   , loc_RemoveFilter :: T.Text
   , loc_LoginFailed :: T.Text
+  , loc_LangCode :: T.Text  -- ^ html lang attribute
+  , loc_Contents :: T.Text
+  , loc_Login :: T.Text
+  , loc_Logout :: T.Text
+  , loc_Username :: T.Text
+  , loc_Password :: T.Text
+  , loc_EditPage :: T.Text
+  , loc_CopyLink :: T.Text
+  , loc_Reload :: T.Text
   -- , loc_TimeLocale :: Time.TimeLocale
   }
   deriving (Show)

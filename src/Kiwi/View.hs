@@ -14,6 +14,9 @@ import           Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import           Lucid
+import           Lucid.Base (makeAttributes)
+import qualified Text.Pandoc.Definition as PD
+import qualified Text.Pandoc.Walk as PW
 
 import qualified Kiwi.Locales as Loc
 import qualified Kiwi.Types as K
@@ -71,7 +74,7 @@ renderSearchResults pages = do
 renderLoginForm :: Bool -> ActM TL.Text
 renderLoginForm failed = do
   loc <- getLocales
-  renderView "Log-in" Nothing $ loginView loc failed
+  renderView (K.loc_Login loc) Nothing $ loginView loc failed
 
 renderNotFound :: ActM TL.Text
 renderNotFound = do
@@ -95,61 +98,110 @@ renderForbidden = do
 
 -- * Layout
 
+-- | The theme is app.css and app.js, they load the other files they need
 layout :: ViewCtx -> T.Text -> Maybe K.Page -> Html () -> Html ()
-layout ctx title pageM content = doctypehtml_ $ do
-  head_ $ do
-    meta_ [charset_ "utf-8"]
-    meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
-    meta_ [name_ "description", content_ "Kiwi is a powerful personal wiki system"]
-    title_ $ toHtml title
-    link_ [rel_ "icon", href_ "/static/favicon.ico"]
-    link_ [rel_ "stylesheet", href_ "/static/css/app.css"]
-  body_ $ do
-    div_ [class_ "left-column"] $
-      div_ [class_ "js-toc", data_ "setting" (K.tocSettingValue $ ctxToc ctx)] mempty
-    div_ [class_ "main-column"] $ do
-      navigation ctx pageM
-      div_ [class_ "page-content"] content
-    div_ [class_ "right-column"] $ loginBox ctx
-    forM_ ["jquery-3.5.0.min.js", "lity.js", "tocbot.min.js", "app.js"] $ \js ->
-      script_ [src_ ("/static/js/" <> js)] T.empty
+layout ctx title pageM content = do
+  doctype_
+  html_ [lang_ (K.loc_LangCode loc)] $ do
+    head_ $ do
+      meta_ [charset_ "utf-8"]
+      meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
+      meta_ [name_ "description", content_ "Kiwi is a powerful personal wiki system"]
+      title_ $ toHtml title
+      link_ [rel_ "icon", href_ "/static/favicon.ico"]
+      link_ [rel_ "stylesheet", href_ "/static/css/app.css"]
+      script_ [type_ "module", src_ "/static/js/app.js"] T.empty
+    body_ $ do
+      loginBox ctx
+      forM_ pageM $ toc loc (ctxToc ctx) . K.pageDoc
+      div_ [class_ "layout"] $ do
+        navigation ctx pageM
+        main_ [class_ "page-content"] content
+  where
+    loc = ctxLocales ctx
 
 
 navigation :: ViewCtx -> Maybe K.Page -> Html ()
-navigation ctx pageM = nav_ [class_ "top-nav"] $ div_ [class_ "nav-content"] $ do
-  ul_ [class_ "nav-items nav-left"] $
-    navItem $ a_ [href_ "/browse", class_ "nav-img"] $ icon "tags"
-  ul_ [class_ "nav-items nav-right"] $ do
+navigation ctx pageM = nav_ [class_ "top-nav"] $ do
+  a_ [href_ "/browse", class_ "icon", title_ (K.loc_Tags loc)] $ icon "tags"
+  div_ [class_ "nav-actions"] $ do
     when (ctxIsAdmin ctx) $ do
       forM_ pageM $ \p -> do
         let (source, pId) = K.pageUID p
-        navItem $ a_ [ class_ "nav-img edit-page"
-                     , data_ "page-source" source, data_ "page-id" pId ] $
-          icon "edit"
-        navItem $ a_ [class_ "nav-img copy-link", data_ "page-link" (cmLink p)] $
-          icon "copy-link"
-      navItem $ a_ [class_ "nav-img reload"] $ icon "reload"
-    li_ $ searchForm (ctxLocales ctx) False
+        iconButton "edit-page" (K.loc_EditPage loc)
+          [data_ "page-source" source, data_ "page-id" pId] "edit"
+        iconButton "copy-link" (K.loc_CopyLink loc)
+          [data_ "page-link" (cmLink p)] "copy-link"
+      iconButton "reload" (K.loc_Reload loc) [] "reload"
+    searchForm loc False
   where
-    navItem = li_ [class_ "nav-item"]
+    loc = ctxLocales ctx
     -- commonmark link to the page, to paste in another page
     cmLink p = T.concat ["[", K.pageTitle p, "](<page:", U.pageUIDLink p, ">)"]
+    -- the actions are handled by app.js
+    iconButton :: T.Text -> T.Text -> [Attributes] -> T.Text -> Html ()
+    iconButton cls label attrs name =
+      button_ ([type_ "button", class_ ("icon " <> cls), title_ label] <> attrs) $
+        icon name
 
 
 loginBox :: ViewCtx -> Html ()
 loginBox ctx = div_ [class_ "layout-login"] $ case ctxLogin ctx of
   Just user -> do
     span_ [class_ "username"] $ toHtml user
-    a_ [class_ "nav-img logout"] $ icon "logout"
-  Nothing -> a_ [href_ "/login", class_ "login"] "login"
+    form_ [action_ "/logout", method_ "post"] $
+      button_ [type_ "submit", class_ "icon logout", title_ (K.loc_Logout loc)] $
+        icon "logout"
+  Nothing -> a_ [href_ "/login", class_ "login"] $ toHtml $ K.loc_Login loc
+  where
+    loc = ctxLocales ctx
 
 
 searchForm :: K.Locales -> Bool -> Html ()
 searchForm loc focus =
-  form_ [action_ "/search", method_ "get", class_ "search pure-form"] $
-    input_ [ name_ "query", type_ "search", class_ "search"
+  form_ [action_ "/search", method_ "get", class_ "search"] $
+    input_ [ name_ "query", type_ "search"
            , placeholder_ (K.loc_Search loc)
            , if focus then autofocus_ else mempty ]
+
+
+-- | Table of contents of the document headings (levels 1&2), with the
+-- setting "auto", only for documents with many headings
+toc :: K.Locales -> K.TocSetting -> PD.Pandoc -> Html ()
+toc loc setting doc = when visible $
+  nav_ [class_ "toc", makeAttributes "aria-label" (K.loc_Contents loc)] $
+    tocList headings
+  where
+    headings = PW.query heading doc
+    heading (PD.Header lvl (ident, _, _) ils)
+      | lvl <= 2, not (T.null ident) = [(lvl, ident, plainText ils)]
+    heading _ = []
+    visible = case setting of
+      K.TocOn   -> not (null headings)
+      K.TocAuto -> length headings > 5
+      K.TocOff  -> False
+
+-- | Nested lists : a heading contains the following deeper headings
+tocList :: [(Int, T.Text, T.Text)] -> Html ()
+tocList hs = unless (null hs) $ ul_ $ go hs
+  where
+    go :: [(Int, T.Text, T.Text)] -> Html ()
+    go [] = mempty
+    go ((lvl, ident, label) : rest) =
+      let (sub, next) = span (\(l, _, _) -> l > lvl) rest
+      in li_ (a_ [href_ ("#" <> ident)] (toHtml label) <> tocList sub) <> go next
+
+-- | Text of inlines, without formatting
+plainText :: [PD.Inline] -> T.Text
+plainText = PW.query txt
+  where
+    txt (PD.Str t)    = t
+    txt (PD.Code _ t) = t
+    txt (PD.Math _ t) = t
+    txt PD.Space      = " "
+    txt PD.SoftBreak  = " "
+    txt PD.LineBreak  = " "
+    txt _             = ""
 
 
 
@@ -219,16 +271,13 @@ searchView loc pages = div_ [class_ "search-results-page"] $ case pages of
 
 loginView :: K.Locales -> Bool -> Html ()
 loginView loc failed =
-  div_ [id_ "login-box"] $ div_ [class_ "login-form"] $
-    form_ [action_ "/login", method_ "post", class_ "login pure-form"] $ do
-      when failed $ p_ [class_ "login-error"] $ toHtml $ K.loc_LoginFailed loc
-      ul_ [class_ "flex-vz"] $ do
-        li_ $ input_ [ name_ "username", type_ "text", placeholder_ "Username"
-                     , class_ "login-id", required_ "" ]
-        li_ $ input_ [ name_ "password", type_ "password", placeholder_ "Password"
-                     , class_ "login-password", required_ "" ]
-        li_ $ button_ [type_ "submit", class_ "pure-button pure-button-primary"]
-          "Log in"
+  form_ [action_ "/login", method_ "post", class_ "login"] $ do
+    when failed $ p_ [class_ "login-error"] $ toHtml $ K.loc_LoginFailed loc
+    input_ [ name_ "username", type_ "text", placeholder_ (K.loc_Username loc)
+           , autofocus_, required_ "" ]
+    input_ [ name_ "password", type_ "password", placeholder_ (K.loc_Password loc)
+           , required_ "" ]
+    button_ [type_ "submit"] $ toHtml $ K.loc_Login loc
 
 
 

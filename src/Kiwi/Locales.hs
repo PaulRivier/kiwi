@@ -28,6 +28,15 @@ loc_english = Locales
   , loc_Forbidden = "Forbidden access"
   , loc_RemoveFilter = "Remove this filter"
   , loc_LoginFailed = "Wrong username or password"
+  , loc_LangCode = "en"
+  , loc_Contents = "Contents"
+  , loc_Login = "Log in"
+  , loc_Logout = "Log out"
+  , loc_Username = "Username"
+  , loc_Password = "Password"
+  , loc_EditPage = "Edit this page"
+  , loc_CopyLink = "Copy a link to this page"
+  , loc_Reload = "Reload pages"
   -- , loc_TimeLocale = enTimeLocale
   }
 
@@ -47,6 +56,15 @@ loc_french = Locales
   , loc_Forbidden = "Accès interdit"
   , loc_RemoveFilter = "Retirer ce filtre"
   , loc_LoginFailed = "Identifiant ou mot de passe incorrect"
+  , loc_LangCode = "fr"
+  , loc_Contents = "Sommaire"
+  , loc_Login = "Connexion"
+  , loc_Logout = "Déconnexion"
+  , loc_Username = "Identifiant"
+  , loc_Password = "Mot de passe"
+  , loc_EditPage = "Modifier cette page"
+  , loc_CopyLink = "Copier un lien vers cette page"
+  , loc_Reload = "Recharger les pages"
   -- , loc_TimeLocale = frTimeLocale
   }
 

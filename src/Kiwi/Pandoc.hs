@@ -62,7 +62,8 @@ loadPage path c source md cmc dir =
         filesDir  = findWith dirT T.concat "files-dir" docMeta
         syntaxSpec = Cm.defaultSyntaxSpec <>
                      CmEx.strikethroughSpec <> CmEx.pipeTableSpec <> CmEx.autolinkSpec <>
-                     CmEx.taskListSpec <> CmEx.footnoteSpec 
+                     CmEx.taskListSpec <> CmEx.footnoteSpec <>
+                     CmEx.autoIdentifiersSpec
 
 
     in case (Cm.commonmarkWith syntaxSpec path content
@@ -110,9 +111,9 @@ walkDoc source pageDir imagesDir filesDir doc =
                                   (l, lName)
           ImageLink l  -> PD.Link (addClass "kiwi-link-image" attr) txt
                                   (pathToImage imagesDir l, lName)
-          FileLink l   -> PD.Link (addClass "kiwi-link-file" attr) txt
+          FileLink l   -> PD.Link (newTab $ addClass "kiwi-link-file" attr) txt
                                   (pathToFile filesDir l, lName)
-          OtherLink l  -> PD.Link (addClass "kiwi-link-external" attr) txt
+          OtherLink l  -> PD.Link (newTab $ addClass "kiwi-link-external" attr) txt
                                   (l, lName)
       -- reste
       fixInlines x = x
@@ -132,6 +133,10 @@ walkDoc source pageDir imagesDir filesDir doc =
 
       addClass :: T.Text -> PD.Attr -> PD.Attr
       addClass c (idAttr, classAttr, kvs) = (idAttr, c:classAttr, kvs)
+
+      -- opens the link in a new tab
+      newTab :: PD.Attr -> PD.Attr
+      newTab (idAttr, classAttr, kvs) = (idAttr, classAttr, ("target", "_blank"):kvs)
 
       -- setId :: T.Text -> PD.Attr -> PD.Attr
       -- setId i (_, classAttr, kvs) = (i, classAttr, kvs)

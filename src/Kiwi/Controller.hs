@@ -160,7 +160,7 @@ logUserOut = do
   U.deleteKiwiCookie
   authM <- U.getKiwiCookie
   case authM of
-    Nothing -> html "" -- TODO
+    Nothing -> redirect "/"
     Just auth -> do
       U.modifySessions $ M.delete auth
       redirect "/"

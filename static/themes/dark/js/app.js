@@ -1,90 +1,64 @@
+// Kiwi theme script, loaded as a module (deferred, runs once the page is parsed)
 
-function copyToClipboard(content) {
-  var $temp = $("<input>");
-  $("body").append($temp);
-  $temp.val(content).select();
-  document.execCommand("copy");
-  $temp.remove();
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => document.querySelectorAll(selector);
+
+const post = (url, params = {}) =>
+  fetch(url, { method: "POST", body: new URLSearchParams(params) });
+
+
+// Admin actions
+
+$(".top-nav .reload")?.addEventListener("click", () => post("/reload"));
+
+$(".top-nav .edit-page")?.addEventListener("click", (e) => {
+  const { pageSource, pageId } = e.currentTarget.dataset;
+  post("/edit-page", { "page-source": pageSource, "page-id": pageId });
+});
+
+$(".top-nav .copy-link")?.addEventListener("click", (e) =>
+  navigator.clipboard.writeText(e.currentTarget.dataset.pageLink));
+
+
+// Images lightbox
+
+const lightbox = document.createElement("dialog");
+lightbox.className = "lightbox";
+lightbox.addEventListener("click", () => lightbox.close());
+document.body.append(lightbox);
+
+function showImage(src) {
+  const img = document.createElement("img");
+  img.src = src;
+  lightbox.replaceChildren(img);
+  lightbox.showModal();
 }
 
-$(document).ready(function() {
+for (const img of $$(".document figure img")) {
+  img.addEventListener("click", () => showImage(img.src));
+}
 
-  var reload = $("ul.nav-items li a.reload");
-  
-  reload.on('click', function(e) {
-	e.preventDefault();
-	$.ajax({
-      type: "POST",
-      url: "/reload",
-      data: "{}"
-	}).done(function(data) {});
+for (const link of $$(".document a.kiwi-link-image")) {
+  link.addEventListener("click", (e) => {
+    e.preventDefault();
+    showImage(link.href);
   });
+}
 
 
-  var edit_link = $("ul.nav-items li a.edit-page");
+// Table of contents : highlights the heading being read
 
-  edit_link.on('click', function(e) {
-	e.preventDefault();
-	$.ajax({
-      type: "POST",
-      url: "/edit-page",
-      data: {"page-source": $(this).attr("data-page-source"),
-             "page-id": $(this).attr("data-page-id")}
-	}).done(function(data) {});
-  });
+const tocLinks = [...$$(".toc a")];
+const headings = tocLinks.map((a) =>
+  document.getElementById(a.getAttribute("href").slice(1)));
 
-  var copy_link = $("ul.nav-items li a.copy-link");
+function highlightCurrentHeading() {
+  // the last heading above the top of the window (below the navigation bar)
+  const current = headings.findLastIndex((h) => h.getBoundingClientRect().top < 100);
+  tocLinks.forEach((a, i) => a.classList.toggle("active", i === current));
+}
 
-  copy_link.on('click', function(e) {
-	var l = $(this).attr("data-page-link");
-	copyToClipboard(l);
-  });
-
-
-  var logout = $(".layout-login a.logout");
-  
-  logout.on('click', function(e) {
-	e.preventDefault();
-	$.ajax({
-      type: "POST",
-      url: "/logout",
-      data: "{}",
-      complete: function(){ location.reload(); }
-	}).done(function(data) { } );
-  });
-
-
-  $(".page-view .document figure img").on('click',function(e) {
-    lity($(this).attr('src'));
-	return false;
-  });
-
-  $(".page-view .document a.kiwi-link-image").on('click',function(e) {
-    lity($(this).attr('href'));
-	return false;
-  });
-
-  $("a.kiwi-link-file, a.kiwi-link-external").attr("target","_blank");
-
-
-  var tocSetting = $(".js-toc").first().attr("data-setting");
-  
-  var docHeadings = $(".page-view .document h1," +
-			          ".page-view .document h2," +
-			          ".page-view .document h3");
-  if ( tocSetting == "on" ||
-       ( tocSetting == "auto" && docHeadings.length > 6) ) {
-	tocbot.init({
-	  // Where to render the table of contents.
-	  tocSelector: '.js-toc',
-	  // Where to grab the headings to build the table of contents.
-	  contentSelector: '.page-view .document',
-	  // Which headings to grab inside of the contentSelector element.
-	  headingSelector: 'h1, h2, h3',
-	  // For headings inside relative or absolute positioned containers within content.
-	  hasInnerContainers: false,
-	  orderedList: false
-	});
-  };
-
-});
+if (tocLinks.length > 0) {
+  addEventListener("scroll", highlightCurrentHeading, { passive: true });
+  highlightCurrentHeading();
+}
