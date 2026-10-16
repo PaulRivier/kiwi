@@ -5,18 +5,10 @@ This is what I would like for Kiwi. Help welcome :
 
 ## Packaging
 
-Make packages for Linux, MacOS, MSWindows.  Bundle themes and
-README.md with it. Maybe integrate README.md as a Kiwi page.
+Make packages for Linux, MacOS, MSWindows
 
 Make a nix-based build process so that people can build fast if they
 already have most dependencies.
-
-## Deployment
-
-Kiwi needs a theme to run (theme = templates + CSS + JS ...). Users
-should have easy options to link to a theme distributed with Kiwi. I
-don't know how I should package and deploy for ease of use and
-maintenance.
 
 ## Servant & API
 
@@ -28,24 +20,6 @@ to a HTML/JS client, implemented with ELM for instance. Smart clients
 using the API should be able to leverage the full power of content
 indexing. In the long term, I would like to have a client for Emacs.
 
-## Heist
-
-For the moment Kiwi uses Mustache templates. While they are easy to
-hack, they are not powerful, and this leads to added complexity on the
-controller-side. Heist could be a better choice.
-
-I would like to offer the possibility for "cascading customization",
-that means that :
-
-- Web Designers can create new themes
-- Themes should be parametric enough to be customized by end-users
-  (colors, menus ...)
-
-
-## Improve CSS/JS
-
-My skills in HTML/JS/CSS are really low, themes should be improved by
-knowledgeable people. Maybe better wait for Heist.
 
 ## Static content access control
 
@@ -54,10 +28,6 @@ to move to a model where a static content access is allowed IF the
 user is allowed to see any page that link to this static content. This
 is doable, although it requires a bit of work. I like the idea.
 
-## Pandoc
-
-Pandoc is fantastic, but Pandoc is heavy. Maybe switch to
-commonmark-hs ?
 
 ## Prepare for off-memory
 
@@ -84,5 +54,5 @@ could be cleaned up and documented.
 
 ## Licensing
 
-I have no opinion about licensing matters, and I am open to
-suggestions and education.
+I have no strong opinion about licensing matters, and I am open to
+suggestions.
