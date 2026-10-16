@@ -1,8 +1,10 @@
 module Main (main) where
 
 import           Data.Char (isAscii, isAlphaNum)
+import qualified Data.List as L
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe)
+import qualified Data.SearchEngine as SE
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -13,6 +15,7 @@ import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 
 import           Kiwi.Pandoc (loadPage, parseMetaData, parseCustomMeta)
+import           Kiwi.Search (initPageSearchEngine)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
 import qualified Utils.DocIndex as DI
@@ -26,6 +29,7 @@ main = hspec $ do
   describe "Kiwi.Utils browse requests" browseReqSpec
   describe "Kiwi.Utils passwords" passwordSpec
   describe "Utils.DocIndex" docIndexSpec
+  describe "Kiwi.Search" searchSpec
 
 
 --------------------------------------------------------------------------------
@@ -357,3 +361,37 @@ docIndexSpec = do
     DI.cardinal idx' `shouldBe` 2
     DI.getFieldKeys idx' "tag" `shouldBe` map KeyText ["a", "b"]
     ids idx' (DI.HasField "year") `shouldBe` [1, 2]
+
+
+--------------------------------------------------------------------------------
+-- Search
+
+searchSpec :: Spec
+searchSpec = do
+  let page uid content =
+        Page { pageUID = ("src", uid)
+             , pageAbsoluteFSPath = "/dev/null"
+             , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
+             , pageDoc = PD.Pandoc mempty [PD.Plain (L.intersperse PD.Space $
+                                                     PD.Str <$> T.words content)]
+             , pageTitle = uid
+             , pageTags = []
+             , pageLang = French
+             , pageAccess = []
+             , pageLinks = []
+             , pageCustomMeta = []
+             }
+      se = SE.insertDocs [ page "a" "Un développement en été"
+                         , page "b" "Elle est aimée"
+                         , page "c" "Lui et moi" ]
+                         (initPageSearchEngine French)
+      search q = map snd $ SE.query se (T.words q)
+
+  it "matches inflections of accented words" $
+    search "développer" `shouldBe` ["a"]
+
+  it "finds an accented word typed with its accents" $
+    search "aimée" `shouldBe` ["b"]
+
+  it "does not confuse accented words with short ones" $
+    search "été" `shouldBe` ["a"]

@@ -7,12 +7,12 @@ module Kiwi.Search (
 -- import           Data.Text.ICU.Char
 -- import           Data.Text.ICU.Normalize2
 import Data.Char (generalCategory, GeneralCategory(NonSpacingMark))
-import Data.Text.Normalize (normalize, NormalizationMode(NFD))
+import Data.Text.Normalize (normalize, NormalizationMode(NFC, NFD))
 
 import           Data.SearchEngine
 import qualified Data.Set as S
 import qualified Data.Text as T
-import           Text.Snowball as SB
+import           Text.Stemmer.Snowball as SB
 
 import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
@@ -43,7 +43,8 @@ pageSearchConfig lg =
                                       pageContent $ pageDoc p
 
     normaliseQueryToken :: T.Text -> PageField -> T.Text
-    normaliseQueryToken tok _ = T.toLower $ stem lg $ normalizeText tok
+    -- same steps as extractTerms: lower case and NFC, stem, remove accents
+    normaliseQueryToken tok _ = normalizeText $ stem lg $ normalize NFC $ T.toLower tok
 
     -- dans le cas des tags, on indexe le tag sous sa forme canonique
     -- [tag] ainsi que les termes qui le composent
@@ -66,9 +67,12 @@ pageContent = T.unwords . T.words . PW.query textOf
     textOf PD.LineBreak  = " "
     textOf _          = ""
 
+-- | Words are stemmed with their accents (in NFC, as Snowball expects), and the
+-- accents are removed from the stems
 extractTerms :: Algorithm -> T.Text -> [T.Text]
 extractTerms lg = map normalizeText .
-                  map (stem lg) .
+                  stems lg .
+                  map (normalize NFC) .
                   tokenizeText breakSet
 
 tokenizeText :: S.Set Char -> T.Text -> [T.Text]

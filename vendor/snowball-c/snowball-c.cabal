@@ -1,0 +1,99 @@
+cabal-version:      3.4
+
+name:           snowball-c
+version:        0.1.0.0
+synopsis:       Bindings to the Snowball stemmers (libstemmer_c, UTF-8)
+description:
+    Bindings to libstemmer_c, the C distribution of the Snowball stemming
+    algorithms (<https://snowballstem.org/>). The C sources of Snowball 3.1.1
+    are bundled (UTF-8 flavour only, unmodified), so the package needs no
+    system library and no ICU.
+category:       Natural Language Processing, Text
+author:         Paul Rivier
+maintainer:     Paul Rivier
+copyright:      2026 Paul Rivier (Haskell bindings);
+                2001-2025 Dr Martin Porter, Richard Boulton, Yoshiki Shibukawa,
+                Olly Betts (Snowball, see COPYING.snowball)
+license:        BSD-3-Clause
+license-file:   LICENSE
+build-type:     Simple
+extra-doc-files:
+    COPYING.snowball
+    cbits/NEWS
+extra-source-files:
+    cbits/include/*.h
+    cbits/libstemmer/*.h
+    cbits/runtime/*.h
+    cbits/src_c/*.h
+
+
+common ghc-opts
+  default-language:   GHC2021
+  default-extensions: OverloadedStrings
+  ghc-options:        -Wall -Wunused-packages
+                      -Werror=incomplete-patterns
+                      -Wcompat
+                      -Wredundant-constraints
+
+library
+  import:  ghc-opts
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , text >=2.0.1
+  exposed-modules:
+      Text.Stemmer.Snowball
+  hs-source-dirs: src
+  include-dirs: cbits/include
+  cc-options: -O2
+  -- upstream libstemmer_c, UTF-8 only (see cbits/mkinc_utf8.mak upstream)
+  c-sources:
+    cbits/libstemmer/libstemmer_utf8.c
+    cbits/runtime/api.c
+    cbits/runtime/utilities.c
+    cbits/src_c/stem_UTF_8_arabic.c
+    cbits/src_c/stem_UTF_8_armenian.c
+    cbits/src_c/stem_UTF_8_basque.c
+    cbits/src_c/stem_UTF_8_catalan.c
+    cbits/src_c/stem_UTF_8_czech.c
+    cbits/src_c/stem_UTF_8_danish.c
+    cbits/src_c/stem_UTF_8_dutch.c
+    cbits/src_c/stem_UTF_8_dutch_porter.c
+    cbits/src_c/stem_UTF_8_english.c
+    cbits/src_c/stem_UTF_8_esperanto.c
+    cbits/src_c/stem_UTF_8_estonian.c
+    cbits/src_c/stem_UTF_8_finnish.c
+    cbits/src_c/stem_UTF_8_french.c
+    cbits/src_c/stem_UTF_8_german.c
+    cbits/src_c/stem_UTF_8_greek.c
+    cbits/src_c/stem_UTF_8_hindi.c
+    cbits/src_c/stem_UTF_8_hungarian.c
+    cbits/src_c/stem_UTF_8_indonesian.c
+    cbits/src_c/stem_UTF_8_irish.c
+    cbits/src_c/stem_UTF_8_italian.c
+    cbits/src_c/stem_UTF_8_lithuanian.c
+    cbits/src_c/stem_UTF_8_nepali.c
+    cbits/src_c/stem_UTF_8_norwegian.c
+    cbits/src_c/stem_UTF_8_persian.c
+    cbits/src_c/stem_UTF_8_polish.c
+    cbits/src_c/stem_UTF_8_porter.c
+    cbits/src_c/stem_UTF_8_portuguese.c
+    cbits/src_c/stem_UTF_8_romanian.c
+    cbits/src_c/stem_UTF_8_russian.c
+    cbits/src_c/stem_UTF_8_serbian.c
+    cbits/src_c/stem_UTF_8_sesotho.c
+    cbits/src_c/stem_UTF_8_spanish.c
+    cbits/src_c/stem_UTF_8_swedish.c
+    cbits/src_c/stem_UTF_8_tamil.c
+    cbits/src_c/stem_UTF_8_turkish.c
+    cbits/src_c/stem_UTF_8_yiddish.c
+
+test-suite snowball-c-test
+  import:  ghc-opts
+  build-depends:
+      base >=4.7 && <5
+    , snowball-c
+    , text
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: test

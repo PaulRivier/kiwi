@@ -65,7 +65,7 @@ library
     , pandoc-types
     , process
     , scotty
-    , snowball
+    , snowball-c
     , text
     , time
     , unicode-transforms
@@ -107,6 +107,7 @@ test-suite kiwi-test
   build-depends:
       base >=4.7 && <5
     , containers
+    , full-text-search
     , hspec
     , http-types
     , kiwi

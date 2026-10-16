@@ -1,10 +1,10 @@
+-- vendor/snowball-c: bindings to the Snowball stemmers (bundled C sources)
 packages: .
+          vendor/snowball-c
 
 import: stackage/lts-24.56.config
 with-compiler: ghc-9.10.3
 
 -- Packages not in the Stackage snapshot.
--- Pin snowball because it requires libicu otherwise
 constraints: full-text-search ==0.2.2.3
-           , snowball ==0.1.0.2
 
