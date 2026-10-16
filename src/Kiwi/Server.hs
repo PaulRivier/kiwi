@@ -17,13 +17,13 @@ import qualified Network.Wai.Middleware.Static as Static
 import           Network.Wai.Middleware.Static ((>->), (<|>))
 import qualified System.Directory as D
 import qualified System.FilePath as FP
-import qualified Text.Mustache as X
 import           Text.Printf (printf)
 import           Web.Scotty.Trans
 
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.Controller
 import qualified Kiwi.PagesDB as DB
+import           Kiwi.Theme (serveTheme)
 import           Kiwi.Types
 import           Kiwi.Utils
 import qualified Utils.DocIndex as DI
@@ -48,7 +48,7 @@ kiwiServer cfp c cache = do
     displayStartupTime ss t = do
       let ts = printf "%.2f" t
       nb <- (show . M.size . DI.store . pagesIndex) <$> liftIO (readIORef $ pagesDB ss)
-      putStrLn $ concat ["Kiwi scaned ", nb, " pages and 1 theme in ", ts, "s"]
+      putStrLn $ concat ["Kiwi scaned ", nb, " pages in ", ts, "s"]
 
 
 kiwiRoute :: ServerState -> Static.CacheContainer -> WebM ()
@@ -76,7 +76,7 @@ kiwiRoute ss cache = do
     db <- getDB
     html $ TL.pack $ show $ DI.index $ pagesIndex db
 
-  serveStatic cache [("static/", staticDir ss)]
+  middleware serveTheme
 
   forM_ (contentSources ss) $ \src ->
     serveStatic cache $ filesParts (contentDir ss) src
@@ -109,8 +109,6 @@ initServerState cfp conf = do
   kiwiDir' <- D.makeAbsolute (FP.takeDirectory cfp)
   let contentDir' = FP.combine kiwiDir' (Conf.contentDir conf)
   sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
-  let staticDir'  = FP.joinPath [kiwiDir', (Conf.themeDir conf), "static"]
-  tpl <- compileTemplate $ FP.joinPath [kiwiDir', (Conf.themeDir conf), "mustache"]
   accounts' <- loadAccounts $ FP.combine kiwiDir' "_accounts"
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"
   sessM <- newMVar sess
@@ -125,11 +123,9 @@ initServerState cfp conf = do
       kiwiName   = Conf.name conf
     , contentDir = contentDir'
     , contentSources = sources
-    , staticDir  = staticDir'
     , kiwiDir    = kiwiDir'
     , editorCommand = Conf.editor conf
     , uiLang       = findInterfaceLang (Conf.uiLang conf)
-    , template     = tpl
     , accounts     = accounts'
     , sessions     = sessM
     , login        = Nothing
@@ -146,24 +142,6 @@ initServerState cfp conf = do
     warmUpSearchEngine se = forkIO $ do   -- deep eval of search engine
       True <- return $ SE.invariant se
       return ()
-
-
-compileTemplate :: FP.FilePath -> IO KiwiTemplate
-compileTemplate dir =
-  KiwiTemplate <$>
-  make "layout" <*>
-  make "home" <*>
-  make "login" <*>
-  make "page" <*>
-  make "tagged" <*>
-  make "browse" <*>
-  make "agenda" <*>
-  make "search-results" <*>
-  make "not-found" <*>
-  make "bad-request" <*>
-  make "forbidden"
-  where
-    make t = X.compileMustacheDir t dir
 
 
 serveStatic :: Static.CacheContainer -> [(String, FP.FilePath)] -> WebM ()

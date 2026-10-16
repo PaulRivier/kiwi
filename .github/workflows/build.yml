@@ -2,8 +2,8 @@
 # → "Run workflow" (or: gh workflow run build.yml).
 #
 # Linux only: static binary (musl, GHC with native bignum), in an Alpine
-# image, with cabal.project.musl. The binary is packaged with the themes
-# and the documentation, since kiwi needs a theme to run.
+# image, with cabal.project.musl. The binary (theme embedded) is packaged
+# with the documentation.
 #
 # The package is attached to the run as an artifact (Summary page of the
 # run), publish it with release.yml. The compiled dependencies are cached
@@ -62,7 +62,7 @@ jobs:
           cp "$(cabal list-bin --project-file="$PROJECT_FILE" --builddir="$BUILD_DIR" "exe:$EXE")" "$bin"
           strip "$bin"
           file "$bin" | tee /dev/stderr | grep -Eq 'statically linked|static-pie linked'
-          cp -r themes README.md ChangeLog.md LICENSE "pkg/$name/"
+          cp README.md ChangeLog.md LICENSE "pkg/$name/"
           tar -C pkg -czf "out/$name.tar.gz" "$name"
           cd out && sha256sum -- * > SHA256SUMS-linux
           echo "name=$name" >> "$GITHUB_OUTPUT"

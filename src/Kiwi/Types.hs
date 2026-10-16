@@ -3,7 +3,6 @@
 module Kiwi.Types
   ( -- * Server
     ServerState(..)
-  , KiwiTemplate(..)
   , Account(..)
   , Login
   , Sessions
@@ -51,7 +50,6 @@ import qualified Data.Text as T
 -- import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
 import qualified System.FilePath as FP
-import qualified Text.Mustache as X
 import qualified Text.Pandoc.Definition as PD
 import           Web.Scotty.Trans
 
@@ -61,11 +59,9 @@ data ServerState =
   ServerState { kiwiName      :: T.Text
               , contentDir    :: FP.FilePath
               , contentSources :: [FP.FilePath]
-              , staticDir     :: FP.FilePath
               , kiwiDir       :: FP.FilePath
               , editorCommand :: Maybe (FP.FilePath, [String])
               , uiLang        :: UI_Lang
-              , template      :: KiwiTemplate
               , accounts      :: [Account]
               , sessions      :: MVar Sessions
               , login         :: Maybe Login
@@ -75,20 +71,6 @@ data ServerState =
               , secureCookie  :: Bool
               }
 
-
-data KiwiTemplate =
-  KiwiTemplate { layoutTemplate :: X.Template
-               , homeTemplate :: X.Template
-               , loginTemplate :: X.Template
-               , pageTemplate :: X.Template
-               , taggedTemplate :: X.Template
-               , browseTemplate :: X.Template
-               , agendaTemplate :: X.Template
-               , searchTemplate :: X.Template
-               , notFoundTemplate :: X.Template
-               , badRequestTemplate :: X.Template
-               , forbiddenTemplate :: X.Template
-               }
 
 data Account = 
   Account { accountId :: T.Text

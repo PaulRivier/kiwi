@@ -3,9 +3,6 @@
 name: My Kiwi
 # Path to your content, either absolute or relative to this file folder  
 content-directory: content
-# Path to your kiwi theme directory, either absolute or relative to this file folder.
-# Themes come bundled with distribution, you should link to one of them.
-theme-directory: themes/dark
 # Your favorite text editor command. File path will be added as last argument.
 # Leave empty or remove to disable.
 # examples :  emacsclient -n -s kiwi   ///   gedit   ///   gvim

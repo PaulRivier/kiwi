@@ -20,6 +20,11 @@ extra-doc-files:
 extra-source-files:
     static/*.md
     static/*.default
+    static/themes/**/*.css
+    static/themes/**/*.js
+    static/themes/**/*.svg
+    static/themes/**/*.png
+    static/themes/**/*.ico
 
 source-repository head
   type: git
@@ -37,8 +42,7 @@ common ghc-opts
 library
   import:  ghc-opts
   build-depends:
-      aeson
-    , async
+      async
     , base >=4.7 && <5
     , base16-bytestring
     , blaze-html
@@ -54,17 +58,19 @@ library
     , filepath
     , full-text-search
     , http-types
+    , lucid2
+    , mime-types
     , mtl
     , optparse-applicative
     , pandoc-types
     , process
     , scotty
     , snowball
-    , stache
     , text
     , time
     , unicode-transforms
     , unliftio-core
+    , wai
     , wai-extra
     , wai-middleware-static
   exposed-modules:
@@ -79,6 +85,7 @@ library
       Kiwi.Pandoc
       Kiwi.Search
       Kiwi.Server
+      Kiwi.Theme
       Kiwi.Types
       Kiwi.Utils
       Kiwi.View

@@ -1,3 +1,6 @@
+/* app.css is the only stylesheet linked by Kiwi, it imports the others */
+@import url("pure-min.css");
+
 :root {
   --kiwi-bg-color: #2b2b2b;
   --kiwi-text-color: #f8f9fa;

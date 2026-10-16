@@ -81,11 +81,8 @@ configuration file.
 In case your folder is not empty, Kiwi will give up, only writing
 *kiwi.ini.default* file to help you update your kiwi.ini file.
 
-At this step, you should copy or symlink the bundled 'themes' folder
-inside your "kiwi" data folder. Alternatively, edit your *kiwi.ini* to
-point "themes-dir" to the theme you want in the bundled themes folder.
-Themes are separated from code, therefore they are very easy to add to
-Kiwi, check how existing themes are defined.
+The theme (css, javascript, images) is embedded in the kiwi binary,
+there is nothing to install.
 
 Create your own user account and get admin privileges (this is
 important, type 'admin' when prompted for your groups) :
@@ -116,7 +113,6 @@ In your kiwi folder you should have this layout.
       - pages
       - images
       - files
-  - themes
   
 *content* is the folder that will contain all your *sources*. A
 *source* is an independent module of content, with its own pages,
@@ -131,9 +127,7 @@ Your pages should go in the *pages* folder, your images in the
 
 ## kiwi.ini config file
 
-This is the main configuration file and it is self documented. Again,
-be sure that you theme-dir configuration is pointing to a real theme
-directory. Start with one bundled with this repository.
+This is the main configuration file and it is self documented.
 
 If Kiwi is served through HTTPS (behind a reverse proxy for example),
 set `secure-cookie: yes` in the `[kiwi]` section: the session cookie

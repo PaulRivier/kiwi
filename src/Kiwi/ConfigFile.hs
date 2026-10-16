@@ -19,7 +19,6 @@ import qualified Kiwi.Utils as U
 data KiwiConfig = KiwiConfig
   { name :: T.Text
   , contentDir :: FP.FilePath
-  , themeDir :: FP.FilePath
   , port :: Int
   , editor :: Maybe (FP.FilePath, [String])
   , uiLang   :: K.UI_Lang
@@ -52,7 +51,6 @@ configParser = do
   section "kiwi" $ do
     name'  <- fieldDefOf "name" string "kiwi"
     contentDir' <- fieldOf "content-directory" string
-    themeDir'  <- fieldOf "theme-directory" string
     port' <- fieldOf "port" number
     editor'  <- fieldDefOf "editor" parseEditor Nothing
     lang'  <- fieldOf "ui-lang" readable
@@ -62,7 +60,6 @@ configParser = do
     return KiwiConfig
       { name = name'
       , contentDir = contentDir'
-      , themeDir = themeDir'
       , port = port'
       , editor = editor'
       , uiLang = lang'

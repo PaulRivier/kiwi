@@ -23,7 +23,7 @@ import Kiwi.Types
 
 runKiwiRun :: IO ()
 runKiwiRun = do
-  -- kiwi files (pages, templates, config) are UTF-8, whatever the
+  -- kiwi files (pages, config) are UTF-8, whatever the
   -- system locale is (it may be C/POSIX for services, containers ...)
   setLocaleEncoding utf8
   -- file names too, roundtrip keeps non UTF-8 names usable
@@ -80,7 +80,6 @@ initKiwiDir d = do
       putStrLn $ unlines ["Kiwi directory created at " ++ r,
                           "You should now do the following steps :",
                           " - check kiwi.ini file",
-                          " - make sure to link to a proper theme folder",
                           " - start wiki with command : kiwi serve " ++ FP.combine r "kiwi.ini"]
       -- todo : config, Home.md, static
       
