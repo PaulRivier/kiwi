@@ -15,6 +15,7 @@ import qualified Data.Text as T
 import           Lucid
 import           Lucid.Base (commuteHtmlT2, makeAttributes)
 import qualified Text.Pandoc.Definition as PD
+import qualified Text.Pandoc.Walk as PW
 
 
 -- | Footnotes met so far, by number (from 1)
@@ -54,8 +55,11 @@ blocksToHtml = mapM_ blockToHtml
 blockToHtml :: PD.Block -> W ()
 blockToHtml blk = case blk of
   PD.Plain ils -> inlinesToHtml ils
-  PD.Para [img@(PD.Image _ desc _)] ->
-    figure_ (inlineToHtml img >> figcaption_ (inlinesToHtml desc))
+  -- an image alone in its paragraph is a figure, captioned by its description
+  -- (the image then gets an empty alt: the caption already describes it)
+  PD.Para [PD.Image attr desc target] -> figure_ $ do
+    imageToHtml attr "" target
+    unless (null desc) $ figcaption_ (inlinesToHtml desc)
   PD.Para ils -> p_ (inlinesToHtml ils)
   PD.LineBlock lns ->
     div_ [class_ "line-block"] $
@@ -73,9 +77,10 @@ blockToHtml blk = case blk of
     table_ (attrs attr) $ do
       captionToHtml caption_ caption
       colgroupToHtml colspecs
-      tableHeadToHtml thead
-      mapM_ tableBodyToHtml tbodies
-      tableFootToHtml tfoot
+      tableHeadToHtml aligns thead
+      mapM_ (tableBodyToHtml aligns) tbodies
+      tableFootToHtml aligns tfoot
+    where aligns = map fst colspecs
   PD.Figure attr caption bs ->
     figure_ (attrs attr) (blocksToHtml bs >> captionToHtml figcaption_ caption)
   PD.Div attr bs -> div_ (attrs attr) (blocksToHtml bs)
@@ -123,32 +128,39 @@ colgroupToHtml colspecs
     colAttrs (PD.ColWidth w) =
       [style_ ("width: " <> showT (round (w * 100) :: Int) <> "%;")]
 
-tableHeadToHtml :: PD.TableHead -> W ()
-tableHeadToHtml (PD.TableHead attr rows)
-  | null rows = mempty
-  | otherwise = thead_ (attrs attr) (mapM_ (rowToHtml (const ColHeader)) rows)
+-- The 'PD.Alignment' lists below are the alignments of the columns.
 
-tableBodyToHtml :: PD.TableBody -> W ()
-tableBodyToHtml (PD.TableBody attr (PD.RowHeadColumns n) headRows bodyRows) =
+tableHeadToHtml :: [PD.Alignment] -> PD.TableHead -> W ()
+tableHeadToHtml aligns (PD.TableHead attr rows)
+  | null rows = mempty
+  | otherwise = thead_ (attrs attr) (mapM_ (rowToHtml aligns (const ColHeader)) rows)
+
+tableBodyToHtml :: [PD.Alignment] -> PD.TableBody -> W ()
+tableBodyToHtml aligns (PD.TableBody attr (PD.RowHeadColumns n) headRows bodyRows) =
   tbody_ (attrs attr) $ do
-    mapM_ (rowToHtml (const ColHeader)) headRows
-    mapM_ (rowToHtml (\i -> if i < n then RowHeader else DataCell)) bodyRows
+    mapM_ (rowToHtml aligns (const ColHeader)) headRows
+    mapM_ (rowToHtml aligns (\i -> if i < n then RowHeader else DataCell)) bodyRows
 
-tableFootToHtml :: PD.TableFoot -> W ()
-tableFootToHtml (PD.TableFoot attr rows)
+tableFootToHtml :: [PD.Alignment] -> PD.TableFoot -> W ()
+tableFootToHtml aligns (PD.TableFoot attr rows)
   | null rows = mempty
-  | otherwise = tfoot_ (attrs attr) (mapM_ (rowToHtml (const DataCell)) rows)
+  | otherwise = tfoot_ (attrs attr) (mapM_ (rowToHtml aligns (const DataCell)) rows)
 
 -- 'kindAt i' classifies the cell at column index i (only varies for
 -- TableBody rows, where the first RowHeadColumns cells are row headers).
-rowToHtml :: (Int -> CellKind) -> PD.Row -> W ()
-rowToHtml kindAt (PD.Row attr cells) =
-  tr_ (attrs attr) (sequence_ (zipWith (cellToHtml . kindAt) [0 ..] cells))
+-- Cells are matched with columns by position, regardless of spans.
+rowToHtml :: [PD.Alignment] -> (Int -> CellKind) -> PD.Row -> W ()
+rowToHtml aligns kindAt (PD.Row attr cells) =
+  tr_ (attrs attr) $ sequence_ $
+    zipWith3 (cellToHtml . kindAt) [0 ..] (aligns ++ repeat PD.AlignDefault) cells
 
-cellToHtml :: CellKind -> PD.Cell -> W ()
-cellToHtml kind (PD.Cell attr align (PD.RowSpan rs) (PD.ColSpan cs) bs) =
-  tag (scope ++ alignAttr ++ spans ++ attrs attr) (blocksToHtml bs)
+-- A cell has the alignment of its column, unless it has its own (commonmark
+-- only sets the columns').
+cellToHtml :: CellKind -> PD.Alignment -> PD.Cell -> W ()
+cellToHtml kind colAlign (PD.Cell (ident, classes, kvs) cellAlign (PD.RowSpan rs) (PD.ColSpan cs) bs) =
+  tag (scope ++ spans ++ attrs (ident, alignClass ++ classes, kvs)) (blocksToHtml bs)
   where
+    align = if cellAlign == PD.AlignDefault then colAlign else cellAlign
     tag = case kind of
       DataCell -> td_
       _ -> th_
@@ -156,10 +168,12 @@ cellToHtml kind (PD.Cell attr align (PD.RowSpan rs) (PD.ColSpan cs) bs) =
       ColHeader -> [scope_ "col"]
       RowHeader -> [scope_ "row"]
       DataCell -> []
-    alignAttr = case align of
-      PD.AlignLeft -> [style_ "text-align: left;"]
-      PD.AlignRight -> [style_ "text-align: right;"]
-      PD.AlignCenter -> [style_ "text-align: center;"]
+    -- a class rather than a style, so that it merges with the cell's own
+    -- classes (the theme defines .align-*)
+    alignClass = case align of
+      PD.AlignLeft -> ["align-left"]
+      PD.AlignRight -> ["align-right"]
+      PD.AlignCenter -> ["align-center"]
       PD.AlignDefault -> []
     spans = [rowspan_ (showT rs) | rs /= 1] ++ [colspan_ (showT cs) | cs /= 1]
 
@@ -191,22 +205,28 @@ inlineToHtml il = case il of
   PD.RawInline fmt raw -> rawToHtml fmt raw
   PD.Link attr ils (url, title) ->
     a_ ([href_ url] ++ titleAttr title ++ attrs attr) (inlinesToHtml ils)
-  PD.Image attr ils (url, title) ->
-    img_ ([src_ url, alt_ (inlinesToPlain ils)] ++ titleAttr title ++ attrs attr)
+  PD.Image attr ils target -> imageToHtml attr (inlinesToPlain ils) target
   PD.Note bs -> noteToHtml bs
   PD.Span attr ils -> span_ (attrs attr) (inlinesToHtml ils)
-  where
-    titleAttr t = [title_ t | not (T.null t)]
 
+imageToHtml :: PD.Attr -> T.Text -> PD.Target -> W ()
+imageToHtml attr alt (url, title) =
+  img_ ([src_ url, alt_ alt] ++ titleAttr title ++ attrs attr)
+
+titleAttr :: T.Text -> [Attributes]
+titleAttr t = [title_ t | not (T.null t)]
+
+-- The text of inlines, at any depth, without formatting (for alt attributes)
 inlinesToPlain :: [PD.Inline] -> T.Text
-inlinesToPlain = T.concat . map go
+inlinesToPlain = T.concat . PW.query go
   where
-    go (PD.Str s) = s
-    go PD.Space = " "
-    go PD.SoftBreak = " "
-    go (PD.Emph ils) = inlinesToPlain ils
-    go (PD.Strong ils) = inlinesToPlain ils
-    go _ = ""
+    go (PD.Str s) = [s]
+    go (PD.Code _ s) = [s]
+    go (PD.Math _ s) = [s]
+    go PD.Space = [" "]
+    go PD.SoftBreak = [" "]
+    go PD.LineBreak = [" "]
+    go _ = []
 
 
 --------------------------------------------------------------------------------
@@ -223,7 +243,7 @@ noteToHtml bs = do
   n <- gets ((+ 1) . M.size)
   modify (M.insert n bs)
   a_ [href_ ("#" <> noteId n), id_ (noteRefId n), class_ "footnote-ref"]
-    (toHtml (T.concat [" [", showT n, "]"]))
+    (toHtml (showT n))
 
 -- <section class="footnotes"><ol><li id="fn1">…</li>…</ol></section>
 --
@@ -249,6 +269,5 @@ addBackLink n bs = case List.unsnoc bs of
   Just (bs', PD.Plain ils) -> bs' ++ [PD.Plain (ils ++ [PD.Space, back])]
   _ -> bs ++ [PD.Plain [back]]
   where
-    -- U+FE0E keeps the arrow from being displayed as an emoji
     back = PD.Link ("", ["footnote-back"], []) [PD.Str "↑"]
                    ("#" <> noteRefId n, "")

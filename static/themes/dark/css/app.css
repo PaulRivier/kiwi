@@ -479,6 +479,42 @@ pre {
   font-size: 12px;
 }
 
+.document .align-left   { text-align: left; }
+.document .align-right  { text-align: right; }
+.document .align-center { text-align: center; }
+
+.document a.footnote-ref {
+  margin-left: 0.6em;
+  padding: 0 0.35em;
+  border: 1px solid rgba(var(--kiwi-page-link), 0.5);
+  border-radius: 3px;
+  font-size: 1em;
+}
+
+.document a.footnote-ref:hover {
+  border-color: rgb(var(--kiwi-page-link));
+  text-decoration: none;
+}
+
+.document section.footnotes {
+  margin-top: 2.5em;
+  padding-top: 0.5em;
+  border-top: 1px solid rgba(var(--kiwi-text), 0.2);
+  font-size: 0.9em;
+}
+
+.document section.footnotes li p {
+  margin: 0.3em 0;
+}
+
+.document section.footnotes li:target {
+  border: 1px solid rgba(var(--kiwi-text), 0.3);
+}
+
+.document a.footnote-back:hover {
+  text-decoration: none;
+}
+
 .document blockquote {
   padding: 0.5em 1em;
   border-left: 1px solid rgb(var(--kiwi-text));

@@ -101,7 +101,7 @@ walkDoc source pageDir imagesDir filesDir doc =
     where
       -- chemin des images
       fixInlines (PD.Image attr desc (rawLink, lName)) =
-        PD.Image attr desc ((fixImage imagesDir rawLink), "fig:" <> lName)
+        PD.Image attr desc ((fixImage imagesDir rawLink), lName)
       -- chemin des pages, fichiers, liens externes
       fixInlines (PD.Link attr txt (rawLink, lName)) =
         case parseLink rawLink of
