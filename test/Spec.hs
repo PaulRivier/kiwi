@@ -8,12 +8,15 @@ import qualified Data.SearchEngine as SE
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
+import           Lucid (renderText)
 import qualified Network.HTTP.Types.URI as URI
 import           Test.Hspec
 import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 
+import           Kiwi.HtmlWriter (writeHtml5)
 import           Kiwi.Pandoc (loadPage, parseMetaData, parseCustomMeta)
 import           Kiwi.Search (initPageSearchEngine)
 import           Kiwi.Types
@@ -30,6 +33,7 @@ main = hspec $ do
   describe "Kiwi.Utils passwords" passwordSpec
   describe "Utils.DocIndex" docIndexSpec
   describe "Kiwi.Search" searchSpec
+  describe "Kiwi.HtmlWriter" htmlWriterSpec
 
 
 --------------------------------------------------------------------------------
@@ -395,3 +399,24 @@ searchSpec = do
 
   it "does not confuse accented words with short ones" $
     search "été" `shouldBe` ["a"]
+
+
+--------------------------------------------------------------------------------
+-- HtmlWriter
+
+htmlWriterSpec :: Spec
+htmlWriterSpec = do
+  let html = TL.toStrict . renderText . writeHtml5 . pandocDoc . load
+
+  it "renders footnotes as numbered references and a list at the end" $
+    html "t: t\n\nA[^x] and B[^y].\n\n[^x]: Note x.\n\n[^y]: Note y."
+      `shouldBe` T.concat
+        [ "<p>A<sup><a href=\"#fn1\" id=\"fnref1\" class=\"footnote-ref\">1</a></sup>"
+        , " and B<sup><a href=\"#fn2\" id=\"fnref2\" class=\"footnote-ref\">2</a></sup>.</p>"
+        , "<section class=\"footnotes\"><ol>"
+        , "<li id=\"fn1\"><p>Note x. <a href=\"#fnref1\" class=\"footnote-back\">\x21A9\xFE0E</a></p></li>"
+        , "<li id=\"fn2\"><p>Note y. <a href=\"#fnref2\" class=\"footnote-back\">\x21A9\xFE0E</a></p></li>"
+        , "</ol></section>" ]
+
+  it "renders no footnotes section without notes" $
+    html "t: t\n\nNo note." `shouldBe` "<p>No note.</p>"

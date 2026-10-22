@@ -1,100 +1,99 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
-
+-- | Renders a Pandoc document as HTML5, with Lucid.
+--
+-- The rendering runs in a 'State' that collects the footnotes: pandoc keeps
+-- the content of each footnote inline, where it is referenced, so the writer
+-- numbers each 'PD.Note' it meets and renders its content at the end of the
+-- document.
 module Kiwi.HtmlWriter (writeHtml5) where
 
+import           Control.Monad (forM_, unless)
+import           Control.Monad.State.Strict (State, evalState, gets, modify)
 import qualified Data.List as List
+import qualified Data.Map.Strict as M
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
 
+import           Lucid
+import           Lucid.Base (commuteHtmlT2, makeAttributes)
 import qualified Text.Pandoc.Definition as PD
 
-import Text.Blaze.Html ((!))
-import qualified Text.Blaze.Html.Renderer.Text as Renderer
-import qualified Text.Blaze.Html5 as H
-import qualified Text.Blaze.Html5.Attributes as A
+
+-- | Footnotes met so far, by number (from 1)
+type Notes = M.Map Int [PD.Block]
+type W = HtmlT (State Notes)
 
 
-writeHtml5 :: PD.Pandoc -> T.Text
-writeHtml5 = TL.toStrict . Renderer.renderHtml . writeHtml5Blaze
+
+writeHtml5 :: PD.Pandoc -> Html ()
+writeHtml5 (PD.Pandoc _meta blocks) =
+  evalState (commuteHtmlT2 render) M.empty
+  where render = blocksToHtml blocks >> footnotesToHtml
 
 
-writeHtml5Blaze :: PD.Pandoc -> H.Html
-writeHtml5Blaze (PD.Pandoc _meta blocks) = blocksToHtml blocks
-
--- Apply a Pandoc 'PD.Attr' (id, classes, arbitrary key/value pairs) to an
--- existing Html value. 'H.customAttribute' + 'H.textTag' let us turn
--- a runtime Text key into a blaze attribute name, which is how arbitrary
+-- Turns a Pandoc 'PD.Attr' (id, classes, arbitrary key/value pairs) into Lucid
+-- attributes. 'makeAttributes' takes a runtime key, which is how arbitrary
 -- kv-attrs (e.g. from the commonmark 'attributes' extension) get through.
-applyAttrs :: PD.Attr -> H.Html -> H.Html
-applyAttrs (ident, classes, kvs) html0 = List.foldl' (!) html0 attrs
-  where
-    attrs =
-      [A.id (H.toValue ident) | not (T.null ident)]
-        ++ [A.class_ (H.toValue (T.unwords classes)) | not (null classes)]
-        ++ [H.customAttribute (H.textTag k) (H.toValue v) | (k, v) <- kvs]
+attrs :: PD.Attr -> [Attributes]
+attrs (ident, classes, kvs) =
+  [id_ ident | not (T.null ident)]
+    ++ [class_ (T.unwords classes) | not (null classes)]
+    ++ [makeAttributes k v | (k, v) <- kvs]
 
-blocksToHtml :: [PD.Block] -> H.Html
-blocksToHtml = mconcat . map blockToHtml
+showT :: Show a => a -> T.Text
+showT = T.pack . show
 
-blockToHtml :: PD.Block -> H.Html
-blockToHtml blk = case blk of
-  PD.Plain ils -> inlinesToHtml ils
-  PD.Para (img@(PD.Image _ desc _):[]) ->
-    H.figure (inlineToHtml img <> H.figcaption (inlinesToHtml desc))
-  PD.Para ils -> H.p $ inlinesToHtml ils
-  PD.LineBlock lns ->
-    H.div ! A.class_ "line-block" $
-      mconcat (List.intersperse H.br (map inlinesToHtml lns))
-  PD.CodeBlock attr code -> H.pre (applyAttrs attr (H.code (H.toHtml code)))
-  PD.RawBlock (PD.Format fmt) raw
-    | T.toLower fmt `elem` ["html", "html5"] -> H.preEscapedToHtml raw
-    | otherwise -> mempty
-  PD.BlockQuote bs -> H.blockquote (blocksToHtml bs)
-  PD.OrderedList (start, _, _) items ->
-    let ol0 = H.ol (mconcat (map (H.li . blocksToHtml) items))
-     in if start /= 1
-          then ol0 ! A.start (H.toValue (T.pack (show start)))
-          else ol0
-  PD.BulletList items -> H.ul (mconcat (map (H.li . blocksToHtml) items))
-  PD.DefinitionList items -> H.dl (mconcat (map defItemToHtml items))
-  PD.Header lvl attr ils -> applyAttrs attr (headerTag lvl (inlinesToHtml ils))
-  PD.HorizontalRule -> H.hr
-  PD.Table attr caption colspecs thead tbodies tfoot ->
-    applyAttrs attr $
-      H.table $
-        captionToHtml H.caption caption
-          <> colgroupToHtml colspecs
-          <> tableHeadToHtml thead
-          <> mconcat (map tableBodyToHtml tbodies)
-          <> tableFootToHtml tfoot
-  PD.Figure attr caption blocks ->
-    applyAttrs attr (H.figure (blocksToHtml blocks <> captionToHtml H.figcaption caption))
-  PD.Div attr bs -> applyAttrs attr (H.div (blocksToHtml bs))
+-- unsupported :: T.Text -> W ()
+-- unsupported feature = div_ $ toHtml ("UNSUPPORTED FEATURE: " <> feature)
 
-
-
-headerTag :: Int -> H.Html -> H.Html
-headerTag 1 = H.h1
-headerTag 2 = H.h2
-headerTag 3 = H.h3
-headerTag 4 = H.h4
-headerTag 5 = H.h5
-headerTag _ = H.h6
 
 --------------------------------------------------------------------------------
--- Tables
+-- Blocks
 
--- Whether a cell is a column header (<th scope="col">, from TableHead or a
--- TableBody's intermediate head rows), a row header (<th scope="row">, the
--- leading RowHeadColumns cells of a TableBody's regular rows), or plain data.
--- (Our own type, so it needs no qualification.)
-data CellKind = ColHeader | RowHeader | DataCell
+blocksToHtml :: [PD.Block] -> W ()
+blocksToHtml = mapM_ blockToHtml
 
-unsupported :: T.Text -> H.Html
-unsupported feature =  H.div $ H.toHtml ("UNSUPPORTED FEATURE: " <> feature)
+blockToHtml :: PD.Block -> W ()
+blockToHtml blk = case blk of
+  PD.Plain ils -> inlinesToHtml ils
+  PD.Para [img@(PD.Image _ desc _)] ->
+    figure_ (inlineToHtml img >> figcaption_ (inlinesToHtml desc))
+  PD.Para ils -> p_ (inlinesToHtml ils)
+  PD.LineBlock lns ->
+    div_ [class_ "line-block"] $
+      sequence_ (List.intersperse (br_ []) (map inlinesToHtml lns))
+  PD.CodeBlock attr code -> pre_ (code_ (attrs attr) (toHtml code))
+  PD.RawBlock fmt raw -> rawToHtml fmt raw
+  PD.BlockQuote bs -> blockquote_ (blocksToHtml bs)
+  PD.OrderedList (start, _, _) items ->
+    ol_ [start_ (showT start) | start /= 1] (mapM_ (li_ . blocksToHtml) items)
+  PD.BulletList items -> ul_ (mapM_ (li_ . blocksToHtml) items)
+  PD.DefinitionList items -> dl_ (mapM_ defItemToHtml items)
+  PD.Header lvl attr ils -> headerTag lvl (attrs attr) (inlinesToHtml ils)
+  PD.HorizontalRule -> hr_ []
+  PD.Table attr caption colspecs thead tbodies tfoot ->
+    table_ (attrs attr) $ do
+      captionToHtml caption_ caption
+      colgroupToHtml colspecs
+      tableHeadToHtml thead
+      mapM_ tableBodyToHtml tbodies
+      tableFootToHtml tfoot
+  PD.Figure attr caption bs ->
+    figure_ (attrs attr) (blocksToHtml bs >> captionToHtml figcaption_ caption)
+  PD.Div attr bs -> div_ (attrs attr) (blocksToHtml bs)
 
-captionToHtml :: (H.Html -> H.Html) -> PD.Caption -> H.Html
+headerTag :: Int -> [Attributes] -> W () -> W ()
+headerTag 1 = h1_
+headerTag 2 = h2_
+headerTag 3 = h3_
+headerTag 4 = h4_
+headerTag 5 = h5_
+headerTag _ = h6_
+
+rawToHtml :: PD.Format -> T.Text -> W ()
+rawToHtml (PD.Format fmt) raw
+  | T.toLower fmt `elem` ["html", "html5"] = toHtmlRaw raw
+  | otherwise = mempty
+
+captionToHtml :: (W () -> W ()) -> PD.Caption -> W ()
 captionToHtml h (PD.Caption _short bs)
   | null bs = mempty
   | otherwise = h (blocksToHtml bs)
@@ -102,101 +101,102 @@ captionToHtml h (PD.Caption _short bs)
 -- Each DefinitionList item is (term, [definition]) where a definition is
 -- itself [Block] (a <dd> can hold multiple blocks); a term can have several
 -- definitions, hence several <dd>s per <dt>.
-defItemToHtml :: ([PD.Inline], [[PD.Block]]) -> H.Html
-defItemToHtml (term, defs) =
-  H.dt (inlinesToHtml term) <> mconcat (map (H.dd . blocksToHtml) defs)
+defItemToHtml :: ([PD.Inline], [[PD.Block]]) -> W ()
+defItemToHtml (dterm, defs) =
+  dt_ (inlinesToHtml dterm) >> mapM_ (dd_ . blocksToHtml) defs
 
-colgroupToHtml :: [PD.ColSpec] -> H.Html
+
+--------------------------------------------------------------------------------
+-- Tables
+
+-- Whether a cell is a column header (<th scope="col">, from TableHead or a
+-- TableBody's intermediate head rows), a row header (<th scope="row">, the
+-- leading RowHeadColumns cells of a TableBody's regular rows), or plain data.
+data CellKind = ColHeader | RowHeader | DataCell
+
+colgroupToHtml :: [PD.ColSpec] -> W ()
 colgroupToHtml colspecs
   | all ((== PD.ColWidthDefault) . snd) colspecs = mempty
-  | otherwise = H.colgroup (mconcat (map colToHtml colspecs))
+  | otherwise = colgroup_ (mapM_ (col_ . colAttrs . snd) colspecs)
   where
-    colToHtml (_, PD.ColWidthDefault) = H.col
-    colToHtml (_, PD.ColWidth w) =
-      H.col ! A.style (H.toValue ("width: " <> T.pack (show (round (w * 100) :: Int)) <> "%;"))
+    colAttrs PD.ColWidthDefault = []
+    colAttrs (PD.ColWidth w) =
+      [style_ ("width: " <> showT (round (w * 100) :: Int) <> "%;")]
 
-tableHeadToHtml :: PD.TableHead -> H.Html
+tableHeadToHtml :: PD.TableHead -> W ()
 tableHeadToHtml (PD.TableHead attr rows)
   | null rows = mempty
-  | otherwise = applyAttrs attr (H.thead (mconcat (map (rowToHtml (const ColHeader)) rows)))
+  | otherwise = thead_ (attrs attr) (mapM_ (rowToHtml (const ColHeader)) rows)
 
-tableBodyToHtml :: PD.TableBody -> H.Html
+tableBodyToHtml :: PD.TableBody -> W ()
 tableBodyToHtml (PD.TableBody attr (PD.RowHeadColumns n) headRows bodyRows) =
-  applyAttrs attr $
-    H.tbody $
-      mconcat (map (rowToHtml (const ColHeader)) headRows)
-        <> mconcat (map (rowToHtml (\i -> if i < n then RowHeader else DataCell)) bodyRows)
+  tbody_ (attrs attr) $ do
+    mapM_ (rowToHtml (const ColHeader)) headRows
+    mapM_ (rowToHtml (\i -> if i < n then RowHeader else DataCell)) bodyRows
 
-tableFootToHtml :: PD.TableFoot -> H.Html
+tableFootToHtml :: PD.TableFoot -> W ()
 tableFootToHtml (PD.TableFoot attr rows)
   | null rows = mempty
-  | otherwise = applyAttrs attr (H.tfoot (mconcat (map (rowToHtml (const DataCell)) rows)))
+  | otherwise = tfoot_ (attrs attr) (mapM_ (rowToHtml (const DataCell)) rows)
 
 -- 'kindAt i' classifies the cell at column index i (only varies for
 -- TableBody rows, where the first RowHeadColumns cells are row headers).
-rowToHtml :: (Int -> CellKind) -> PD.Row -> H.Html
+rowToHtml :: (Int -> CellKind) -> PD.Row -> W ()
 rowToHtml kindAt (PD.Row attr cells) =
-  applyAttrs attr (H.tr (mconcat (zipWith (\i c -> cellToHtml (kindAt i) c) [0 ..] cells)))
+  tr_ (attrs attr) (sequence_ (zipWith (cellToHtml . kindAt) [0 ..] cells))
 
-cellToHtml :: CellKind -> PD.Cell -> H.Html
+cellToHtml :: CellKind -> PD.Cell -> W ()
 cellToHtml kind (PD.Cell attr align (PD.RowSpan rs) (PD.ColSpan cs) bs) =
-  applyAttrs attr (withSpans (withScope (withAlign (tagFor kind (blocksToHtml bs)))))
+  tag (scope ++ alignAttr ++ spans ++ attrs attr) (blocksToHtml bs)
   where
-    tagFor DataCell = H.td
-    tagFor _ = H.th
-    withScope h = case kind of
-      ColHeader -> h ! A.scope "col"
-      RowHeader -> h ! A.scope "row"
-      DataCell -> h
-    withAlign h
-      | align == PD.AlignDefault = h
-      | otherwise = h ! A.style (H.toValue (alignStyle align))
-    alignStyle :: PD.Alignment -> T.Text
-    alignStyle PD.AlignLeft = "text-align: left;"
-    alignStyle PD.AlignRight = "text-align: right;"
-    alignStyle PD.AlignCenter = "text-align: center;"
-    alignStyle PD.AlignDefault = ""
-    withSpans h0 =
-      let h1 = if rs /= 1 then h0 ! A.rowspan (H.toValue (T.pack (show rs))) else h0
-       in if cs /= 1 then h1 ! A.colspan (H.toValue (T.pack (show cs))) else h1
+    tag = case kind of
+      DataCell -> td_
+      _ -> th_
+    scope = case kind of
+      ColHeader -> [scope_ "col"]
+      RowHeader -> [scope_ "row"]
+      DataCell -> []
+    alignAttr = case align of
+      PD.AlignLeft -> [style_ "text-align: left;"]
+      PD.AlignRight -> [style_ "text-align: right;"]
+      PD.AlignCenter -> [style_ "text-align: center;"]
+      PD.AlignDefault -> []
+    spans = [rowspan_ (showT rs) | rs /= 1] ++ [colspan_ (showT cs) | cs /= 1]
+
 
 --------------------------------------------------------------------------------
 -- Inlines
 
-inlinesToHtml :: [PD.Inline] -> H.Html
-inlinesToHtml = mconcat . map inlineToHtml
+inlinesToHtml :: [PD.Inline] -> W ()
+inlinesToHtml = mapM_ inlineToHtml
 
-inlineToHtml :: PD.Inline -> H.Html
+inlineToHtml :: PD.Inline -> W ()
 inlineToHtml il = case il of
-  PD.Str s -> H.toHtml s
-  PD.Emph ils -> H.em (inlinesToHtml ils)
-  PD.Strong ils -> H.strong (inlinesToHtml ils)
-  PD.Strikeout ils -> H.del (inlinesToHtml ils)
-  PD.Underline ils -> H.u $ inlinesToHtml ils
-  PD.Superscript ils -> H.sup (inlinesToHtml ils)
-  PD.Subscript ils -> H.sub (inlinesToHtml ils)
-  PD.SmallCaps ils -> H.span ! A.style "font-variant: small-caps;" $ inlinesToHtml ils
-  PD.Quoted PD.SingleQuote ils ->
-    H.preEscapedToHtml ("&lsquo;" :: T.Text) <> inlinesToHtml ils <> H.preEscapedToHtml ("&rsquo;" :: T.Text)
-  PD.Quoted PD.DoubleQuote ils ->
-    H.preEscapedToHtml ("&ldquo;" :: T.Text) <> inlinesToHtml ils <> H.preEscapedToHtml ("&rdquo;" :: T.Text)
+  PD.Str s -> toHtml s
+  PD.Emph ils -> em_ (inlinesToHtml ils)
+  PD.Strong ils -> strong_ (inlinesToHtml ils)
+  PD.Strikeout ils -> del_ (inlinesToHtml ils)
+  PD.Underline ils -> term "u" (inlinesToHtml ils) -- lucid has no u_
+  PD.Superscript ils -> sup_ (inlinesToHtml ils)
+  PD.Subscript ils -> sub_ (inlinesToHtml ils)
+  PD.SmallCaps ils -> span_ [style_ "font-variant: small-caps;"] (inlinesToHtml ils)
+  PD.Quoted PD.SingleQuote ils -> "‘" >> inlinesToHtml ils >> "’"
+  PD.Quoted PD.DoubleQuote ils -> "“" >> inlinesToHtml ils >> "”"
   PD.Cite _ ils -> inlinesToHtml ils
-  PD.Code attr code -> applyAttrs attr (H.code (H.toHtml code))
-  PD.Space -> H.toHtml (" " :: T.Text)
-  PD.SoftBreak -> H.toHtml ("\n" :: T.Text)
-  PD.LineBreak -> H.br
-  PD.Math _ str -> H.toHtml str -- plug in texmath yourself if you need real math rendering
-  PD.RawInline (PD.Format fmt) raw
-    | T.toLower fmt `elem` ["html", "html5"] -> H.preEscapedToHtml raw
-    | otherwise -> mempty
+  PD.Code attr code -> code_ (attrs attr) (toHtml code)
+  PD.Space -> " "
+  PD.SoftBreak -> "\n"
+  PD.LineBreak -> br_ []
+  PD.Math _ str -> toHtml str -- plug in texmath yourself if you need real math rendering
+  PD.RawInline fmt raw -> rawToHtml fmt raw
   PD.Link attr ils (url, title) ->
-    applyAttrs attr (addTitle title (H.a ! A.href (H.toValue url) $ inlinesToHtml ils))
+    a_ ([href_ url] ++ titleAttr title ++ attrs attr) (inlinesToHtml ils)
   PD.Image attr ils (url, title) ->
-    applyAttrs attr (addTitle title (H.img ! A.src (H.toValue url) ! A.alt (H.toValue (inlinesToPlain ils))))
-  PD.Note _ -> unsupported "--- No support for Notes ---"
-  PD.Span attr ils -> applyAttrs attr (H.span (inlinesToHtml ils))
+    img_ ([src_ url, alt_ (inlinesToPlain ils)] ++ titleAttr title ++ attrs attr)
+  PD.Note bs -> noteToHtml bs
+  PD.Span attr ils -> span_ (attrs attr) (inlinesToHtml ils)
   where
-    addTitle t h = if T.null t then h else h ! A.title (H.toValue t)
+    titleAttr t = [title_ t | not (T.null t)]
 
 inlinesToPlain :: [PD.Inline] -> T.Text
 inlinesToPlain = T.concat . map go
@@ -209,3 +209,46 @@ inlinesToPlain = T.concat . map go
     go _ = ""
 
 
+--------------------------------------------------------------------------------
+-- Footnotes
+
+noteId, noteRefId :: Int -> T.Text
+noteId n = "fn" <> showT n
+noteRefId n = "fnref" <> showT n
+
+-- Stores the content of the note under the next number, and renders the
+-- reference: <a href="#fn1" id="fnref1" class="footnote-ref">1</a>
+noteToHtml :: [PD.Block] -> W ()
+noteToHtml bs = do
+  n <- gets ((+ 1) . M.size)
+  modify (M.insert n bs)
+  a_ [href_ ("#" <> noteId n), id_ (noteRefId n), class_ "footnote-ref"]
+    (toHtml (T.concat [" [", showT n, "]"]))
+
+-- <section class="footnotes"><ol><li id="fn1">…</li>…</ol></section>
+--
+-- The notes are looked up one by one: a note inside another note (possible in
+-- a Pandoc AST, though commonmark never produces one) is only stored while
+-- the latter is rendered.
+footnotesToHtml :: W ()
+footnotesToHtml = do
+  noNotes <- gets M.null
+  unless noNotes $ section_ [class_ "footnotes"] $ ol_ (note 1)
+  where
+    note :: Int -> W ()
+    note n = do
+      bs <- gets (M.lookup n)
+      forM_ bs $ \nbs -> do
+        li_ [id_ (noteId n)] (blocksToHtml (addBackLink n nbs))
+        note (n + 1)
+
+-- The back link goes at the end of the last paragraph, if there is one.
+addBackLink :: Int -> [PD.Block] -> [PD.Block]
+addBackLink n bs = case List.unsnoc bs of
+  Just (bs', PD.Para ils) -> bs' ++ [PD.Para (ils ++ [PD.Space, back])]
+  Just (bs', PD.Plain ils) -> bs' ++ [PD.Plain (ils ++ [PD.Space, back])]
+  _ -> bs ++ [PD.Plain [back]]
+  where
+    -- U+FE0E keeps the arrow from being displayed as an emoji
+    back = PD.Link ("", ["footnote-back"], []) [PD.Str "↑"]
+                   ("#" <> noteRefId n, "")

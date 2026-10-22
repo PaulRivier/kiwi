@@ -45,7 +45,6 @@ library
       async
     , base >=4.7 && <5
     , base16-bytestring
-    , blaze-html
     , bytestring
     , commonmark
     , commonmark-extensions
@@ -111,6 +110,7 @@ test-suite kiwi-test
     , hspec
     , http-types
     , kiwi
+    , lucid2
     , pandoc-types
     , text
     , time

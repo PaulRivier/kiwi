@@ -219,7 +219,7 @@ pageView p backlinks = div_ [class_ "page-view"] $ do
         [ link (U.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
         | k <- K.cmdKeys cmd ]
   h1_ [class_ "page-title"] $ toHtml $ K.pageTitle p
-  div_ [class_ "document"] $ toHtmlRaw $ writeHtml5 (K.pageDoc p)
+  div_ [class_ "document"] $ writeHtml5 (K.pageDoc p)
   linksList "pages-list backlinks" $ map pageLink backlinks
   where
     browseLink f k = U.browseUrl $ U.createReq (f, k)
