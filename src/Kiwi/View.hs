@@ -243,9 +243,11 @@ browseView loc menu filters pages = div_ [class_ "tags-page"] $ do
       fieldset field $ linksList "custom-meta-list" keys
   unless (null pages) $
     div_ [class_ "results"] $
-      fieldset ("→ " <> K.loc_PagesList loc) $ linksList "pages-list" $
+      fieldset ("→ " <> pagesLegend) $ linksList "pages-list" $
         map pageLink pages
   where
+    -- without filter, only the latest modified pages are listed
+    pagesLegend = if null filters then K.loc_RecentPages loc else K.loc_PagesList loc
     menuOf f = fromMaybe [] $ lookup f menu
     sources = menuOf K.FieldSource
     tags = menuOf K.FieldTag

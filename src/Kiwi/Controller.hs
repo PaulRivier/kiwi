@@ -12,8 +12,10 @@ module Kiwi.Controller
   ) where
 
 import           Control.Monad.Reader
+import           Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import           Data.Maybe (mapMaybe)
+import           Data.Ord (Down (..))
 import qualified Data.SearchEngine as SE
 import qualified Data.Set as S
 import qualified Data.Text as T
@@ -43,8 +45,13 @@ servePage pgId = do
     Nothing -> serveNotFound
 
 
+-- | Number of pages listed on the browse page without filter
+recentPagesCount :: Int
+recentPagesCount = 20
+
 -- | Browse page: the pages matching the request, and links to narrow it
 -- (next tags, sources, custom fields keys) or to remove one of its keys.
+-- Without filter, only the most recently modified pages are listed.
 serveBrowseAll :: [(T.Text, T.Text)] -> ActM ()
 serveBrowseAll params = do
   db <- getRestrictedDB
@@ -81,7 +88,10 @@ serveBrowseAll params = do
                    | (f, ks) <- M.toList req, k <- S.toList ks ]
           -- produce a label and a link to a narrower request
           nextStepLink f k = (nextStepLabel f k, U.browseUrl $ U.addToReq req (f,k))
-      in V.renderBrowseAll nextStep active $ DI.documentsList subset
+          -- most recently modified first, only the latest ones without filter
+          byMTime = sortOn (Down . K.pageMTime) $ DI.documentsList subset
+          pages = if M.null req then take recentPagesCount byMTime else byMTime
+      in V.renderBrowseAll nextStep active pages
       where fks idx f = (f, DI.getFieldKeys idx f)
 
     nextStepLabel K.FieldTag (K.KeyText tag) = case U.tagToSegments tag of

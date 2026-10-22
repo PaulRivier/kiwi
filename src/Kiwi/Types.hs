@@ -312,6 +312,7 @@ data Locales = Locales
   , loc_Tags :: T.Text
   , loc_TagsList :: T.Text
   , loc_PagesList :: T.Text
+  , loc_RecentPages :: T.Text
   , loc_Search :: T.Text
   , loc_SearchResults :: T.Text
   , loc_SearchNothing :: T.Text
