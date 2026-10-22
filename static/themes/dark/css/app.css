@@ -433,6 +433,15 @@ h1.page-title {
   list-style-type: "\2013  ";
 }
 
+code, pre {
+  font-family: ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+pre code {
+  font-size: inherit;
+}
+
 code {
   color: rgb(var(--kiwi-code));
 }
