@@ -25,7 +25,6 @@ data KiwiConfig = KiwiConfig
   , defaultMeta :: K.MetaData
   , customMetaConfig :: [K.CustomMetaConfig]
   , sourcesConfig :: [K.SourceConfig]
-  , logging :: Bool
   , toc :: K.TocSetting
   , secureCookie :: Bool
   }
@@ -54,7 +53,6 @@ configParser = do
     port' <- fieldOf "port" number
     editor'  <- fieldDefOf "editor" parseEditor Nothing
     lang'  <- fieldOf "ui-lang" readable
-    logging' <- fieldOf "log" flag
     toc' <- fieldDefOf "toc" readable K.TocOn
     secureCookie' <- fieldFlagDef "secure-cookie" False
     return KiwiConfig
@@ -66,7 +64,6 @@ configParser = do
       , defaultMeta = meta
       , customMetaConfig = toList customMeta'
       , sourcesConfig = toList sourcesConfig'
-      , logging = logging'
       , toc = toc'
       , secureCookie = secureCookie'
       }

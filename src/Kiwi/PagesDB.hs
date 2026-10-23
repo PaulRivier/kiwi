@@ -17,8 +17,8 @@ import qualified Data.Time.Calendar as Cal
 import qualified Data.Time.Clock as C
 import qualified System.Directory as D
 import qualified System.FilePath as FP
-import           System.IO (hPutStrLn, stderr)
 
+import qualified Kiwi.Log as L
 import           Kiwi.Search
 import           Kiwi.Types
 import           Kiwi.Pandoc (loadPageIO)
@@ -26,8 +26,8 @@ import           Kiwi.Utils (traverseDir, tagSubSegments, segmentsToTag,
                              nodup, isDotFile, isValidMdFilename)
 import qualified Utils.DocIndex as DI
 
-updatePagesDB :: FP.FilePath ->  FP.FilePath -> PagesDB ->  IO PagesDB
-updatePagesDB contentDir' pagesDir db =
+updatePagesDB :: L.Logger -> FP.FilePath ->  FP.FilePath -> PagesDB ->  IO PagesDB
+updatePagesDB logger' contentDir' pagesDir db =
   let dbPages = DI.documentsList $ pagesIndex db
       lu = lastUpdate db
   in do
@@ -53,14 +53,14 @@ updatePagesDB contentDir' pagesDir db =
     -- TODO : gérer des conditions de rechargement
     getCondition = return False
 
-    -- pages that can not be loaded are ignored, with a warning on stderr
+    -- pages that can not be loaded are ignored, with a warning
     getNewOrMod cd date fsPaths = do
       fsPathsAndMTime <- mapM addMTime fsPaths
       let updatedPaths = map fst $ filter (\(_,mt) -> maybe True (> date) mt)
                                           fsPathsAndMTime
       results <- mapM (\p -> (p,) <$> loadPage cd p) updatedPaths
       forM_ [ (p, e) | (p, Left e) <- results ] $ \(p, e) ->
-        hPutStrLn stderr $ concat ["Warning: page ignored, ", p, " : ", e]
+        logger' L.Warn $ T.pack $ concat ["page ignored, ", p, " : ", e]
       return [ pg | (_, Right pg) <- results ]
 
     getRemovedUIDs dbPages fsPaths =

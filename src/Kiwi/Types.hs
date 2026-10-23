@@ -52,6 +52,7 @@ import qualified System.FilePath as FP
 import qualified Text.Pandoc.Definition as PD
 import           Web.Scotty.Trans
 
+import           Kiwi.Log (Logger)
 import qualified Utils.DocIndex as DI
 
 data ServerState =
@@ -68,6 +69,7 @@ data ServerState =
               , pagesDBLock   :: MVar ()  -- ^ serializes pagesDB updates
               , tocSetting    :: TocSetting
               , secureCookie  :: Bool
+              , logger        :: Logger
               }
 
 

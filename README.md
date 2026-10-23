@@ -96,11 +96,18 @@ important, type 'admin' when prompted for your groups) :
     # Access created
 
 
-You are ready to start Kiwi :
+You are now ready to start Kiwi :
 
     kiwi serve ~/Kiwi/kiwi.ini
 
 Open your browser to localhost:3456, and log-in with your account
+
+Kiwi accepts command-line parameters that you can explore using the `--help` switch :
+
+    kiwi --help
+    kiwi serve --help
+    (...)
+
 
 # Kiwi folder layout
 

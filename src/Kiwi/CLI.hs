@@ -5,8 +5,11 @@ module Kiwi.CLI (Config(..), ServerConfig(..), InitConfig(..), AccessConfig(..),
 import Paths_kiwi (version)
 import Data.Version (showVersion)
 
+import Data.Char (toLower)
 import Options.Applicative
 import qualified System.FilePath as FP
+
+import qualified Kiwi.Log as L
 
 data Config = Server ServerConfig
             | Init InitConfig
@@ -14,7 +17,8 @@ data Config = Server ServerConfig
 
 
 data ServerConfig =
-  ServerConfig { serverCfps :: [FP.FilePath] }
+  ServerConfig { serverLogLevel :: L.LogLevel
+               , serverCfps :: [FP.FilePath] }
 
 data InitConfig =
   InitConfig { initDirectory :: FP.FilePath }
@@ -33,7 +37,7 @@ parser = hsubparser
            command "access" (info accessParser (progDesc "Manage accounts and permissions")) )
   where
     serveParser :: Parser Config
-    serveParser =  Server . ServerConfig <$> configFilePathsParser
+    serveParser =  Server <$> (ServerConfig <$> logLevelParser <*> configFilePathsParser)
 
     initParser  :: Parser Config
     initParser  =  Init <$> (InitConfig <$> initDirParser)
@@ -60,6 +64,18 @@ parser = hsubparser
     initDirParser = argument str ( metavar "KIWI_DIRECTORY"
                                    <> help "Path to your new kiwi directory, \
                                            \ must be an existing empty folder" )
+
+    logLevelParser = option readLogLevel ( long "log-level"
+                                           <> metavar "LEVEL"
+                                           <> value L.Info
+                                           <> help "error, warn, info (default) or debug" )
+
+    readLogLevel = maybeReader $ \l -> case map toLower l of
+      "error" -> Just L.Error
+      "warn"  -> Just L.Warn
+      "info"  -> Just L.Info
+      "debug" -> Just L.Debug
+      _       -> Nothing
 
     readLogin = maybeReader $
       \l -> case all (flip elem alphanum) l of

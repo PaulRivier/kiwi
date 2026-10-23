@@ -11,8 +11,14 @@ import           Data.IORef (newIORef, readIORef, atomicWriteIORef)
 import           Data.List (stripPrefix, isInfixOf)
 import qualified Data.Map.Strict as M
 import qualified Data.SearchEngine as SE
+import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
-import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
+import           Network.Wai.Handler.Warp (setPort)
+import           Network.Wai.Middleware.RequestLogger (DetailedSettings (..), OutputFormat (..),
+                                                       RequestLoggerSettings (..),
+                                                       defaultDetailedSettings,
+                                                       defaultRequestLoggerSettings,
+                                                       mkRequestLogger)
 import qualified Network.Wai.Middleware.Static as Static
 import           Network.Wai.Middleware.Static ((>->), (<|>))
 import qualified System.Directory as D
@@ -22,6 +28,7 @@ import           Web.Scotty.Trans
 
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.Controller
+import qualified Kiwi.Log as L
 import qualified Kiwi.PagesDB as DB
 import           Kiwi.Theme (serveTheme)
 import           Kiwi.Types
@@ -35,20 +42,31 @@ filesFSDir = "files"
 imagesFSDir = "images"
 
 
-kiwiServer :: FP.FilePath -> Conf.KiwiConfig ->
+kiwiServer :: FP.FilePath -> Conf.KiwiConfig -> L.LogLevel ->
               Static.CacheContainer -> IO ()
-kiwiServer cfp c cache = do
-  (ss, t) <- timeIO $ initServerState cfp c
-  displayStartupTime ss t
+kiwiServer cfp c logLevel cache = do
+  let logger' = L.mkLogger logLevel (Conf.name c)
+  (ss, t) <- timeIO $ initServerState cfp c logger'
+  nb <- pagesCount <$> readIORef (pagesDB ss)
+  logger' L.Info $ T.pack $ concat [ nb, " pages loaded in ", printf "%.2f" t
+                                   , "s, listening on port ", show (Conf.port c) ]
+  -- HTTP requests are only logged in debug mode
+  requestLogger <- mkRequestLogger defaultRequestLoggerSettings
+    { outputFormat = DetailedWithSettings defaultDetailedSettings
+        { useColors = False
+        , mModifyParams = Just hidePassword } }
   let runActionToIO m = runReaderT (runServerM m) ss
-  scottyT (Conf.port c) runActionToIO $ do
-    when (Conf.logging c) $ middleware logStdoutDev
+      -- no scotty startup banner
+      opts = defaultOptions { verbose = 0
+                            , settings = setPort (Conf.port c) (settings defaultOptions) }
+  scottyOptsT opts runActionToIO $ do
+    when (logLevel == L.Debug) $ middleware requestLogger
     kiwiRoute ss cache
   where
-    displayStartupTime ss t = do
-      let ts = printf "%.2f" t
-      nb <- (show . M.size . DI.store . pagesIndex) <$> liftIO (readIORef $ pagesDB ss)
-      putStrLn $ concat ["Kiwi scaned ", nb, " pages in ", ts, "s"]
+    -- the login password is never logged (nor the raw request body, which
+    -- is not displayed when params are modified)
+    hidePassword ("password", _) = Just ("password", "***")
+    hidePassword p = Just p
 
 
 kiwiRoute :: ServerState -> Static.CacheContainer -> WebM ()
@@ -98,21 +116,28 @@ updateDB = do
   dbR <- asksK pagesDB
   lock <- asksK pagesDBLock
   cd <- asksK contentDir
+  logger' <- asksK logger
   liftIO $ withMVar lock $ \_ -> do
     db' <- readIORef dbR
-    db  <- DB.updatePagesDB cd pagesFSDir db'
+    (db, t) <- timeIO $ DB.updatePagesDB logger' cd pagesFSDir db'
     atomicWriteIORef dbR db
+    logger' L.Info $ T.pack $ concat [ "pages reloaded in ", printf "%.2f" t
+                                     , "s, ", pagesCount db, " pages" ]
 
 
-initServerState :: FP.FilePath -> Conf.KiwiConfig -> IO ServerState
-initServerState cfp conf = do
+pagesCount :: PagesDB -> String
+pagesCount = show . M.size . DI.store . pagesIndex
+
+
+initServerState :: FP.FilePath -> Conf.KiwiConfig -> L.Logger -> IO ServerState
+initServerState cfp conf logger' = do
   kiwiDir' <- D.makeAbsolute (FP.takeDirectory cfp)
   let contentDir' = FP.combine kiwiDir' (Conf.contentDir conf)
   sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
   accounts' <- loadAccounts $ FP.combine kiwiDir' "_accounts"
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"
   sessM <- newMVar sess
-  db <- DB.updatePagesDB contentDir' pagesFSDir
+  db <- DB.updatePagesDB logger' contentDir' pagesFSDir
           (DB.emptyPagesDB (Conf.defaultMeta conf)
                            (Conf.customMetaConfig conf)
                            (Conf.sourcesConfig conf))
@@ -133,6 +158,7 @@ initServerState cfp conf = do
     , pagesDBLock  = dbLock
     , tocSetting   = Conf.toc conf
     , secureCookie = Conf.secureCookie conf
+    , logger       = logger'
   }
   where
     findInterfaceLang :: UI_Lang -> UI_Lang

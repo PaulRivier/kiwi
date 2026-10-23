@@ -72,6 +72,7 @@ library
     , wai
     , wai-extra
     , wai-middleware-static
+    , warp
   exposed-modules:
       Kiwi
       Kiwi.CLI
@@ -79,6 +80,7 @@ library
       Kiwi.Controller
       Kiwi.DefaultPages
       Kiwi.Locales
+      Kiwi.Log
       Kiwi.HtmlWriter
       Kiwi.PagesDB
       Kiwi.Pandoc

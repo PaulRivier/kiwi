@@ -11,6 +11,7 @@ module Kiwi.Controller
   , ifAdmin
   ) where
 
+import           Control.Monad (forM_)
 import           Control.Monad.Reader
 import           Data.List (sortOn)
 import qualified Data.Map.Strict as M
@@ -27,6 +28,7 @@ import qualified System.Process as Proc
 import           Web.Scotty.Trans (formParam, redirect, status, html)
 
 import           Kiwi.Types (ActM)
+import qualified Kiwi.Log as L
 import qualified Kiwi.Types as K
 import qualified Kiwi.View as V
 import           Kiwi.Utils (getDB, getSessions, asksK, tagsListSubSegments, 
@@ -154,6 +156,7 @@ logUserIn = do
   accounts <- asksK K.accounts
   case U.verifyLogin accounts name pass of
     Nothing -> do
+      logMsg L.Warn $ "login failed: " <> name
       r <- V.renderLoginForm True
       status Net.status401
       html r
@@ -162,6 +165,7 @@ logUserIn = do
       now <- liftIO $ Time.getCurrentTime
       U.modifySessions $ M.insert key (user, groups, now)
       U.setKiwiCookie key
+      logMsg L.Info $ "login: " <> user
       redirect "/"
 
 
@@ -172,8 +176,16 @@ logUserOut = do
   case authM of
     Nothing -> redirect "/"
     Just auth -> do
+      sessions <- U.getSessions
       U.modifySessions $ M.delete auth
+      forM_ (M.lookup auth sessions) $ \(user, _, _) -> logMsg L.Info $ "logout: " <> user
       redirect "/"
+
+
+logMsg :: L.LogLevel -> T.Text -> ActM ()
+logMsg level msg = do
+  logger <- asksK K.logger
+  liftIO $ logger level msg
 
 
 serveNotFound :: ActM ()

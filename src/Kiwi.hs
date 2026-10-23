@@ -16,6 +16,7 @@ import           GHC.IO.Encoding (setLocaleEncoding, setFileSystemEncoding)
 import Kiwi.CLI as CLI
 import Kiwi.ConfigFile as Conf
 import qualified Kiwi.DefaultPages as DP
+import qualified Kiwi.Log as L
 import Kiwi.Server (kiwiServer)
 import qualified Kiwi.Utils as U
 import Kiwi.Types
@@ -30,31 +31,35 @@ runKiwiRun = do
   setFileSystemEncoding =<< mkTextEncoding "UTF-8//ROUNDTRIP"
   hSetEncoding stdout utf8
   hSetEncoding stderr utf8
+  -- logs are written at once, even when stdout is not a terminal (journald ...)
+  hSetBuffering stdout LineBuffering
   cli <- CLI.parseCLI
   case cli of
     Server c -> do
       cache <- U.initWAICaching
-      _ <- mapConcurrently (runServer cache) (CLI.serverCfps c)
+      _ <- mapConcurrently (runServer cache (CLI.serverLogLevel c)) (CLI.serverCfps c)
       return ()
     Init c -> initKiwiDir (CLI.initDirectory c)
     Access action -> runAccess action
 
 
-runServer :: Static.CacheContainer -> FP.FilePath -> IO ()
-runServer cache cfp = do
+runServer :: Static.CacheContainer -> L.LogLevel -> FP.FilePath -> IO ()
+runServer cache logLevel cfp = do
   cfgTextM <- U.getFileContent cfp
   case cfgTextM of
-    Nothing -> putStrLn "This config file does not exist"
+    Nothing -> logError $ "config file " ++ cfp ++ " does not exist"
     Just cfgText -> do
       case Conf.parseConfig cfgText of
         Left e -> do
-          putStrLn "Error while reading config file :"
-          putStrLn e
-          putStrLn "Kiwi will now write a clean kiwi.ini to kiwi.ini.default \
-                   \to help you fix your config"
+          logError $ "error while reading config file " ++ cfp ++ " : " ++ e
           let kd = FP.takeDirectory cfp
+          logError $ "a clean config is written to "
+                     ++ FP.combine kd "kiwi.ini.default" ++ " to help you fix it"
           BS.writeFile (FP.combine kd "kiwi.ini.default") Conf.defaultConfigFileContent
-        Right conf -> kiwiServer cfp conf cache
+        Right conf -> kiwiServer cfp conf logLevel cache
+  where
+    -- the kiwi name is unknown until the config file is read
+    logError = L.mkLogger logLevel "?" L.Error . T.pack
 
 
 initKiwiDir :: FP.FilePath -> IO ()

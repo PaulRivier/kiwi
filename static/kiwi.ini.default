@@ -11,8 +11,6 @@ editor: gedit
 port: 3456
 # Default language for UI and fulltext search
 ui-lang: english
-# Do you want HTTP logs in the console (for debug) ?
-log: no
 # Do you want to display Toc : on | off | auto
 toc: on
 # Set to yes if kiwi is served through HTTPS (behind a reverse proxy for example):
