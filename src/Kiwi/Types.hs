@@ -171,7 +171,9 @@ data CustomMetaConfig =
 
 data SourceConfig = 
   SourceConfig { scSourceName :: T.Text
-               , scRootTag :: TagSegments }
+               , scRootTag :: TagSegments
+               , scAccess :: Maybe [T.Text]  -- ^ default access of the pages
+               }
 
 data CustomMetaType = CmtText | CmtInt | CmtDate | CmtBool
   deriving (Eq, Show)

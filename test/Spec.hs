@@ -17,7 +17,9 @@ import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 
 import           Kiwi.HtmlWriter (writeHtml5)
-import           Kiwi.Pandoc (linksInContext, loadPage, parseMetaData, parseCustomMeta)
+import qualified Kiwi.ConfigFile as Conf
+import           Kiwi.Pandoc (linksInContext, loadPage, parseMetaData, parseCustomMeta,
+                              sourceMeta)
 import           Kiwi.Search (initPageSearchEngine)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
@@ -158,6 +160,27 @@ loadPageSpec = do
 
 metaDataSpec :: Spec
 metaDataSpec = do
+  it "reads the access of the sources config, ignoring empty ones" $ do
+    let ini = T.unlines [ "[kiwi]", "content-directory: content", "port: 3456"
+                        , "ui-lang: english", "[metadata-default]"
+                        , "[source a]", "access: family, friends"
+                        , "[source b]", "access: ,", "[source c]", "root-tag: x > y" ]
+        access = map (\sc -> (scSourceName sc, scAccess sc)) . Conf.sourcesConfig
+    fmap access (Conf.parseConfig ini) `shouldBe`
+      Right [ ("a", Just ["family", "friends"]), ("b", Nothing), ("c", Nothing) ]
+    fmap (map scRootTag . Conf.sourcesConfig) (Conf.parseConfig ini) `shouldBe`
+      Right [[], [], ["x", "y"]]
+
+  it "uses the access of the source config, unless the page has one" $ do
+    let sc = SourceConfig "src" [] (Just ["family"])
+        access sM c = case loadPage "test.md" c "src" (sourceMeta sM defMeta) [] "" of
+          Left e -> error e
+          Right p -> metaAccess $ pandocMeta p
+    access (Just sc) "title: t\n\n" `shouldBe` ["family"]
+    access (Just sc) "title: t\naccess: public\n\n" `shouldBe` ["public"]
+    access (Just sc { scAccess = Nothing }) "title: t\n\n" `shouldBe` ["private"]
+    access Nothing "title: t\n\n" `shouldBe` ["private"]
+
   it "parses metadata lines" $
     parseMetaData "title: a: b\nnot meta\ntags: x\n tags : y "
       `shouldBe` M.fromList [("title", ["a: b"]), ("tags", ["x", "y"])]

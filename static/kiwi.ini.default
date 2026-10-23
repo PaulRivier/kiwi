@@ -39,8 +39,12 @@ lang: english
 # threshold: 0.8
 
 
-# Some sources may be very specific, you may want to nest the tags under a parent tag
-# to preserve your browsing experience
+# Settings for the pages of a source (a folder in your content directory).
+# root-tag: some sources may be very specific, you may want to nest their tags
+#   under a parent tag to preserve your browsing experience
+# access: default access of the pages, instead of the one of [metadata-default]
+#   (the access set in a page header still takes precedence)
 
 # [source dad-botanic]
 # root-tag: botanic
+# access: family

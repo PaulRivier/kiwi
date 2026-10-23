@@ -143,6 +143,25 @@ access Kiwi with plain HTTP, or login will not work.
 
 Sessions expire after one year, you then have to log in again.
 
+### Sources settings
+
+Each source can have its own section in *kiwi.ini*, named after its
+folder in *content* :
+
+    [source dad-botanic]
+    root-tag: botanic
+    access: family
+
+* **root-tag** : the tags of the pages of this source are nested under
+  this tag, *flower* becomes *botanic > flower*. This keeps the tags
+  of a very specific source out of your way when browsing.
+* **access** : default access of the pages of this source, comma
+  separated groups. It replaces the access of the `[metadata-default]`
+  section for these pages, and a page with its own *access* header
+  keeps it.
+
+Both settings are optional.
+
 ## content folder
 
 This folder contains all your *sources*. You can have only one source,

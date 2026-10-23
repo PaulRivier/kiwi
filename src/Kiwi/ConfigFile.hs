@@ -82,8 +82,13 @@ customMetaParser name' = do
 sourceConfigParser :: T.Text -> SectionParser K.SourceConfig
 sourceConfigParser source = do
   rt <- fieldDefOf "root-tag" string ""
+  access <- fieldDefOf "access" string ""
   return K.SourceConfig { K.scSourceName = source
-                        , K.scRootTag = U.splitMeta $ T.strip $ T.pack rt
+                        , K.scRootTag = U.tagToSegments $ T.pack rt
+                        -- without any group, the global default is used
+                        , K.scAccess = case U.splitMeta (T.pack access) of
+                            [] -> Nothing
+                            groups -> Just groups
                         }
 
 

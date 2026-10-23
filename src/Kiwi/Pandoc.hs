@@ -7,6 +7,7 @@ module Kiwi.Pandoc
   , loadPage         -- exported for tests
   , parseMetaData    -- exported for tests
   , parseCustomMeta  -- exported for tests
+  , sourceMeta       -- exported for tests
   ) where
 
 import           Control.Applicative ((<|>))
@@ -179,6 +180,14 @@ walkDoc source pageDir imagesDir filesDir doc =
 
 
 
+-- | Default metadata of the pages of a source: its config overrides the global
+-- defaults, and the page metadata override both
+sourceMeta :: Maybe SourceConfig -> MetaData -> MetaData
+sourceMeta scM md = case scM >>= scAccess of
+  Just access -> md { metaAccess = access }
+  Nothing     -> md
+
+
 loadPageIO :: FP.FilePath -> FP.FilePath -> T.Text ->
               MetaData -> [CustomMetaConfig] -> Maybe SourceConfig ->
               IO (Either String Page)
@@ -193,7 +202,7 @@ loadPageIO fullPath relPath source md cmc scM = do
     Left (e :: IOException) -> Left $ "unable to read file : " ++ ioeGetErrorString e
     Right (bytes, mt) -> case TE.decodeUtf8' bytes of
      Left e -> Left $ "not a valid UTF-8 file : " ++ show e
-     Right c -> case (loadPage fullPath c source md cmc pageDir) of
+     Right c -> case (loadPage fullPath c source (sourceMeta scM md) cmc pageDir) of
       Left e -> Left $ "unable to decode markdown : " ++ e
       Right p -> let meta = pandocMeta p
                      pId = fromMaybe (pathToPageId relPath) $ metaId meta in
