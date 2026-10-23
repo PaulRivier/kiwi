@@ -1,7 +1,8 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
 module Kiwi.Search (
-  initPageSearchEngine
+    initPageSearchEngine
+  , queryTerms
   ) where
 
 -- import           Data.Text.ICU.Char
@@ -18,16 +19,18 @@ import           Kiwi.Types as K
 import           Kiwi.Utils (pageContent)
 
 
-initPageSearchEngine :: Lang -> PageSearchEngine
-initPageSearchEngine lg =
-    initSearchEngine (pageSearchConfig (alg lg)) defaultSearchRankParameters
+initPageSearchEngine :: PageSearchEngine
+initPageSearchEngine =
+    initSearchEngine pageSearchConfig defaultSearchRankParameters
 
-pageSearchConfig :: Algorithm -> SearchConfig Page PageUID PageField NoFeatures
-pageSearchConfig lg =
+-- | The query terms are normalised beforehand by 'queryTerms', in the lang
+-- chosen for each query
+pageSearchConfig :: SearchConfig Page PageUID PageField NoFeatures
+pageSearchConfig =
     SearchConfig {
       documentKey           = pageUID,
       extractDocumentTerms  = extractTokens,
-      transformQueryTerm    = normaliseQueryToken,
+      transformQueryTerm    = const,
       documentFeatureValue  = const noFeatures
   }
   where
@@ -40,13 +43,30 @@ pageSearchConfig lg =
     extractTokens p ContentField    = extractTerms (alg $ pageLang p) $
                                       pageContent $ pageDoc p
 
-    normaliseQueryToken :: T.Text -> PageField -> T.Text
-    -- same steps as extractTerms: lower case and NFC, stem, remove accents
-    normaliseQueryToken tok _ = normalizeText $ stem lg $ normalize NFC $ T.toLower tok
-
     -- dans le cas des tags, on indexe le tag sous sa forme canonique
     -- [tag] ainsi que les termes qui le composent
     extractTagTokens lg' t = (T.concat ["[", T.toLower t, "]"]) : extractTerms lg' t
+
+
+-- | Terms of a query, stemmed in the given lang, unless the query starts with
+-- the code of another lang ("fr:", "es: "...)
+queryTerms :: Lang -> T.Text -> [T.Text]
+queryTerms lg q = case T.breakOn ":" (T.stripStart q) of
+  (code, rest) | Just lg' <- lookup (T.toLower code) langCodes, not (T.null rest)
+                 -> normaliseQuery lg' (T.drop 1 rest)
+  _ -> normaliseQuery lg q
+  where
+    -- same steps as extractTerms: lower case and NFC, stem, remove accents
+    normaliseQuery l = map (normalizeText . stem (alg l) . normalize NFC . T.toLower) .
+                       T.words
+
+-- | ISO 639-1 codes of the langs
+langCodes :: [(T.Text, Lang)]
+langCodes = [ ("da", K.Danish), ("nl", K.Dutch), ("en", K.English)
+            , ("fi", K.Finnish), ("fr", K.French), ("de", K.German)
+            , ("hu", K.Hungarian), ("it", K.Italian), ("no", K.Norwegian)
+            , ("pt", K.Portuguese), ("ro", K.Romanian), ("ru", K.Russian)
+            , ("es", K.Spanish), ("sv", K.Swedish), ("tr", K.Turkish) ]
 
 -- pageContent :: P.Pandoc -> T.Text
 -- pageContent doc = case (P.runPure $ P.writePlain P.def doc) of

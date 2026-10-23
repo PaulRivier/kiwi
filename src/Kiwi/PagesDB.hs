@@ -102,7 +102,7 @@ emptyPagesDB md cmc sc =
                , sourcesConfig = sc
                , lastUpdate = oldDate
                , pagesIndex = DI.init pageUID (pageExtractKeys cmc)
-               , searchEngine = initPageSearchEngine (baseLang $ metaLang md) }
+               , searchEngine = initPageSearchEngine }
 
 
 pageExtractKeys :: [CustomMetaConfig] -> [DI.Field Page MetaField DocIndexKey]

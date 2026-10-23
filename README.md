@@ -400,7 +400,15 @@ mixed content, other language) :
 
 The search terms are processed in the language of the
 `[metadata-default]` section (its fallback language with `auto`), so
-inflected forms work best for pages in that language.
+inflected forms work best for pages in that language. To search in
+another language, start your search with its code :
+
+    es: canciones
+
+Codes are da (danish), nl (dutch), en (english), fi (finnish), fr
+(french), de (german), hu (hungarian), it (italian), no (norwegian),
+pt (portuguese), ro (romanian), ru (russian), es (spanish), sv
+(swedish) and tr (turkish).
 
 
 # Edit file from browser

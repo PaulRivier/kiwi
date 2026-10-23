@@ -5,6 +5,8 @@
 - `lang: auto/english` detects the language of a page from its content
   (French, English, Spanish), with a fallback language; `lang` can also
   be set per source in *kiwi.ini*.
+- A search starting with a language code (`fr:`, `es:`…) is processed
+  in that language.
 - Passwords are hashed with Argon2: accounts created with an older
   version must be created again (`kiwi access … --create`).
 - New `secure-cookie` option, to use when Kiwi is served through HTTPS.

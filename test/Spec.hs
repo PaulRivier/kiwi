@@ -21,7 +21,7 @@ import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.LangDetect (detectLang, resolveLang, stopWords)
 import           Kiwi.Pandoc (linksInContext, loadPage, parseMetaData, parseCustomMeta,
                               sourceMeta)
-import           Kiwi.Search (initPageSearchEngine)
+import           Kiwi.Search (initPageSearchEngine, queryTerms)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
 import qualified Utils.DocIndex as DI
@@ -514,7 +514,8 @@ docIndexSpec = do
 
 searchSpec :: Spec
 searchSpec = do
-  let page uid content =
+  let page = pageIn French
+      pageIn lang uid content =
         Page { pageUID = ("src", uid)
              , pageAbsoluteFSPath = "/dev/null"
              , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
@@ -522,16 +523,17 @@ searchSpec = do
                                                      PD.Str <$> T.words content)]
              , pageTitle = uid
              , pageTags = []
-             , pageLang = French
+             , pageLang = lang
              , pageAccess = []
              , pageLinks = []
              , pageCustomMeta = []
              }
       se = SE.insertDocs [ page "a" "Un développement en été"
                          , page "b" "Elle est aimée"
-                         , page "c" "Lui et moi" ]
-                         (initPageSearchEngine French)
-      search q = map snd $ SE.query se (T.words q)
+                         , page "c" "Lui et moi"
+                         , pageIn Spanish "d" "Los niños corrían" ]
+                         initPageSearchEngine
+      search q = map snd $ SE.query se (queryTerms French q)
 
   it "matches inflections of accented words" $
     search "développer" `shouldBe` ["a"]
@@ -541,6 +543,18 @@ searchSpec = do
 
   it "does not confuse accented words with short ones" $
     search "été" `shouldBe` ["a"]
+
+  it "stems the query in the lang of its prefix" $ do
+    search "corriendo" `shouldBe` []
+    search "es:corriendo" `shouldBe` ["d"]
+    search " ES: corriendo" `shouldBe` ["d"]
+
+  it "keeps unknown prefixes, and prefixes after the start, in the query" $ do
+    queryTerms French "fr:chevaux" `shouldBe` queryTerms French "chevaux"
+    queryTerms French "es:canciones" `shouldBe` queryTerms Spanish "canciones"
+    queryTerms French "xx:chevaux" `shouldBe` ["xx:cheval"]
+    queryTerms French "es:" `shouldBe` []
+    queryTerms French "chevaux es:x" `shouldBe` queryTerms French "chevaux" ++ ["es:x"]
 
 
 --------------------------------------------------------------------------------

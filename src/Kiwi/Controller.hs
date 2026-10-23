@@ -30,6 +30,7 @@ import           Web.Scotty.Trans (formParam, queryParams, redirect, status, htm
 
 import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
+import           Kiwi.Search (queryTerms)
 import qualified Kiwi.Types as K
 import qualified Kiwi.View as V
 import           Kiwi.Utils (getDB, getSessions, asksK, tagsListSubSegments, 
@@ -138,12 +139,14 @@ serveBrowseAll params = do
               in ratio >= K.cmcThreshold cmc
 
 
--- | Full text search, in the pages of the sources context
+-- | Full text search, in the pages of the sources context. The query is
+-- stemmed in the default lang, unless it starts with a lang code ("fr:")
 serveSearch :: T.Text -> ActM ()
 serveSearch query = do
   db <- getRestrictedDB
   sources <- asksK K.sourcesContext
-  let matches = SE.query (K.searchEngine db) (T.words query)
+  let lang = K.baseLang $ K.metaLang $ K.defaultMeta db
+      matches = SE.query (K.searchEngine db) (queryTerms lang query)
       inSources p = S.null sources || S.member (fst $ K.pageUID p) sources
       pages = filter inSources $ mapMaybe (findPage db) matches
     in case pages of
