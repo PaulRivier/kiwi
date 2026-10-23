@@ -3,6 +3,7 @@
 
 module Kiwi.Pandoc
   ( loadPageIO
+  , linksInContext
   , loadPage         -- exported for tests
   , parseMetaData    -- exported for tests
   , parseCustomMeta  -- exported for tests
@@ -18,6 +19,7 @@ import qualified Data.ByteString as BS
 import           Data.Functor ((<&>))
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe, mapMaybe)
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
@@ -86,6 +88,19 @@ loadPage path c source md cmc dir =
 
 
 
+-- | Class of the links to other pages, set by 'walkDoc'
+pageLinkClass :: T.Text
+pageLinkClass = "kiwi-link-page"
+
+-- | The links to other pages keep the sources context
+linksInContext :: S.Set T.Text -> PD.Pandoc -> PD.Pandoc
+linksInContext sources = PW.walk inContext
+  where
+    inContext (PD.Link attr@(_, classes, _) txt (url, lName))
+      | pageLinkClass `elem` classes = PD.Link attr txt (U.inContext sources url, lName)
+    inContext x = x
+
+
 data LinkType = PageLink T.Text
               | AnchorLink T.Text
               | ImageLink T.Text
@@ -105,7 +120,7 @@ walkDoc source pageDir imagesDir filesDir doc =
       -- chemin des pages, fichiers, liens externes
       fixInlines (PD.Link attr txt (rawLink, lName)) =
         case parseLink rawLink of
-          PageLink l   -> PD.Link (addClass "kiwi-link-page" attr) txt
+          PageLink l   -> PD.Link (addClass pageLinkClass attr) txt
                                   (pathToPage pageDir l, lName)
           AnchorLink l -> PD.Link (addClass "kiwi-link-anchor" attr) txt
                                   (l, lName)

@@ -143,6 +143,7 @@ data Query field key = And [Query field key]
                      | Range field key key
                      | GreaterThanOrEq field key
                      | LowerThanOrEq field key
+  deriving (Eq, Show)
 
 
 

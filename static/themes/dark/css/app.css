@@ -14,7 +14,7 @@
   --kiwi-primary:   0, 120, 231;
 
   --kiwi-content-width: 800px;
-  --kiwi-nav-height: 70px;
+  --kiwi-nav-height: 60px;
 }
 
 
@@ -308,8 +308,9 @@ fieldset.flex ul {
 }
 
 .sources-selection ul.sources-list {
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin: 0;
+  margin-bottom: 12px;
   padding: 0;
 }
 
@@ -328,8 +329,14 @@ fieldset.flex ul {
   color: rgb(var(--kiwi-text));
 }
 
+/* sources of the context */
+.sources-selection ul.sources-list li.selected a {
+  color: rgb(var(--kiwi-text));
+  font-weight: bold;
+}
+
 .filters-selection ul.filters-list {
-  margin: 0 0 0.5em 0;
+  margin: 0.4em 0 0.8em 0;
   padding: 0;
 }
 

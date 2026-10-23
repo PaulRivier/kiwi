@@ -44,7 +44,7 @@ import           Data.Ix (Ix)
 import qualified Data.Map.Strict as M
 import           Data.Maybe (mapMaybe)
 import           Data.SearchEngine
--- import qualified Data.Set as S
+import qualified Data.Set as S
 import qualified Data.Text as T
 -- import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
@@ -65,6 +65,8 @@ data ServerState =
               , accounts      :: [Account]
               , sessions      :: MVar Sessions
               , login         :: Maybe Login
+              , sourcesContext :: S.Set T.Text  -- ^ navigation restricted to
+                                                -- these sources, all if empty
               , pagesDB       :: IORef PagesDB
               , pagesDBLock   :: MVar ()  -- ^ serializes pagesDB updates
               , tocSetting    :: TocSetting
@@ -313,6 +315,7 @@ data Locales = Locales
   { loc_Home :: T.Text
   , loc_Tags :: T.Text
   , loc_TagsList :: T.Text
+  , loc_FiltersList :: T.Text
   , loc_PagesList :: T.Text
   , loc_RecentPages :: T.Text
   , loc_Search :: T.Text

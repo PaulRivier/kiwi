@@ -17,7 +17,7 @@ import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 
 import           Kiwi.HtmlWriter (writeHtml5)
-import           Kiwi.Pandoc (loadPage, parseMetaData, parseCustomMeta)
+import           Kiwi.Pandoc (linksInContext, loadPage, parseMetaData, parseCustomMeta)
 import           Kiwi.Search (initPageSearchEngine)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
@@ -133,6 +133,13 @@ loadPageSpec = do
     let p = load "title: t\n\n[a](#section) [b](https://example.org)"
     links p `shouldBe` [ (["kiwi-link-anchor"], "#section")
                        , (["kiwi-link-external"], "https://example.org") ]
+
+  it "keeps the sources context in page links only" $ do
+    let p = load "title: t\n\n[a](<page:Other#part>) [b](#section) [c](https://example.org)"
+        p' = p { pandocDoc = linksInContext (S.fromList ["x"]) (pandocDoc p) }
+    links p' `shouldBe` [ (["kiwi-link-page"], "/page/src/sub:Other?source=x#part")
+                        , (["kiwi-link-anchor"], "#section")
+                        , (["kiwi-link-external"], "https://example.org") ]
 
   it "fixes images paths" $ do
     let p = load "title: t\n\n![x](<image:a.png>) ![y](<image:/b.png>) ![z](http://e.org/c.png)"
@@ -257,6 +264,18 @@ browseReqSpec = do
       `shouldBe` req [(FieldTag, [KeyText "a>b"])]
     U.addToReq (U.createReq (FieldTag, KeyText "a\\>b")) (FieldTag, KeyText "a>b")
       `shouldBe` req [(FieldTag, [KeyText "a\\>b", KeyText "a>b"])]
+
+  it "combines sources with an union, the other fields with an intersection" $
+    U.reqToQuery (req [ (FieldSource, [KeyText "a", KeyText "b"])
+                      , (FieldTag, [KeyText "x", KeyText "y"]) ])
+      `shouldBe` DI.And [ DI.Any FieldSource (S.fromList [KeyText "a", KeyText "b"])
+                        , DI.All FieldTag (S.fromList [KeyText "x", KeyText "y"]) ]
+
+  it "adds the sources context to URLs, before the fragment" $ do
+    let ss = S.fromList ["b c", "a"]
+    U.inContext S.empty "/page/s/p#h" `shouldBe` "/page/s/p#h"
+    U.inContext ss "/page/s/p#h" `shouldBe` "/page/s/p?source=a&source=b%20c#h"
+    U.inContext ss "/browse" `shouldBe` U.browseUrl (U.sourcesReq ss)
 
   it "removes keys from a request" $ do
     let r = req [(FieldTag, [KeyText "a", KeyText "b"]), (FieldSource, [KeyText "s"])]

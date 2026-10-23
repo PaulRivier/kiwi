@@ -1,6 +1,8 @@
 module Kiwi.View
   ( renderPage
   , renderBrowseAll
+  , Toggle (..)
+  , PagesListing (..)
   , renderSearchResults
   , renderLoginForm
   , renderNotFound
@@ -11,6 +13,7 @@ module Kiwi.View
 import           Control.Monad (forM_, unless, when)
 import           Data.List (intersperse, sortOn)
 import           Data.Maybe (fromMaybe)
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import           Lucid
@@ -24,6 +27,7 @@ import           Kiwi.Types (ActM)
 import           Kiwi.Utils (prettyTag, asksK, fst3)
 import qualified Kiwi.Utils as U
 import           Kiwi.HtmlWriter (writeHtml5)
+import           Kiwi.Pandoc (linksInContext)
 
 
 -- | What the layout needs to know about the current request
@@ -31,6 +35,7 @@ data ViewCtx = ViewCtx { ctxLocales :: K.Locales
                        , ctxLogin   :: Maybe T.Text   -- ^ user id
                        , ctxIsAdmin :: Bool
                        , ctxToc     :: K.TocSetting
+                       , ctxSources :: S.Set T.Text   -- ^ sources context
                        }
 
 getViewCtx :: ActM ViewCtx
@@ -38,6 +43,7 @@ getViewCtx = ViewCtx <$> getLocales
                      <*> (fmap fst3 <$> asksK K.login)
                      <*> U.isAdmin
                      <*> asksK K.tocSetting
+                     <*> asksK K.sourcesContext
 
 getLocales :: ActM K.Locales
 getLocales = Loc.locales <$> asksK K.uiLang
@@ -51,8 +57,19 @@ renderView title pageM content = do
 
 
 renderPage :: K.Page -> [K.Page] -> ActM TL.Text
-renderPage p backlinks =
-  renderView (K.pageTitle p) (Just p) (pageView p backlinks)
+renderPage p backlinks = do
+  sources <- asksK K.sourcesContext
+  renderView (K.pageTitle p) (Just p) (pageView sources p backlinks)
+
+-- | Key of an union field, with a link to add it to the request, or to
+-- remove it when it is selected
+data Toggle = Toggle { toggleLabel    :: T.Text
+                     , toggleTarget   :: T.Text
+                     , toggleSelected :: Bool
+                     }
+
+-- | Keys of the union fields, by field
+type BrowseToggles = [(K.MetaField, [Toggle])]
 
 -- | Links (label, target) to narrow the request, by field
 type BrowseMenu = [(K.MetaField, [(T.Text, T.Text)])]
@@ -60,15 +77,23 @@ type BrowseMenu = [(K.MetaField, [(T.Text, T.Text)])]
 -- | Keys of the request: field, label, and link to remove the key
 type BrowseFilters = [(K.MetaField, T.Text, T.Text)]
 
-renderBrowseAll :: BrowseMenu -> BrowseFilters -> [K.Page] -> ActM TL.Text
-renderBrowseAll menu filters pages = do
+-- | Pages listed on the browse page
+data PagesListing = RecentPages  -- ^ only the latest modified ones
+                  | AllPages     -- ^ all the pages matching the request
+
+renderBrowseAll :: BrowseToggles -> BrowseMenu -> BrowseFilters -> PagesListing ->
+                   [K.Page] -> ActM TL.Text
+renderBrowseAll toggles menu filters listing pages = do
   loc <- getLocales
-  renderView (K.loc_Tags loc) Nothing $ browseView loc menu filters pages
+  sources <- asksK K.sourcesContext
+  renderView (K.loc_Tags loc) Nothing $
+    browseView loc sources toggles menu filters listing pages
 
 renderSearchResults :: [K.Page] -> ActM TL.Text
 renderSearchResults pages = do
   loc <- getLocales
-  renderView (K.loc_Search loc) Nothing $ searchView loc pages
+  sources <- asksK K.sourcesContext
+  renderView (K.loc_Search loc) Nothing $ searchView loc sources pages
 
 -- | Login form, with an error message if previous attempt failed
 renderLoginForm :: Bool -> ActM TL.Text
@@ -123,7 +148,8 @@ layout ctx title pageM content = do
 
 navigation :: ViewCtx -> Maybe K.Page -> Html ()
 navigation ctx pageM = nav_ [class_ "top-nav"] $ do
-  a_ [href_ "/browse", class_ "icon", title_ (K.loc_Tags loc)] $ icon "tags"
+  a_ [ href_ (U.inContext (ctxSources ctx) "/browse"), class_ "icon"
+     , title_ (K.loc_Tags loc) ] $ icon "tags"
   div_ [class_ "nav-actions"] $ do
     when (ctxIsAdmin ctx) $ do
       forM_ pageM $ \p -> do
@@ -133,7 +159,7 @@ navigation ctx pageM = nav_ [class_ "top-nav"] $ do
         iconButton "copy-link" (K.loc_CopyLink loc)
           [data_ "page-link" (cmLink p)] "copy-link"
       iconButton "reload" (K.loc_Reload loc) [] "reload"
-    searchForm loc False
+    searchForm loc (ctxSources ctx) False
   where
     loc = ctxLocales ctx
     -- commonmark link to the page, to paste in another page
@@ -157,12 +183,14 @@ loginBox ctx = div_ [class_ "layout-login"] $ case ctxLogin ctx of
     loc = ctxLocales ctx
 
 
-searchForm :: K.Locales -> Bool -> Html ()
-searchForm loc focus =
-  form_ [action_ "/search", method_ "get", class_ "search"] $
+-- | The search is done in the sources context
+searchForm :: K.Locales -> S.Set T.Text -> Bool -> Html ()
+searchForm loc sources focus =
+  form_ [action_ "/search", method_ "get", class_ "search"] $ do
     input_ [ name_ "query", type_ "search"
            , placeholder_ (K.loc_Search loc)
            , if focus then autofocus_ else mempty ]
+    forM_ sources $ \s -> input_ [type_ "hidden", name_ "source", value_ s]
 
 
 -- | Table of contents of the document headings (levels 1&2), with the
@@ -207,8 +235,8 @@ plainText = PW.query txt
 
 -- * Views
 
-pageView :: K.Page -> [K.Page] -> Html ()
-pageView p backlinks = div_ [class_ "page-view"] $ do
+pageView :: S.Set T.Text -> K.Page -> [K.Page] -> Html ()
+pageView sources p backlinks = div_ [class_ "page-view"] $ do
   linksList "tags-list" [ (prettyTag t, browseLink K.FieldTag (K.KeyText t))
                         | t <- K.pageTags p ]
   unless (null $ K.pageCustomMeta p) $
@@ -219,22 +247,25 @@ pageView p backlinks = div_ [class_ "page-view"] $ do
         [ link (U.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
         | k <- K.cmdKeys cmd ]
   h1_ [class_ "page-title"] $ toHtml $ K.pageTitle p
-  div_ [class_ "document"] $ writeHtml5 (K.pageDoc p)
-  linksList "pages-list backlinks" $ map pageLink backlinks
+  div_ [class_ "document"] $ writeHtml5 $ linksInContext sources (K.pageDoc p)
+  linksList "pages-list backlinks" $ map (pageLink sources) backlinks
   where
-    browseLink f k = U.browseUrl $ U.createReq (f, k)
+    browseLink f k = U.browseUrl $ U.addToReq (U.sourcesReq sources) (f, k)
 
 
-browseView :: K.Locales -> BrowseMenu -> BrowseFilters -> [K.Page] -> Html ()
-browseView loc menu filters pages = div_ [class_ "tags-page"] $ do
+browseView :: K.Locales -> S.Set T.Text -> BrowseToggles -> BrowseMenu -> BrowseFilters ->
+              PagesListing -> [K.Page] -> Html ()
+browseView loc sources toggles menu filters listing pages = div_ [class_ "tags-page"] $ do
+  -- toggling the only source would change nothing
+  when (length sourceToggles > 1) $
+    div_ [class_ "sources-selection"] $
+      ul_ [class_ "flex-hz sources-list"] $ mapM_ toggleItem sourceToggles
   unless (null filters) $
-    div_ [class_ "filters-selection"] $
+    div_ [class_ "filters-selection"] $ fieldset (K.loc_FiltersList loc) $
       ul_ [class_ "flex-hz filters-list"] $ forM_ filters $ \(f, label, target) ->
         li_ $ a_ [href_ target, title_ (K.loc_RemoveFilter loc)] $ do
           forM_ (customName f) $ \n -> toHtml n <> " : "
           toHtml label <> " ×"
-  when (length sources > 1) $
-    div_ [class_ "sources-selection"] $ linksList "sources-list" sources
   unless (null tags) $
     div_ [class_ "tags-selection"] $
       fieldset (K.loc_TagsList loc) $ linksList "tags-list" $ sortOn fst tags
@@ -244,12 +275,19 @@ browseView loc menu filters pages = div_ [class_ "tags-page"] $ do
   unless (null pages) $
     div_ [class_ "results"] $
       fieldset ("→ " <> pagesLegend) $ linksList "pages-list" $
-        map pageLink pages
+        map (pageLink sources) pages
   where
-    -- without filter, only the latest modified pages are listed
-    pagesLegend = if null filters then K.loc_RecentPages loc else K.loc_PagesList loc
+    pagesLegend = case listing of
+      RecentPages -> K.loc_RecentPages loc
+      AllPages    -> K.loc_PagesList loc
+    sourceToggles = fromMaybe [] $ lookup K.FieldSource toggles
+    toggleItem :: Toggle -> Html ()
+    toggleItem t
+      | toggleSelected t = li_ [class_ "selected"] $
+          a_ [href_ (toggleTarget t), title_ (K.loc_RemoveFilter loc)] $
+            toHtml (toggleLabel t)
+      | otherwise = li_ $ link (toggleLabel t, toggleTarget t)
     menuOf f = fromMaybe [] $ lookup f menu
-    sources = menuOf K.FieldSource
     tags = menuOf K.FieldTag
     customs = [ (n, keys) | (K.FieldCustom n, keys) <- menu, not (null keys) ]
     -- the field name is only displayed for custom fields
@@ -261,14 +299,14 @@ browseView loc menu filters pages = div_ [class_ "tags-page"] $ do
       content
 
 
-searchView :: K.Locales -> [K.Page] -> Html ()
-searchView loc pages = div_ [class_ "search-results-page"] $ case pages of
+searchView :: K.Locales -> S.Set T.Text -> [K.Page] -> Html ()
+searchView loc sources pages = div_ [class_ "search-results-page"] $ case pages of
   [] -> do
     h1_ $ toHtml $ K.loc_SearchNothing loc
-    searchForm loc True
+    searchForm loc sources True
   _ -> do
     h1_ $ toHtml $ K.loc_SearchResults loc
-    linksList "results" $ map pageLink pages
+    linksList "results" $ map (pageLink sources) pages
 
 
 loginView :: K.Locales -> Bool -> Html ()
@@ -294,8 +332,9 @@ linksList cls links = unless (null links) $
 link :: (T.Text, T.Text) -> Html ()
 link (label, target) = a_ [href_ target] $ toHtml label
 
-pageLink :: K.Page -> (T.Text, T.Text)
-pageLink page = (K.pageTitle page, U.pageUrl page)
+-- | Link to a page, in the sources context
+pageLink :: S.Set T.Text -> K.Page -> (T.Text, T.Text)
+pageLink sources page = (K.pageTitle page, U.inContext sources $ U.pageUrl page)
 
 icon :: T.Text -> Html ()
 icon name = img_ [src_ ("/static/images/" <> name <> ".svg"), alt_ name]

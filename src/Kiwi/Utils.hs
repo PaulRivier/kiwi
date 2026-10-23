@@ -32,7 +32,10 @@ module Kiwi.Utils
   , qHasField
     -- * Browse requests
   , BrowseAllReq
+  , Combination (..)
+  , fieldCombination
   , reqToQuery
+  , sourcesReq
   , createReq
   , addToReq
   , removeFromReq
@@ -45,6 +48,7 @@ module Kiwi.Utils
   , pathToPageId
   , normalizePageId
   , pageUrl
+  , inContext
   , pageUIDLink
   , joinPathT
     -- * Caching
@@ -288,14 +292,32 @@ qHasField f = DI.HasField f
 
 -- Browse requests
 
--- | Filter of the browse page: the pages must have all the keys of every
--- field. In URLs, it is a query string with one parameter per key, e.g.
+-- | Filter of the browse page: the keys of each field are combined according
+-- to 'fieldCombination', and the pages must match every field. In URLs, it is
+-- a query string with one parameter per key, e.g.
 -- @/browse?source=s&tag=a%3Eb&tag=c&m.author=Smith@: "source", "tag", and
 -- "m." followed by the name of a custom metadata field.
 type BrowseAllReq = M.Map MetaField (S.Set DocIndexKey)
 
+-- | How the keys of a field are combined in a request
+data Combination = Intersection  -- ^ the pages have all the keys
+                 | Union         -- ^ the pages have one of the keys
+
+-- | Tags and custom fields narrow the selection, sources are alternatives
+fieldCombination :: MetaField -> Combination
+fieldCombination FieldSource = Union
+fieldCombination _ = Intersection
+
 reqToQuery :: BrowseAllReq -> DI.Query MetaField DocIndexKey
-reqToQuery r = DI.And $ map (uncurry DI.All) $ M.toList r
+reqToQuery r = DI.And [ combine (fieldCombination f) f ks | (f, ks) <- M.toList r ]
+  where combine Intersection = DI.All
+        combine Union = DI.Any
+
+-- | Request with only the sources of the context, where the navigation starts
+sourcesReq :: S.Set T.Text -> BrowseAllReq
+sourcesReq ss
+  | S.null ss = M.empty
+  | otherwise = M.singleton FieldSource (S.map KeyText ss)
 
 createReq :: (MetaField, DocIndexKey) -> BrowseAllReq
 createReq = addToReq M.empty
@@ -393,6 +415,17 @@ normalizePageId = T.replace "/" ":"
 pageUrl :: Page -> T.Text
 pageUrl p = let (s,i) = pageUID p in
   T.concat ["/page/", urlEncodeText s, "/", urlEncodeText i]
+
+-- | Add the sources context to an URL without query string, as the "source"
+-- parameters of the browse page, before the fragment if any
+inContext :: S.Set T.Text -> T.Text -> T.Text
+inContext ss url
+  | S.null ss = url
+  | otherwise = let (path, fragment) = T.breakOn "#" url
+                in T.concat [path, query, fragment]
+  where
+    query = TE.decodeUtf8 $ URI.renderQuery True
+              [ ("source", Just $ TE.encodeUtf8 s) | s <- S.toList ss ]
 
 pageUIDLink :: Page -> T.Text
 pageUIDLink p = let (_,i) = pageUID p in
