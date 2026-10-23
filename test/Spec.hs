@@ -94,6 +94,10 @@ loadPageSpec = do
     let m = pandocMeta $ load "title: a\ntags: t1\ntags: t2, t3\n\n"
     metaTags m `shouldBe` ["t1", "t2", "t3"]
 
+  it "expands groups of tags, on several lines" $ do
+    let m = pandocMeta $ load "title: a\ntags: sport > {alpinisme, escalade}\ntags: b\n\n"
+    metaTags m `shouldBe` ["sport > alpinisme", "sport > escalade", "b"]
+
   it "reads custom id" $
     metaId (pandocMeta $ load "id: my-id\n\n") `shouldBe` Just "my-id"
 
@@ -193,6 +197,30 @@ tagsSpec = do
 
   it "keeps other backslashes" $
     U.splitMeta "a\\b, c\\" `shouldBe` ["a\\b", "c\\"]
+
+  it "splits tags without groups as metadata" $
+    U.splitTags "a, b > c\\, d, ,e \\> f" `shouldBe` ["a", "b > c, d", "e \\> f"]
+
+  it "expands groups of tags" $ do
+    U.splitTags "sport > {alpinisme, escalade,rando }"
+      `shouldBe` ["sport > alpinisme", "sport > escalade", "sport > rando"]
+    U.splitTags "{sport, loisir} > montagne, a"
+      `shouldBe` ["sport > montagne", "loisir > montagne", "a"]
+
+  it "expands nested groups" $
+    U.splitTags "sport > {montagne > {alpinisme, rando}, natation}"
+      `shouldBe` [ "sport > montagne > alpinisme", "sport > montagne > rando"
+                 , "sport > natation" ]
+
+  it "drops empty groups and blank tags of groups" $
+    U.splitTags "sport > {}, a > {b, }, c" `shouldBe` ["a > b", "c"]
+
+  it "keeps escaped braces in tags" $
+    U.splitTags "a\\{b\\}, c > {d\\,e}" `shouldBe` ["a{b}", "c > d,e"]
+
+  it "takes unbalanced braces literally" $ do
+    U.splitTags "sport > {a, b" `shouldBe` ["sport > {a", "b"]
+    U.splitTags "a}, b" `shouldBe` ["a}", "b"]
 
   it "splits tags in segments" $
     U.tagToSegments "loisir > sport>escalade" `shouldBe` ["loisir", "sport", "escalade"]

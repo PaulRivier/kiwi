@@ -40,7 +40,7 @@ configParser = do
     defLang  <- fieldDefOf "lang" readable K.English
     return K.MetaData { K.metaId = Nothing
                       , K.metaTitle = T.strip defTitle
-                      , K.metaTags = U.splitMeta defTags
+                      , K.metaTags = U.splitTags defTags
                       , K.metaAccess = U.splitMeta defAccess 
                       , K.metaLang = defLang
                       , K.metaCustom = []

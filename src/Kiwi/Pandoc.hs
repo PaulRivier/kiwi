@@ -35,7 +35,7 @@ import qualified Text.Pandoc.Walk as PW
 import           Text.Read (readMaybe)
 
 import           Kiwi.Types
-import           Kiwi.Utils (splitOnFirst, splitMeta, pathToPageId)
+import           Kiwi.Utils (splitOnFirst, splitMeta, splitTags, pathToPageId)
 import qualified Kiwi.Utils as U
 
 
@@ -50,7 +50,7 @@ loadPage path c source md cmc dir =
         meta = md { metaId    = T.concat <$> M.lookup "id" docMeta
                   , metaTitle = findWith (metaTitle md) (T.intercalate " ")
                                          "title" docMeta
-                  , metaTags = findWith (metaTags md) (splitMeta . T.intercalate ",")
+                  , metaTags = findWith (metaTags md) (splitTags . T.intercalate ",")
                                         "tags" docMeta
                   , metaAccess = findWith (metaAccess md) (splitMeta . T.intercalate ",")
                                           "access" docMeta

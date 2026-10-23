@@ -23,6 +23,7 @@ module Kiwi.Utils
   , prefixNormalizeTag
   , filterRootTags
   , splitMeta
+  , splitTags
     -- * Lists
   , nodup
   , fastListDiff
@@ -73,7 +74,7 @@ import qualified Crypto.KDF.Argon2 as Argon2
 import qualified Crypto.Random as CR
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
-import           Data.Char (isAlphaNum)
+import           Data.Char (isAlphaNum, isSpace)
 import           Data.IORef
 import qualified Data.List as L
 import qualified Data.Map.Strict as M
@@ -235,6 +236,46 @@ fastListDiff l1 l2 = S.toList $ S.difference (S.fromList l1) (S.fromList l2)
 
 splitMeta :: T.Text -> [TagId]
 splitMeta = splitTextEsc ','
+
+-- | Split a tags field on commas, expanding the groups between braces:
+-- "a > {b, c > {d, e}}" gives "a > b", "a > c > d" and "a > c > e", and
+-- "{a, b} > c" gives "a > c" and "b > c". An empty group gives no tag.
+-- Commas and braces can be escaped with a backslash, other escapes are kept
+-- for 'tagToSegments'. With unbalanced braces, the field is split as usual,
+-- braces included.
+splitTags :: T.Text -> [TagId]
+splitTags t = case tagsP (T.unpack t) of
+  Just (tags, []) -> map T.pack tags
+  _               -> splitMeta t
+  where
+    -- tags until an unmatched closing brace or the end, blank ones dropped
+    tagsP :: String -> Maybe ([String], String)
+    tagsP s = do
+      (alts, rest) <- tagP [""] s
+      let tags = filter (not . null) $ map strip alts
+      case rest of
+        ',' : rest' -> do
+          (others, rest'') <- tagsP rest'
+          return (tags ++ others, rest'')
+        _ -> return (tags, rest)
+
+    -- a tag, as the alternatives built so far: each part (text or group)
+    -- multiplies them, until a comma, an unmatched closing brace or the end
+    tagP :: [String] -> String -> Maybe ([String], String)
+    tagP alts s = case s of
+      '{' : rs -> do
+        (group, rest) <- tagsP rs
+        case rest of
+          '}' : rest' -> tagP [ a ++ g | a <- alts, g <- group ] rest'
+          _           -> Nothing  -- unclosed group
+      '\\' : c : rs | c `elem` [',', '{', '}'] -> tagP (append [c]) rs
+                    | otherwise                -> tagP (append ['\\', c]) rs
+      c : _ | c `elem` [',', '}'] -> Just (alts, s)
+      c : rs -> tagP (append [c]) rs
+      [] -> Just (alts, [])
+      where append cs = map (++ cs) alts
+
+    strip = L.dropWhileEnd isSpace . dropWhile isSpace
 
 -- | Split on separator, unless it is escaped by a backslash. Other
 -- backslashes are kept as is. Parts are stripped, empty parts are dropped.

@@ -318,8 +318,21 @@ If you prefer you can span tags on multiple lines :
     tags: favorite
     tags: area > Japan
 
-Also if you want to include a comma in your tag, escape it with a
-backslash '\,'.
+Subtags sharing the same parent can be grouped between braces :
+
+    tags: sport > {climbing, hiking}, area > {Alps, Pyrenees}
+
+is the same as :
+
+    tags: sport > climbing, sport > hiking, area > Alps, area > Pyrenees
+
+Groups can be nested, and placed anywhere in a tag :
+
+    tags: sport > {mountain > {climbing, hiking}, swimming}
+    tags: {sport, leisure} > mountain
+
+Also if you want to include a comma or a brace in your tag, escape it with a
+backslash : '\,', '\{' or '\}'.
 
 Browsing files by tags should be intuitive from the web interface,
 look for the button with labels. Don't forget to reload when you want.
