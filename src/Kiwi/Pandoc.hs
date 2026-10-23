@@ -35,8 +35,10 @@ import qualified Text.Pandoc.Walk as PW
 -- import qualified Text.Pandoc.Shared as PS
 import           Text.Read (readMaybe)
 
+import           Kiwi.LangDetect (resolveLang)
 import           Kiwi.Types
-import           Kiwi.Utils (splitOnFirst, splitMeta, splitTags, pathToPageId)
+import           Kiwi.Utils (splitOnFirst, splitMeta, splitTags, pathToPageId,
+                             parseLangSetting)
 import qualified Kiwi.Utils as U
 
 
@@ -57,7 +59,8 @@ loadPage path c source md cmc dir =
                                           "access" docMeta
                   , metaLang = fromMaybe (metaLang md)
                                          ( M.lookup "lang" docMeta >>=
-                                           readMaybe . T.unpack . last )
+                                           either (const Nothing) Just .
+                                           parseLangSetting . last )
                   , metaCustom = parseCustomMeta docMeta cmc
                   }
         dirT = T.pack $ dir
@@ -183,9 +186,8 @@ walkDoc source pageDir imagesDir filesDir doc =
 -- | Default metadata of the pages of a source: its config overrides the global
 -- defaults, and the page metadata override both
 sourceMeta :: Maybe SourceConfig -> MetaData -> MetaData
-sourceMeta scM md = case scM >>= scAccess of
-  Just access -> md { metaAccess = access }
-  Nothing     -> md
+sourceMeta scM md = md { metaAccess = fromMaybe (metaAccess md) (scM >>= scAccess)
+                        , metaLang = fromMaybe (metaLang md) (scM >>= scLang) }
 
 
 loadPageIO :: FP.FilePath -> FP.FilePath -> T.Text ->
@@ -214,7 +216,8 @@ loadPageIO fullPath relPath source md cmc scM = do
                       , pageTags =  map (U.prefixNormalizeTag rootTag) $
                                     metaTags meta
                       , pageAccess =  metaAccess meta
-                      , pageLang = metaLang meta
+                      , pageLang = resolveLang (metaLang meta) (metaTitle meta)
+                                               (pandocDoc p)
                       , pageLinks = pandocPageLinks p
                       , pageCustomMeta = metaCustom meta
                       }

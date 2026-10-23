@@ -24,6 +24,8 @@ module Kiwi.Utils
   , filterRootTags
   , splitMeta
   , splitTags
+  , parseLangSetting
+  , pageContent
     -- * Lists
   , nodup
   , fastListDiff
@@ -90,6 +92,8 @@ import           Network.HTTP.Types.Header (RequestHeaders)
 import           System.CPUTime
 import qualified System.Directory as D
 import qualified System.FilePath as FP
+import qualified Text.Pandoc.Definition as PD
+import qualified Text.Pandoc.Walk as PW
 import           Text.Read (readMaybe)
 import qualified Web.Scotty.Cookie as CK
 
@@ -236,6 +240,31 @@ fastListDiff l1 l2 = S.toList $ S.difference (S.fromList l1) (S.fromList l2)
 
 splitMeta :: T.Text -> [TagId]
 splitMeta = splitTextEsc ','
+
+-- | Parse a lang field: "french", "auto/french", or "auto" alone, which
+-- falls back to english
+parseLangSetting :: T.Text -> Either String LangSetting
+parseLangSetting t = case map T.strip $ T.splitOn "/" $ T.toLower t of
+  ["auto"]    -> Right $ LangAuto English
+  ["auto", l] -> LangAuto <$> readLang l
+  [l]         -> LangFixed <$> readLang l
+  _           -> Left $ "invalid lang : " ++ T.unpack t
+  where
+    readLang l = maybe (Left $ "unknown lang : " ++ T.unpack l) Right $
+                 readMaybe (T.unpack l)
+
+-- | Text of the page content, for indexing
+pageContent :: PD.Pandoc -> T.Text
+pageContent = T.unwords . T.words . PW.query textOf
+  where
+    textOf :: PD.Inline -> T.Text
+    textOf (PD.Str s)    = s
+    textOf (PD.Code _ s) = s
+    textOf (PD.Math _ s) = s
+    textOf PD.Space      = " "
+    textOf PD.SoftBreak  = " "
+    textOf PD.LineBreak  = " "
+    textOf _          = ""
 
 -- | Split a tags field on commas, expanding the groups between braces:
 -- "a > {b, c > {d, e}}" gives "a > b", "a > c > d" and "a > c > e", and

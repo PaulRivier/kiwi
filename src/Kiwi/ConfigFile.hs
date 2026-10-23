@@ -37,7 +37,7 @@ configParser = do
     defTitle <- fieldDefOf "title" string "untitled"
     defTags  <- fieldDefOf "tags" string "untagged"
     defAccess <- fieldDefOf "access" string "private"
-    defLang  <- fieldDefOf "lang" readable K.English
+    defLang  <- fieldDefOf "lang" U.parseLangSetting (K.LangFixed K.English)
     return K.MetaData { K.metaId = Nothing
                       , K.metaTitle = T.strip defTitle
                       , K.metaTags = U.splitTags defTags
@@ -83,12 +83,14 @@ sourceConfigParser :: T.Text -> SectionParser K.SourceConfig
 sourceConfigParser source = do
   rt <- fieldDefOf "root-tag" string ""
   access <- fieldDefOf "access" string ""
+  lang <- fieldMbOf "lang" U.parseLangSetting
   return K.SourceConfig { K.scSourceName = source
                         , K.scRootTag = U.tagToSegments $ T.pack rt
                         -- without any group, the global default is used
                         , K.scAccess = case U.splitMeta (T.pack access) of
                             [] -> Nothing
                             groups -> Just groups
+                        , K.scLang = lang
                         }
 
 

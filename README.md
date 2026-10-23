@@ -159,8 +159,11 @@ folder in *content* :
   separated groups. It replaces the access of the `[metadata-default]`
   section for these pages, and a page with its own *access* header
   keeps it.
+* **lang** : default language of the pages of this source, see
+  [Full-text search](#full-text-search). It replaces the lang of the
+  `[metadata-default]` section.
 
-Both settings are optional.
+All these settings are optional.
 
 ## content folder
 
@@ -384,6 +387,20 @@ russian, spanish, swedish and turkish.
     title: French fries : les Frites
     tags: cooking > recipe, area > France
 	lang: french
+
+Kiwi can also detect the language from the content of the pages, for
+French, English and Spanish. Set it in the `[metadata-default]`
+section of *kiwi.ini*, or in the settings of a source, with `auto`
+followed by the language to use when the detection fails (too short or
+mixed content, other language) :
+
+    lang: auto/french
+
+`auto` alone is the same as `auto/english`.
+
+The search terms are processed in the language of the
+`[metadata-default]` section (its fallback language with `auto`), so
+inflected forms work best for pages in that language.
 
 
 # Edit file from browser

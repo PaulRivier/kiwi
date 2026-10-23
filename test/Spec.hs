@@ -18,6 +18,7 @@ import qualified Text.Pandoc.Walk as PW
 
 import           Kiwi.HtmlWriter (writeHtml5)
 import qualified Kiwi.ConfigFile as Conf
+import           Kiwi.LangDetect (detectLang, resolveLang, stopWords)
 import           Kiwi.Pandoc (linksInContext, loadPage, parseMetaData, parseCustomMeta,
                               sourceMeta)
 import           Kiwi.Search (initPageSearchEngine)
@@ -34,6 +35,7 @@ main = hspec $ do
   describe "Kiwi.Utils browse requests" browseReqSpec
   describe "Kiwi.Utils passwords" passwordSpec
   describe "Utils.DocIndex" docIndexSpec
+  describe "Kiwi.LangDetect" langDetectSpec
   describe "Kiwi.Search" searchSpec
   describe "Kiwi.HtmlWriter" htmlWriterSpec
 
@@ -46,7 +48,7 @@ defMeta = MetaData { metaId = Nothing
                    , metaTitle = "untitled"
                    , metaTags = ["untagged"]
                    , metaAccess = ["private"]
-                   , metaLang = English
+                   , metaLang = LangFixed English
                    , metaCustom = []
                    }
 
@@ -81,7 +83,7 @@ loadPageSpec = do
     metaTitle m `shouldBe` "My title"
     metaTags m `shouldBe` ["a", "b > c"]
     metaAccess m `shouldBe` ["public"]
-    metaLang m `shouldBe` French
+    metaLang m `shouldBe` LangFixed French
     blocks p `shouldBe` [PD.Para [PD.Str "Hello"]]
 
   it "uses default metadata when fields are missing" $ do
@@ -89,7 +91,7 @@ loadPageSpec = do
     metaTitle m `shouldBe` "untitled"
     metaTags m `shouldBe` ["untagged"]
     metaAccess m `shouldBe` ["private"]
-    metaLang m `shouldBe` English
+    metaLang m `shouldBe` LangFixed English
     metaId m `shouldBe` Nothing
 
   it "joins repeated fields" $ do
@@ -172,7 +174,7 @@ metaDataSpec = do
       Right [[], [], ["x", "y"]]
 
   it "uses the access of the source config, unless the page has one" $ do
-    let sc = SourceConfig "src" [] (Just ["family"])
+    let sc = SourceConfig "src" [] (Just ["family"]) Nothing
         access sM c = case loadPage "test.md" c "src" (sourceMeta sM defMeta) [] "" of
           Left e -> error e
           Right p -> metaAccess $ pandocMeta p
@@ -205,6 +207,76 @@ metaDataSpec = do
         m = parseMetaData "b: true, 1, yes, no, false, other"
     map cmdKeys (parseCustomMeta m cfg)
       `shouldBe` [map KeyBool [True, True, True, False, False, False]]
+
+  it "parses lang settings" $ do
+    let parse = U.parseLangSetting
+    parse "spanish" `shouldBe` Right (LangFixed Spanish)
+    parse " Auto / French " `shouldBe` Right (LangAuto French)
+    parse "auto" `shouldBe` Right (LangAuto English)
+    either (const True) (const False) (parse "klingon") `shouldBe` True
+    either (const True) (const False) (parse "auto/klingon") `shouldBe` True
+
+  it "reads the lang of the config and of the sources" $ do
+    let ini lang = T.unlines [ "[kiwi]", "content-directory: content", "port: 3456"
+                             , "ui-lang: english", "[metadata-default]", lang
+                             , "[source a]", "lang: auto", "[source b]", "lang: french"
+                             , "[source c]" ]
+        langs c = (metaLang (Conf.defaultMeta c), map scLang (Conf.sourcesConfig c))
+    fmap langs (Conf.parseConfig $ ini "lang: auto/spanish") `shouldBe`
+      Right (LangAuto Spanish, [Just (LangAuto English), Just (LangFixed French), Nothing])
+    fmap langs (Conf.parseConfig $ ini "") `shouldBe`
+      Right (LangFixed English, [Just (LangAuto English), Just (LangFixed French), Nothing])
+    either (const True) (const False) (Conf.parseConfig $ ini "lang: klingon")
+      `shouldBe` True
+
+  it "uses the lang of the source config, unless the page has one" $ do
+    let sc = SourceConfig "src" [] Nothing (Just (LangAuto Spanish))
+        lang c = case loadPage "test.md" c "src" (sourceMeta (Just sc) defMeta) [] "" of
+          Left e -> error e
+          Right p -> metaLang $ pandocMeta p
+    lang "title: t\n\n" `shouldBe` LangAuto Spanish
+    lang "title: t\nlang: auto/french\n\n" `shouldBe` LangAuto French
+    lang "title: t\nlang: german\n\n" `shouldBe` LangFixed German
+    lang "title: t\nlang: klingon\n\n" `shouldBe` LangAuto Spanish
+
+
+--------------------------------------------------------------------------------
+-- Lang detection
+
+langDetectSpec :: Spec
+langDetectSpec = do
+  it "has disjoint lists of words" $ do
+    let sets = [ S.fromList ws | (_, ws) <- stopWords ]
+    sum (map S.size sets) `shouldBe` S.size (S.unions sets)
+
+  it "detects french, english and spanish" $ do
+    detectLang "Le chat est sur le toit, et il n'en descendra pas avant ce soir."
+      `shouldBe` Just French
+    detectLang "The cat is on the roof, and it will not come down before tonight."
+      `shouldBe` Just English
+    detectLang "El gato está en el tejado y no bajará hasta la noche, como siempre."
+      `shouldBe` Just Spanish
+
+  it "tells french and spanish apart, with accents and elisions" $ do
+    detectLang "C'est l'été : qu'il fasse beau, ça m'est égal, j'irai déjà à la plage."
+      `shouldBe` Just French
+    detectLang "¿Qué es eso? Él dijo que también vendría, pero todavía no está aquí."
+      `shouldBe` Just Spanish
+
+  it "gives up on short or mixed texts" $ do
+    detectLang "Recette" `shouldBe` Nothing
+    detectLang "the cat" `shouldBe` Nothing
+    detectLang "The cat and the dog. Le chat et le chien." `shouldBe` Nothing
+    detectLang "" `shouldBe` Nothing
+
+  it "resolves the lang of a page from its title and content" $ do
+    let doc t = PD.Pandoc mempty [PD.Para (L.intersperse PD.Space $ PD.Str <$> T.words t)]
+        fr = doc "Une recette pour les jours de pluie, avec du chocolat et des noix."
+    resolveLang (LangFixed English) "Gâteau" fr `shouldBe` English
+    resolveLang (LangAuto English) "Gâteau" fr `shouldBe` French
+    resolveLang (LangAuto Spanish) "Cake" (doc "") `shouldBe` Spanish
+    resolveLang (LangAuto Spanish) "The joy of the cake and its icing" (doc "")
+      `shouldBe` English
 
 
 --------------------------------------------------------------------------------

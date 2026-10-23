@@ -14,10 +14,8 @@ import qualified Data.Set as S
 import qualified Data.Text as T
 import           Text.Stemmer.Snowball as SB
 
-import qualified Text.Pandoc.Definition as PD
-import qualified Text.Pandoc.Walk as PW
-
 import           Kiwi.Types as K
+import           Kiwi.Utils (pageContent)
 
 
 initPageSearchEngine :: Lang -> PageSearchEngine
@@ -54,18 +52,6 @@ pageSearchConfig lg =
 -- pageContent doc = case (P.runPure $ P.writePlain P.def doc) of
 --                     Right r ->  r
 --                     Left _ -> T.empty
-
-pageContent :: PD.Pandoc -> T.Text
-pageContent = T.unwords . T.words . PW.query textOf
-  where
-    textOf :: PD.Inline -> T.Text
-    textOf (PD.Str s)    = s
-    textOf (PD.Code _ s) = s
-    textOf (PD.Math _ s) = s
-    textOf PD.Space      = " "
-    textOf PD.SoftBreak  = " "
-    textOf PD.LineBreak  = " "
-    textOf _          = ""
 
 -- | Words are stemmed with their accents (in NFC, as Snowball expects), and the
 -- accents are removed from the stems

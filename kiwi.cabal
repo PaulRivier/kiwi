@@ -79,6 +79,7 @@ library
       Kiwi.ConfigFile
       Kiwi.Controller
       Kiwi.DefaultPages
+      Kiwi.LangDetect
       Kiwi.Locales
       Kiwi.Log
       Kiwi.HtmlWriter

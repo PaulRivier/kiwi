@@ -61,6 +61,9 @@ updatePagesDB logger' contentDir' pagesDir db =
       results <- mapM (\p -> (p,) <$> loadPage cd p) updatedPaths
       forM_ [ (p, e) | (p, Left e) <- results ] $ \(p, e) ->
         logger' L.Warn $ T.pack $ concat ["page ignored, ", p, " : ", e]
+      -- the lang may have been detected from the content
+      forM_ [ (p, pg) | (p, Right pg) <- results ] $ \(p, pg) ->
+        logger' L.Debug $ T.pack $ concat ["page loaded, ", p, " : ", show (pageLang pg)]
       return [ pg | (_, Right pg) <- results ]
 
     getRemovedUIDs dbPages fsPaths =
@@ -99,7 +102,7 @@ emptyPagesDB md cmc sc =
                , sourcesConfig = sc
                , lastUpdate = oldDate
                , pagesIndex = DI.init pageUID (pageExtractKeys cmc)
-               , searchEngine = initPageSearchEngine (metaLang md) }
+               , searchEngine = initPageSearchEngine (baseLang $ metaLang md) }
 
 
 pageExtractKeys :: [CustomMetaConfig] -> [DI.Field Page MetaField DocIndexKey]

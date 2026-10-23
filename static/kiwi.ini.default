@@ -25,6 +25,9 @@ tags: untagged
 # access : built-in special groups are 'admin' and 'public'
 # You can use any groups you want here, comma-separated
 access: admin
+# lang of the pages, for fulltext search. Use auto/english to detect it from
+# the content (french, english, spanish), with english when detection fails.
+# auto alone is the same as auto/english
 lang: english
 
 # If you want more metadata. Threshold is the minimum ratio of relevance that must

@@ -31,6 +31,8 @@ module Kiwi.Types
     -- * Config, locales
   , TocSetting(..)
   , Lang(..)
+  , LangSetting(..)
+  , baseLang
   , UI_Lang(..)
   , Locales(..)
   ) where
@@ -119,7 +121,7 @@ data MetaData =
            , metaTitle :: T.Text
            , metaTags  :: [TagId]
            , metaAccess :: [T.Text]
-           , metaLang  :: Lang
+           , metaLang  :: LangSetting
            , metaCustom :: [CustomMetaData]
            }
   deriving (Show)
@@ -173,6 +175,7 @@ data SourceConfig =
   SourceConfig { scSourceName :: T.Text
                , scRootTag :: TagSegments
                , scAccess :: Maybe [T.Text]  -- ^ default access of the pages
+               , scLang :: Maybe LangSetting  -- ^ default lang of the pages
                }
 
 data CustomMetaType = CmtText | CmtInt | CmtDate | CmtBool
@@ -280,6 +283,17 @@ data Lang
     | Swedish
     | Turkish
     deriving (Show, Eq, Ord)
+
+-- | Lang of a page, as set in the metadata: fixed, or detected from the
+-- content, with a fallback when the detection fails ("auto/english")
+data LangSetting = LangFixed Lang
+                 | LangAuto Lang
+  deriving (Show, Eq)
+
+-- | The fixed lang, or the fallback of the detection
+baseLang :: LangSetting -> Lang
+baseLang (LangFixed l) = l
+baseLang (LangAuto l)  = l
 
 
 instance Read Lang where
