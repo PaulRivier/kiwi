@@ -16,7 +16,6 @@ import qualified Data.Text as T
 import           Text.Stemmer.Snowball as SB
 
 import           Kiwi.Types as K
-import           Kiwi.Utils (pageContent)
 
 
 initPageSearchEngine :: PageSearchEngine
@@ -25,23 +24,23 @@ initPageSearchEngine =
 
 -- | The query terms are normalised beforehand by 'queryTerms', in the lang
 -- chosen for each query
-pageSearchConfig :: SearchConfig Page PageUID PageField NoFeatures
+pageSearchConfig :: SearchConfig (Page, T.Text) PageUID PageField NoFeatures
 pageSearchConfig =
     SearchConfig {
-      documentKey           = pageUID,
+      documentKey           = pageUID . fst,
       extractDocumentTerms  = extractTokens,
       transformQueryTerm    = const,
       documentFeatureValue  = const noFeatures
   }
   where
-    extractTokens :: Page -> PageField -> [T.Text]
-    extractTokens p TitleField      = extractTerms (alg $ pageLang p) $
+    -- the page, and the plain text of its content
+    extractTokens :: (Page, T.Text) -> PageField -> [T.Text]
+    extractTokens (p, _) TitleField = extractTerms (alg $ pageLang p) $
                                       pageTitle p
-    extractTokens p TagsField       = concat $
+    extractTokens (p, _) TagsField  = concat $
                                       map (extractTagTokens (alg $ pageLang p)) $
                                       pageTags p
-    extractTokens p ContentField    = extractTerms (alg $ pageLang p) $
-                                      pageContent $ pageDoc p
+    extractTokens (p, content) ContentField = extractTerms (alg $ pageLang p) content
 
     -- dans le cas des tags, on indexe le tag sous sa forme canonique
     -- [tag] ainsi que les termes qui le composent

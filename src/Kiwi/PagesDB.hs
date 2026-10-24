@@ -21,7 +21,7 @@ import qualified System.FilePath as FP
 import qualified Kiwi.Log as L
 import           Kiwi.Search
 import           Kiwi.Types
-import           Kiwi.Pandoc (loadPageIO)
+import           Kiwi.Pandoc (loadPageIO, pagePath)
 import           Kiwi.Utils (traverseDir, tagSubSegments, segmentsToTag,
                              nodup, isDotFile, isValidMdFilename)
 import qualified Utils.DocIndex as DI
@@ -44,7 +44,7 @@ updatePagesDB logger' contentDir' pagesDir db =
         newOrMod <- getNewOrMod contentDir' lu fsPaths
         let removedUIDs = getRemovedUIDs dbPages fsPaths
         let pagesIndexClean = DI.removeMany (pagesIndex db) removedUIDs
-        let newPagesIndex = DI.insertMany pagesIndexClean newOrMod
+        let newPagesIndex = DI.insertMany pagesIndexClean $ map fst newOrMod
         let updSearchEngine = getUpdSearchEngine (searchEngine db) newOrMod removedUIDs
         return $ db { lastUpdate = currentTime
                     , pagesIndex = newPagesIndex
@@ -62,7 +62,7 @@ updatePagesDB logger' contentDir' pagesDir db =
       forM_ [ (p, e) | (p, Left e) <- results ] $ \(p, e) ->
         logger' L.Warn $ T.pack $ concat ["page ignored, ", p, " : ", e]
       -- the lang may have been detected from the content
-      forM_ [ (p, pg) | (p, Right pg) <- results ] $ \(p, pg) ->
+      forM_ [ (p, pg) | (p, Right (pg, _)) <- results ] $ \(p, pg) ->
         logger' L.Debug $ T.pack $ concat ["page loaded, ", p, " : ", show (pageLang pg)]
       return [ pg | (_, Right pg) <- results ]
 
@@ -78,11 +78,9 @@ updatePagesDB logger' contentDir' pagesDir db =
       mtE <- try $ D.getModificationTime path
       return (path, either (\(_ :: IOException) -> Nothing) Just mtE)
 
-    loadPage :: FP.FilePath -> FP.FilePath -> IO (Either String Page)
+    loadPage :: FP.FilePath -> FP.FilePath -> IO (Either String (Page, T.Text))
     loadPage cd fullPath =
-      let splitPath = FP.splitDirectories $ FP.makeRelative cd fullPath
-          source = T.pack $ concat $ take 1 splitPath
-          relPath = FP.dropExtension $ FP.joinPath $ drop 2 $ splitPath
+      let (source, relPath) = pagePath cd fullPath
           md = defaultMeta db
           cmc = customMetaConfig db
           sc = find (\c -> scSourceName c == source) $ sourcesConfig db

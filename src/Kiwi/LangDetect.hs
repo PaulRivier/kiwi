@@ -15,17 +15,16 @@ import           Data.Maybe (fromMaybe, listToMaybe)
 import           Data.Ord (Down (..))
 import qualified Data.Text as T
 import           Data.Text.Normalize (normalize, NormalizationMode(NFC))
-import qualified Text.Pandoc.Definition as PD
 
 import           Kiwi.Types
-import           Kiwi.Utils (pageContent)
 
 
--- | Lang of a page, from its setting, its title and its content
-resolveLang :: LangSetting -> T.Text -> PD.Pandoc -> Lang
+-- | Lang of a page, from its setting, its title and the plain text of its
+-- content
+resolveLang :: LangSetting -> T.Text -> T.Text -> Lang
 resolveLang (LangFixed l) _ _ = l
-resolveLang (LangAuto l) title doc =
-  fromMaybe l $ detectLang $ T.unwords [title, pageContent doc]
+resolveLang (LangAuto l) title content =
+  fromMaybe l $ detectLang $ T.unwords [title, content]
 
 
 -- | The lang with the most frequent words, with at least 'minHits' of them

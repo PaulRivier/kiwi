@@ -7,6 +7,8 @@
   be set per source in *kiwi.ini*.
 - A search starting with a language code (`fr:`, `es:`…) is processed
   in that language.
+- Less memory used: pages are kept as text, and parsed again to be
+  displayed.
 - Passwords are hashed with Argon2: accounts created with an older
   version must be created again (`kiwi access … --create`).
 - New `secure-cookie` option, to use when Kiwi is served through HTTPS.

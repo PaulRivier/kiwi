@@ -3,6 +3,8 @@
 
 module Kiwi.Pandoc
   ( loadPageIO
+  , pageDoc
+  , pagePath
   , linksInContext
   , loadPage         -- exported for tests
   , parseMetaData    -- exported for tests
@@ -46,10 +48,7 @@ import qualified Kiwi.Utils as U
 loadPage :: FP.FilePath -> T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
               FP.FilePath -> Either String PandocPage
 loadPage path c source md cmc dir =
-    -- windows line endings are normalized, and a file without blank line
-    -- is considered as metadata only, with empty content
-    let (metaC, content) = fromMaybe (normC, T.empty) $ splitOnFirst "\n\n" normC
-        docMeta = parseMetaData metaC
+    let (docMeta, content) = splitPage c
         meta = md { metaId    = T.concat <$> M.lookup "id" docMeta
                   , metaTitle = findWith (metaTitle md) (T.intercalate " ")
                                          "title" docMeta
@@ -63,9 +62,32 @@ loadPage path c source md cmc dir =
                                            parseLangSetting . last )
                   , metaCustom = parseCustomMeta docMeta cmc
                   }
-        dirT = T.pack $ dir
-        imagesDir = findWith dirT T.concat "images-dir" docMeta
-        filesDir  = findWith dirT T.concat "files-dir" docMeta
+    in loadDoc path source dir docMeta content <&>
+       \(doc, colLinks) -> PandocPage doc meta colLinks
+  where
+    -- mdConf = P.def { P.readerExtensions = P.pandocExtensions }
+    findWith def join' field meta = fromMaybe def $
+                                    fmap join' $
+                                    M.lookup field meta
+
+
+-- | Metadata and content of a page. Windows line endings are normalized,
+-- and a file without blank line is considered as metadata only, with empty
+-- content
+splitPage :: T.Text -> (M.Map T.Text [T.Text], T.Text)
+splitPage c =
+  let normC = T.replace "\r\n" "\n" c
+      (metaC, content) = fromMaybe (normC, T.empty) $ splitOnFirst "\n\n" normC
+  in (parseMetaData metaC, content)
+
+
+-- | Document of a page, with its links fixed, and the links to other pages
+loadDoc :: FP.FilePath -> T.Text -> FP.FilePath -> M.Map T.Text [T.Text] -> T.Text ->
+           Either String (PD.Pandoc, [PageUID])
+loadDoc path source dir docMeta content =
+    let dirT = T.pack $ dir
+        imagesDir = maybe dirT T.concat $ M.lookup "images-dir" docMeta
+        filesDir  = maybe dirT T.concat $ M.lookup "files-dir" docMeta
         syntaxSpec = Cm.defaultSyntaxSpec <>
                      CmEx.strikethroughSpec <> CmEx.pipeTableSpec <> CmEx.autolinkSpec <>
                      CmEx.taskListSpec <> CmEx.footnoteSpec <>
@@ -81,13 +103,32 @@ loadPage path c source md cmc dir =
            let doc' = PB.doc (CmP.unCm cmBlocks)
                (doc, collected) = walkDoc source dirT imagesDir filesDir doc'
                colLinks = [ (source, l) | CollectedPageLink l <- collected ]
-           in Right (PandocPage doc meta colLinks)
-  where
-    normC = T.replace "\r\n" "\n" c
-    -- mdConf = P.def { P.readerExtensions = P.pandocExtensions }
-    findWith def join' field meta = fromMaybe def $
-                                    fmap join' $
-                                    M.lookup field meta
+           in Right (doc, colLinks)
+
+
+-- | Document of a loaded page, parsed again from its text to be displayed
+pageDoc :: FP.FilePath -> Page -> Either String PD.Pandoc
+pageDoc contentDir' p =
+  let path = pageAbsoluteFSPath p
+      source = fst $ pageUID p
+      relPath = snd $ pagePath contentDir' path
+      (docMeta, content) = splitPage $ pageText p
+  in fst <$> loadDoc path source (pageSubDir relPath) docMeta content
+
+
+-- | Source of a page file, and its path in the pages folder, without
+-- extension
+pagePath :: FP.FilePath -> FP.FilePath -> (T.Text, FP.FilePath)
+pagePath contentDir' fullPath =
+  let splitPath = FP.splitDirectories $ FP.makeRelative contentDir' fullPath
+  in ( T.pack $ concat $ take 1 splitPath
+     , FP.dropExtension $ FP.joinPath $ drop 2 $ splitPath )
+
+-- | Subfolder of a page in the pages folder, from its path there
+pageSubDir :: FP.FilePath -> FP.FilePath
+pageSubDir relPath = case FP.takeDirectory relPath of
+  "." -> ""
+  x   -> x
 
 
 
@@ -192,35 +233,38 @@ sourceMeta scM md = md { metaAccess = fromMaybe (metaAccess md) (scM >>= scAcces
 
 loadPageIO :: FP.FilePath -> FP.FilePath -> T.Text ->
               MetaData -> [CustomMetaConfig] -> Maybe SourceConfig ->
-              IO (Either String Page)
+              IO (Either String (Page, T.Text))
 loadPageIO fullPath relPath source md cmc scM = do
   -- file may have been removed since directory listing
   fileE <- try $ (,) <$> BS.readFile fullPath <*> D.getModificationTime fullPath
-  let pageDir = case FP.takeDirectory relPath of
-        "." -> ""
-        x   -> x
   let rootTag = fromMaybe [] (scRootTag <$> scM)
   return $ case fileE of
     Left (e :: IOException) -> Left $ "unable to read file : " ++ ioeGetErrorString e
     Right (bytes, mt) -> case TE.decodeUtf8' bytes of
      Left e -> Left $ "not a valid UTF-8 file : " ++ show e
-     Right c -> case (loadPage fullPath c source (sourceMeta scM md) cmc pageDir) of
+     Right c -> case (loadPage fullPath c source (sourceMeta scM md) cmc (pageSubDir relPath)) of
       Left e -> Left $ "unable to decode markdown : " ++ e
+      -- the page and the plain text of its content, for indexing, are
+      -- evaluated here, so that the document can be freed
       Right p -> let meta = pandocMeta p
-                     pId = fromMaybe (pathToPageId relPath) $ metaId meta in
-        Right $ Page { pageUID = (source, pId)
-                      , pageAbsoluteFSPath = fullPath
-                      , pageMTime = mt
-                      , pageDoc = pandocDoc p
-                      , pageTitle = metaTitle meta
-                      , pageTags =  map (U.prefixNormalizeTag rootTag) $
-                                    metaTags meta
-                      , pageAccess =  metaAccess meta
-                      , pageLang = resolveLang (metaLang meta) (metaTitle meta)
-                                               (pandocDoc p)
-                      , pageLinks = pandocPageLinks p
-                      , pageCustomMeta = metaCustom meta
-                      }
+                     pId = fromMaybe (pathToPageId relPath) $ metaId meta
+                     !content = U.pageContent $ pandocDoc p
+                     links = pandocPageLinks p
+                     !_ = length links
+                     !page = Page { pageUID = (source, pId)
+                                  , pageAbsoluteFSPath = fullPath
+                                  , pageMTime = mt
+                                  , pageText = c
+                                  , pageTitle = metaTitle meta
+                                  , pageTags =  map (U.prefixNormalizeTag rootTag) $
+                                                metaTags meta
+                                  , pageAccess =  metaAccess meta
+                                  , pageLang = resolveLang (metaLang meta) (metaTitle meta)
+                                                           content
+                                  , pageLinks = links
+                                  , pageCustomMeta = metaCustom meta
+                                  }
+        in Right (page, content)
 
 
 parseCustomMeta :: M.Map T.Text [T.Text] -> [CustomMetaConfig] -> [CustomMetaData]

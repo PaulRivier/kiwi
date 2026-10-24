@@ -127,17 +127,19 @@ data MetaData =
   deriving (Show)
 
 
+-- | The document is not kept, it is parsed again from the text to be
+-- displayed. Fields are strict, so that none keeps it alive through a thunk.
 data Page =
-  Page { pageUID  :: PageUID   -- ^ page uid, used for routing
-       , pageAbsoluteFSPath :: FP.FilePath  -- ^ path to file, absolute
-       , pageMTime :: Time.UTCTime -- ^ time of file modification from filesystem
-       , pageDoc :: PD.Pandoc
-       , pageTitle :: T.Text
-       , pageTags :: [TagId]
-       , pageLang :: Lang
-       , pageAccess :: [T.Text]
-       , pageLinks :: [PageUID]
-       , pageCustomMeta :: [CustomMetaData]
+  Page { pageUID  :: !PageUID   -- ^ page uid, used for routing
+       , pageAbsoluteFSPath :: !FP.FilePath  -- ^ path to file, absolute
+       , pageMTime :: !Time.UTCTime -- ^ time of file modification from filesystem
+       , pageText :: !T.Text   -- ^ text of the file, metadata included
+       , pageTitle :: !T.Text
+       , pageTags :: ![TagId]
+       , pageLang :: !Lang
+       , pageAccess :: ![T.Text]
+       , pageLinks :: ![PageUID]
+       , pageCustomMeta :: ![CustomMetaData]
        }
   deriving (Show)
 
@@ -241,7 +243,8 @@ instance FieldKey (T.Text,T.Text) where
 
 -- Search Engine
 
-type PageSearchEngine = SearchEngine Page PageUID PageField NoFeatures
+-- | Pages are indexed with the plain text of their content
+type PageSearchEngine = SearchEngine (Page, T.Text) PageUID PageField NoFeatures
 
 data PageField = TitleField
                | TagsField

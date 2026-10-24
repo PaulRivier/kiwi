@@ -26,10 +26,12 @@ import qualified Data.Time as Time
 import qualified Network.HTTP.Types.Status as Net
 import qualified System.FilePath as FP
 import qualified System.Process as Proc
+import qualified Text.Pandoc.Definition as PD
 import           Web.Scotty.Trans (formParam, queryParams, redirect, status, html)
 
 import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
+import           Kiwi.Pandoc (pageDoc)
 import           Kiwi.Search (queryTerms)
 import qualified Kiwi.Types as K
 import qualified Kiwi.View as V
@@ -43,8 +45,16 @@ servePage pgId = do
   db <- getRestrictedDB
   case findPage db pgId of
     Just p -> do
-      let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p)) 
-      r <- V.renderPage p backLinkPages
+      cd <- asksK K.contentDir
+      doc <- case pageDoc cd p of
+        Right d -> return d
+        -- the page was parsed when loaded, so this should not happen
+        Left e -> do
+          logMsg L.Warn $ T.pack $ concat ["unable to render page ",
+                                           K.pageAbsoluteFSPath p, " : ", e]
+          return $ PD.Pandoc mempty [PD.Para [PD.Str "Unable to render this page."]]
+      let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
+      r <- V.renderPage p doc backLinkPages
       html r
     Nothing -> serveNotFound
 

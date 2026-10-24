@@ -48,18 +48,19 @@ getViewCtx = ViewCtx <$> getLocales
 getLocales :: ActM K.Locales
 getLocales = Loc.locales <$> asksK K.uiLang
 
--- | Renders a complete HTML document: title, page displayed (if any, for the
--- admin menu) and content
-renderView :: T.Text -> Maybe K.Page -> Html () -> ActM TL.Text
+-- | Renders a complete HTML document: title, page displayed and its document
+-- (if any, for the admin menu and the ToC) and content
+renderView :: T.Text -> Maybe (K.Page, PD.Pandoc) -> Html () -> ActM TL.Text
 renderView title pageM content = do
   ctx <- getViewCtx
   return $ renderText $ layout ctx title pageM content
 
 
-renderPage :: K.Page -> [K.Page] -> ActM TL.Text
-renderPage p backlinks = do
+-- | A page, its document and the pages linking to it
+renderPage :: K.Page -> PD.Pandoc -> [K.Page] -> ActM TL.Text
+renderPage p doc backlinks = do
   sources <- asksK K.sourcesContext
-  renderView (K.pageTitle p) (Just p) (pageView sources p backlinks)
+  renderView (K.pageTitle p) (Just (p, doc)) (pageView sources p doc backlinks)
 
 -- | Key of an union field, with a link to add it to the request, or to
 -- remove it when it is selected
@@ -124,7 +125,7 @@ renderForbidden = do
 -- * Layout
 
 -- | The theme is app.css and app.js, they load the other files they need
-layout :: ViewCtx -> T.Text -> Maybe K.Page -> Html () -> Html ()
+layout :: ViewCtx -> T.Text -> Maybe (K.Page, PD.Pandoc) -> Html () -> Html ()
 layout ctx title pageM content = do
   doctype_
   html_ [lang_ (K.loc_LangCode loc)] $ do
@@ -138,9 +139,9 @@ layout ctx title pageM content = do
       script_ [type_ "module", src_ "/static/js/app.js"] T.empty
     body_ $ do
       loginBox ctx
-      forM_ pageM $ toc loc (ctxToc ctx) . K.pageDoc
+      forM_ pageM $ toc loc (ctxToc ctx) . snd
       div_ [class_ "layout"] $ do
-        navigation ctx pageM
+        navigation ctx (fst <$> pageM)
         main_ [class_ "page-content"] content
   where
     loc = ctxLocales ctx
@@ -235,8 +236,8 @@ plainText = PW.query txt
 
 -- * Views
 
-pageView :: S.Set T.Text -> K.Page -> [K.Page] -> Html ()
-pageView sources p backlinks = div_ [class_ "page-view"] $ do
+pageView :: S.Set T.Text -> K.Page -> PD.Pandoc -> [K.Page] -> Html ()
+pageView sources p doc backlinks = div_ [class_ "page-view"] $ do
   linksList "tags-list" [ (prettyTag t, browseLink K.FieldTag (K.KeyText t))
                         | t <- K.pageTags p ]
   unless (null $ K.pageCustomMeta p) $
@@ -247,7 +248,7 @@ pageView sources p backlinks = div_ [class_ "page-view"] $ do
         [ link (U.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
         | k <- K.cmdKeys cmd ]
   h1_ [class_ "page-title"] $ toHtml $ K.pageTitle p
-  div_ [class_ "document"] $ writeHtml5 $ linksInContext sources (K.pageDoc p)
+  div_ [class_ "document"] $ writeHtml5 $ linksInContext sources doc
   linksList "pages-list backlinks" $ map (pageLink sources) backlinks
   where
     browseLink f k = U.browseUrl $ U.addToReq (U.sourcesReq sources) (f, k)

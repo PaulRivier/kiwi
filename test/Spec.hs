@@ -1,7 +1,6 @@
 module Main (main) where
 
 import           Data.Char (isAscii, isAlphaNum)
-import qualified Data.List as L
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe)
 import qualified Data.SearchEngine as SE
@@ -19,8 +18,8 @@ import qualified Text.Pandoc.Walk as PW
 import           Kiwi.HtmlWriter (writeHtml5)
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.LangDetect (detectLang, resolveLang, stopWords)
-import           Kiwi.Pandoc (linksInContext, loadPage, parseMetaData, parseCustomMeta,
-                              sourceMeta)
+import           Kiwi.Pandoc (linksInContext, loadPage, pageDoc, pagePath, parseMetaData,
+                              parseCustomMeta, sourceMeta)
 import           Kiwi.Search (initPageSearchEngine, queryTerms)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
@@ -159,6 +158,23 @@ loadPageSpec = do
     images p `shouldBe` ["/image/src/pics/a.png"]
     links p `shouldBe` [(["kiwi-link-file"], "/file/src/docs/c.ods")]
 
+  it "parses a page again, from its text, to display it" $ do
+    let c = "title: t\r\nimages-dir: pics\r\n\r\n\
+            \[a](<page:Other>) ![x](<image:a.png>) [f](<file:c.ods>)"
+        page = Page { pageUID = ("src", "sub:p")
+                    , pageAbsoluteFSPath = "/k/content/src/pages/sub/p.md"
+                    , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
+                    , pageText = c
+                    , pageTitle = "t"
+                    , pageTags = []
+                    , pageLang = English
+                    , pageAccess = []
+                    , pageLinks = []
+                    , pageCustomMeta = []
+                    }
+    pageDoc "/k/content" page `shouldBe` Right (pandocDoc $ load c)
+    pagePath "/k/content" "/k/content/src/pages/sub/p.md" `shouldBe` ("src", "sub/p")
+
 
 metaDataSpec :: Spec
 metaDataSpec = do
@@ -270,12 +286,11 @@ langDetectSpec = do
     detectLang "" `shouldBe` Nothing
 
   it "resolves the lang of a page from its title and content" $ do
-    let doc t = PD.Pandoc mempty [PD.Para (L.intersperse PD.Space $ PD.Str <$> T.words t)]
-        fr = doc "Une recette pour les jours de pluie, avec du chocolat et des noix."
+    let fr = "Une recette pour les jours de pluie, avec du chocolat et des noix."
     resolveLang (LangFixed English) "Gâteau" fr `shouldBe` English
     resolveLang (LangAuto English) "Gâteau" fr `shouldBe` French
-    resolveLang (LangAuto Spanish) "Cake" (doc "") `shouldBe` Spanish
-    resolveLang (LangAuto Spanish) "The joy of the cake and its icing" (doc "")
+    resolveLang (LangAuto Spanish) "Cake" "" `shouldBe` Spanish
+    resolveLang (LangAuto Spanish) "The joy of the cake and its icing" ""
       `shouldBe` English
 
 
@@ -515,19 +530,20 @@ docIndexSpec = do
 searchSpec :: Spec
 searchSpec = do
   let page = pageIn French
+      -- a page and the plain text of its content
       pageIn lang uid content =
-        Page { pageUID = ("src", uid)
-             , pageAbsoluteFSPath = "/dev/null"
-             , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
-             , pageDoc = PD.Pandoc mempty [PD.Plain (L.intersperse PD.Space $
-                                                     PD.Str <$> T.words content)]
-             , pageTitle = uid
-             , pageTags = []
-             , pageLang = lang
-             , pageAccess = []
-             , pageLinks = []
-             , pageCustomMeta = []
-             }
+        ( Page { pageUID = ("src", uid)
+               , pageAbsoluteFSPath = "/dev/null"
+               , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
+               , pageText = content
+               , pageTitle = uid
+               , pageTags = []
+               , pageLang = lang
+               , pageAccess = []
+               , pageLinks = []
+               , pageCustomMeta = []
+               }
+        , content )
       se = SE.insertDocs [ page "a" "Un développement en été"
                          , page "b" "Elle est aimée"
                          , page "c" "Lui et moi"
