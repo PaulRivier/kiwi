@@ -7,15 +7,6 @@ SQLITE
 Recherche:
  - améliorer le paramétrage du moteur de recherche
 
-
-Interface :
- - faire une page d'accueil plus sympa, avec les dernières modifications etc.
-
-
 Code:
 
-
 Archi:
-- Paramétrer le niveau de log
-- Faire une implémentation alternative dans un autre langage, type Rust ?
-  Voir zola par exemple.

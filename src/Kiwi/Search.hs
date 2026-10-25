@@ -102,28 +102,64 @@ breakSet = S.fromList " \n&~\"#'{([-|`\\_^@)]=}+%*<>,?;.:/!§$€«» ’‘"
 
 
 
+-- | Ranking parameters of the search engine (undocumented in full-text-search,
+-- this is what its code does).
+--
+-- Pages are ranked with BM25F. The score of a page for a query is:
+--
+-- > score  = sum over terms t of  IDF(t) * tf' / (k1 + tf')
+-- >        + sum over features f of  weight(f) * V_f(value(f))
+-- > tf'    = sum over fields of  fieldWeight * tf_field / B_field
+-- > B_field = (1 - b) + b * fieldLength / averageFieldLength
+-- > IDF(t) = log ((N - n_t + 0.5) / (n_t + 0.5))
+--
+-- with N the number of pages, and n_t the number of pages containing t. IDF
+-- is negative for a term in more than half of the pages: containing it then
+-- lowers the score. Average lengths and n_t are computed again when pages
+-- are inserted or removed, so scores change with the other pages.
 defaultSearchRankParameters :: SearchRankParameters PageField NoFeatures
 defaultSearchRankParameters =
     SearchRankParameters {
       paramK1,
       paramB,
       paramFieldWeights,
+      -- features are scores that do not depend on the query terms
+      -- (popularity, date...), with their value from 'documentFeatureValue',
+      -- a weight and a function: log (l + v), v / (l + v), or
+      -- 1 / (l + exp (-l' * v))
       paramFeatureWeights     = noFeatures,
       paramFeatureFunctions   = noFeatures,
-      paramResultsetSoftLimit = 100,
-      paramResultsetHardLimit = 200,
+      -- 'query' ranks the union of the pages containing each term. Pages sets
+      -- are added from the smallest (rarest term), the first one is always
+      -- kept whole. It stops before a set that would take the total over the
+      -- hard limit, and after a set that takes it over the soft limit: the
+      -- most frequent terms are then silently ignored.
+      paramResultsetSoftLimit = 12,
+      paramResultsetHardLimit = 24,
+      -- only for 'queryAutosuggest' (unused): over these numbers of pages,
+      -- before or after its results filter, it returns nothing
       paramAutosuggestPrefilterLimit  = 100,
       paramAutosuggestPostfilterLimit = 100
     }
   where
+    -- saturation of the term frequency: tf' / (k1 + tf') tends to 1, a term
+    -- repeated many times does not count much more than once. Usually 1.2 to
+    -- 2, the smaller the faster it saturates.
     paramK1 :: Float
     paramK1 = 1.5
 
+    -- normalisation of the term frequency by the field length, from 0 (length
+    -- ignored) to 1 (a field twice as long as average counts half). Usually
+    -- 0.75 for text, lower for short fields.
     paramB :: PageField -> Float
     paramB TitleField       = 0.3
     paramB TagsField        = 0.2
     paramB ContentField     = 0.7
 
+    -- weight of the fields. It multiplies the term frequency before the
+    -- saturation, not the score: with k1 = 1.5, a term in the title gives
+    -- 10 / 11.5 = 0.87, and once in the content 1 / 2.5 = 0.4, so the title
+    -- only counts about twice as much.
     paramFieldWeights :: PageField -> Float
     paramFieldWeights TitleField   = 10
     paramFieldWeights TagsField    = 5
