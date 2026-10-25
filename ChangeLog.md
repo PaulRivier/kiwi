@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- `kiwi update` updates the binary to the latest release (Linux x86_64),
+  `kiwi --version` shows the version.
+
 - `lang: auto/english` detects the language of a page from its content
   (French, English, Spanish), with a fallback language; `lang` can also
   be set per source in *kiwi.ini*.

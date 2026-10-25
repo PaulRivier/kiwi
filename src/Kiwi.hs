@@ -7,11 +7,17 @@ import qualified Data.ByteString as BS
 import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import           Data.Version (showVersion)
 import qualified Network.Wai.Middleware.Static as Static
 import qualified System.Directory as D
+import           System.Environment (getExecutablePath)
+import           System.Exit (exitWith)
 import qualified System.FilePath as FP
 import           System.IO
+import           System.Process (rawSystem)
 import           GHC.IO.Encoding (setLocaleEncoding, setFileSystemEncoding)
+
+import Paths_kiwi (version)
 
 import Kiwi.CLI as CLI
 import Kiwi.ConfigFile as Conf
@@ -41,6 +47,7 @@ runKiwiRun = do
       return ()
     Init c -> initKiwiDir (CLI.initDirectory c)
     Access action -> runAccess action
+    Update c -> runUpdate c
 
 
 runServer :: Static.CacheContainer -> L.LogLevel -> FP.FilePath -> IO ()
@@ -117,6 +124,30 @@ runAccess c = do
       let newAccounts = filter (\a -> accountId a /= (T.pack l)) accounts'
       U.dumpAccounts newAccounts accountsFilePath
       putStrLn "Access removed"
+
+-- | The update is done by scripts/update-kiwi-linux.sh, downloaded from the
+-- latest release, so that it always matches the format of the release. It
+-- runs in the terminal of kiwi (it asks for a confirmation), with the path
+-- and the version of this binary.
+runUpdate :: UpdateConfig -> IO ()
+runUpdate c = do
+  exe <- getExecutablePath
+  code <- rawSystem "bash" $ ["-c", bootstrap, "kiwi-update"]
+                             ++ ["--check" | CLI.updateCheck c]
+                             ++ [exe, showVersion version]
+  exitWith code
+  where
+    url = "https://github.com/PaulRivier/kiwi/releases/latest/download/update-kiwi-linux.sh"
+    -- the script is saved before it runs: a partial download runs nothing,
+    -- and its standard input stays the terminal
+    bootstrap = unlines
+      [ "set -e"
+      , "command -v curl > /dev/null || { echo 'error: kiwi update needs curl' >&2; exit 1; }"
+      , "tmp=\"$(mktemp -d)\""
+      , "trap 'rm -rf -- \"$tmp\"' EXIT"
+      , "curl -fsSL -o \"$tmp/update.sh\" " ++ url ++ " || \
+        \{ echo 'error: unable to download the update script of the latest release' >&2; exit 1; }"
+      , "bash \"$tmp/update.sh\" \"$@\"" ]
 
 noEcho :: IO a -> IO a
 noEcho action = do

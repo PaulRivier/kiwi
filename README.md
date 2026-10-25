@@ -35,6 +35,12 @@ Static binaries are provided for GNU/Linux x64 systems, you can find
 them from https://github.com/PaulRivier/kiwi/releases . Follow the
 deployment instructions from there, then come back to this page.
 
+To update it later to the latest release, run `kiwi update` (or
+`kiwi update --check` to only check for a new release). It needs
+`bash`, `curl`, `tar` and `sha256sum`, and asks for a confirmation
+before replacing the binary; the previous one is kept as `kiwi.old`.
+Restart your kiwi servers afterwards.
+
 ## From source
 
 

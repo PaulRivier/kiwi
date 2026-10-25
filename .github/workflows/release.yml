@@ -1,5 +1,6 @@
 # Publishes the binaries of a successful "Build binaries" run as a draft
-# release, without downloading them locally:
+# release, without downloading them locally, with the update script
+# (scripts/update-kiwi-linux.sh, run by "kiwi update"):
 #   Actions tab → "Publish release" → "Run workflow", with the ID of the build
 #   run (the number at the end of its URL) and the tag of the release.
 # or: gh workflow run release.yml -f run_id=37908997742 -f tag=v0.3.0.0
@@ -67,9 +68,13 @@ jobs:
           SHA: ${{ steps.run.outputs.sha }}
         run: |
           cd dist
+          # the update script run by "kiwi update", from the built commit
+          gh api "repos/$GITHUB_REPOSITORY/contents/scripts/update-kiwi-linux.sh?ref=$SHA" \
+            -H "Accept: application/vnd.github.raw" > update-kiwi-linux.sh
           # one checksum file for all the platforms
           cat SHA256SUMS-* > SHA256SUMS
           rm SHA256SUMS-*
+          sha256sum update-kiwi-linux.sh >> SHA256SUMS
           sha256sum --check SHA256SUMS
           ls -l
           gh release create "$TAG" ./* \
