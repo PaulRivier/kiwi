@@ -124,7 +124,7 @@ makeFieldsKeysMap flds doc docId =
 -- | The index restricted to the given documents. The sets of ids are
 -- restricted, which is cheaper than indexing the documents again, and the
 -- index is kept as is when it has no other documents.
-narrowOnSet :: (Ord field, Ord id, Ord key) =>
+narrowOnSet :: (Ord id) =>
                DocIndex doc id field key ->
                S.Set id ->
                DocIndex doc id field key
