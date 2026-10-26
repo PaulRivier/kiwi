@@ -19,6 +19,7 @@ import           Data.Maybe (fromMaybe)
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
+import           Data.Tree (Forest, Tree (..))
 import           Lucid
 import           Lucid.Base (makeAttributes)
 import qualified Text.Pandoc.Definition as PD
@@ -113,13 +114,15 @@ renderSearchResults pages = do
   renderView (K.loc_Search loc) ReloadAction Nothing $ searchView loc sources pages
 
 -- | A key of a field on the metadata page
-data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ also the copied text
+data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ as displayed
+                           , metaCopy  :: T.Text  -- ^ the copied text
                            , metaLink  :: T.Text  -- ^ to browse its pages
                            , metaCount :: Int     -- ^ number of pages
                            }
 
--- | Metadata of the pages, by source: the keys of each field
-renderMetadata :: [(T.Text, [(K.MetaField, [MetaEntry])])] -> ActM TL.Text
+-- | Metadata of the pages, by source: the keys of each field, with their
+-- sub-keys (sub-tags)
+renderMetadata :: [(T.Text, [(K.MetaField, Forest MetaEntry)])] -> ActM TL.Text
 renderMetadata sources = do
   loc <- getLocales
   renderView (K.loc_Metadata loc) NoActions Nothing $ metadataView loc sources
@@ -341,8 +344,9 @@ searchView loc sources pages = div_ [class_ "search-results-page"] $ case pages 
     linksList "results" $ map (pageLink sources) pages
 
 
--- | One section by source, one frame by field, one key by line
-metadataView :: K.Locales -> [(T.Text, [(K.MetaField, [MetaEntry])])] -> Html ()
+-- | One section by source, one frame by field, one key by line, the sub-keys
+-- in a nested list
+metadataView :: K.Locales -> [(T.Text, [(K.MetaField, Forest MetaEntry)])] -> Html ()
 metadataView loc sources = div_ [class_ "metadata-page"] $ do
   h1_ [class_ "page-title"] $ toHtml $ K.loc_Metadata loc
   forM_ sources $ \(source, fields) -> section_ $ do
@@ -350,11 +354,15 @@ metadataView loc sources = div_ [class_ "metadata-page"] $ do
     forM_ fields $ \(field, entries) ->
       fieldset_ [class_ "flex", class_ (fieldClass field)] $ do
         legend_ $ toHtml $ fieldName loc field
-        ul_ [class_ "meta-list"] $ forM_ entries $ \e -> li_ $ do
-          a_ [href_ (metaLink e), class_ "key"] $ toHtml $ metaLabel e
-          span_ [class_ "count"] $ toHtml $ "(" <> T.pack (show $ metaCount e) <> ")"
-          copyButton (K.loc_Copy loc) (metaLabel e)
+        ul_ [class_ "meta-list"] $ mapM_ entryTree entries
   where
+    entryTree :: Tree MetaEntry -> Html ()
+    entryTree (Node e children) = li_ $ do
+      div_ [class_ "meta-entry"] $ do
+        a_ [href_ (metaLink e), class_ "key"] $ toHtml $ metaLabel e
+        span_ [class_ "count"] $ toHtml $ "(" <> T.pack (show $ metaCount e) <> ")"
+        copyTextButton (K.loc_Copy loc) (metaCopy e)
+      unless (null children) $ ul_ $ mapM_ entryTree children
     fieldClass K.FieldTag = "tags-meta"
     fieldClass _          = "other-meta"
 
@@ -404,6 +412,13 @@ iconButton cls label attrs name =
 -- | Button copying the text to the clipboard, handled by app.js
 copyButton :: T.Text -> T.Text -> Html ()
 copyButton label txt = iconButton "copy" label [data_ "copy" txt] "copy-link"
+
+-- | Copy button with a text glyph instead of the link icon, for a text that is
+-- not a link
+copyTextButton :: T.Text -> T.Text -> Html ()
+copyTextButton label txt =
+  button_ [type_ "button", class_ "icon copy", title_ label, data_ "copy" txt] $
+    span_ [class_ "glyph"] "\x29C9"
 
 icon :: T.Text -> Html ()
 icon name = img_ [src_ ("/static/images/" <> name <> ".svg"), alt_ name]

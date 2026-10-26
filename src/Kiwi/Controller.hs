@@ -18,7 +18,7 @@ module Kiwi.Controller
 import           Control.Monad (forM_)
 import           Control.Monad.Reader
 import qualified Data.ByteString as BS
-import           Data.List (sortOn)
+import           Data.List (isPrefixOf, sortOn)
 import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe, isJust, mapMaybe)
 import           Data.Ord (Down (..))
@@ -27,6 +27,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
+import qualified Data.Tree as Tree
 import qualified Network.HTTP.Types.Status as Net
 import qualified System.FilePath as FP
 import qualified System.Process as Proc
@@ -101,23 +102,39 @@ serveMetadata = do
                ++ [K.FieldAccess | admin]
       section s =
         let sub = DI.narrow idx (U.qOnly K.FieldSource s)
-        in (s, [ (f, map (entry s sub f) keys) | f <- fields
-               , let keys = sortKeys f $ DI.getFieldKeys sub f, not (null keys) ])
+        in (s, [ (f, map (fmap $ entry s sub f) $ keysForest f keys) | f <- fields
+               , let keys = DI.getFieldKeys sub f, not (null keys) ])
       entry s sub f k = V.MetaEntry
         { V.metaLabel = keyLabel f k
+        , V.metaCopy  = keyCopy f k
         , V.metaLink  = U.browseUrl $ U.addToReq (U.sourcesReq $ S.singleton s) (f, k)
         , V.metaCount = S.size $ DI.lookupIndex sub f k }
   V.renderMetadata (map section sources) >>= html
   where
-    keyLabel K.FieldTag (K.KeyText t) = U.prettyTag t
+    -- a sub-tag shows its last segment, below its parent
+    keyLabel K.FieldTag (K.KeyText t) = case reverse (U.tagToSegments t) of
+      seg : _ -> seg
+      []      -> t
     keyLabel _ k = U.showKeyLabel k
-    -- texts without case nor accents, tags segment by segment, the other
-    -- keys (numbers, dates...) in their natural order
-    sortKeys f = sortOn $ \k -> case (f, k) of
-      (K.FieldTag, K.KeyText t) -> Left (map textOrder $ U.tagToSegments t, t)
-      (_, K.KeyText t)          -> Left ([textOrder t], t)
-      _                         -> Right k
+    keyCopy K.FieldTag (K.KeyText t) = U.prettyTag t
+    keyCopy _ k = U.showKeyLabel k
+    -- texts without case nor accents, tags segment by segment (the raw
+    -- segment breaks ties, so that a tag is followed by its sub-tags), the
+    -- other keys (numbers, dates...) in their natural order
+    keysForest K.FieldTag keys = tagsForest $ sortOn (map segOrder . fst)
+      [ (U.tagToSegments t, k) | k@(K.KeyText t) <- keys ]
+    keysForest _ keys = [ Tree.Node k [] | k <- sortOn keyOrder keys ]
+    segOrder seg = (textOrder seg, seg)
+    keyOrder (K.KeyText t) = Left (textOrder t, t)
+    keyOrder k = Right k
     textOrder = normalizeText . T.toLower
+
+-- | Tags sorted segment by segment, as a forest of tags and sub-tags. The
+-- parents are among the tags, since 'K.FieldTag' has every tag prefix.
+tagsForest :: [(K.TagSegments, a)] -> Tree.Forest a
+tagsForest [] = []
+tagsForest ((segs, x) : rest) = Tree.Node x (tagsForest children) : tagsForest others
+  where (children, others) = span ((segs `isPrefixOf`) . fst) rest
 
 
 -- | Number of pages listed on the browse page without intersection

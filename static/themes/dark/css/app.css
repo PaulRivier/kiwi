@@ -112,8 +112,23 @@ form.search {
   opacity: 1;
 }
 
+/* a text glyph instead of an image */
+.icon .glyph {
+  display: block;
+  width: 24px;
+  line-height: 24px;
+  font-size: 1.1em;
+  color: rgb(var(--kiwi-text));
+  opacity: 0.5;
+}
+
+.icon:hover .glyph {
+  opacity: 1;
+}
+
 /* copy buttons (app.js): a tick replaces the icon once copied */
-button.copy.copied img {
+button.copy.copied img,
+button.copy.copied .glyph {
   display: none;
 }
 
@@ -472,10 +487,48 @@ h1.page-title {
   list-style: none;
 }
 
-.metadata-page ul.meta-list li {
+.metadata-page .meta-entry {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.5em;
+}
+
+/* sub-tags, as a tree: a vertical line below the parent, down to the last
+   child, and a tick before each child */
+.metadata-page ul.meta-list ul {
+  margin: 0 0 0 0.4em;
+  padding: 0;
+  list-style: none;
+}
+
+.metadata-page ul.meta-list ul > li {
+  position: relative;
+  padding-left: 1em;
+}
+
+.metadata-page ul.meta-list ul > li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid rgba(var(--kiwi-tag-link), 0.3);
+}
+
+.metadata-page ul.meta-list ul > li > .meta-entry::before {
+  content: "";
+  position: absolute;
+  left: -1em;
+  top: 0;
+  height: 50%;
+  width: 0.7em;
+  border-bottom: 1px solid rgba(var(--kiwi-tag-link), 0.3);
+}
+
+/* the last child has no line below it: its tick is a corner */
+.metadata-page ul.meta-list ul > li:last-child > .meta-entry::before {
+  border-left: 1px solid rgba(var(--kiwi-tag-link), 0.3);
 }
 
 .metadata-page .key {
@@ -495,16 +548,31 @@ h1.page-title {
   color: rgb(var(--kiwi-tag-link));
 }
 
+/* tags size by level: 1, 2, then 3 and more. Only the label, so that the
+   tree lines (in em) stay aligned */
+.metadata-page fieldset.tags-meta ul.meta-list > li > .meta-entry > a.key {
+  font-size: 130%;
+}
+
+.metadata-page fieldset.tags-meta ul.meta-list > li > ul > li > .meta-entry > a.key {
+  font-size: 115%;
+}
+
 .metadata-page .count {
   color: rgba(var(--kiwi-text), 0.4);
   font-size: 0.85em;
 }
 
-.metadata-page button.copy img,
+.metadata-page button.copy .glyph,
 .metadata-page button.copy.copied::before {
   width: 18px;
   height: 18px;
   line-height: 18px;
+  opacity: 0.2;
+}
+
+.metadata-page button.copy .glyph:hover {
+  opacity: 1;
 }
 
 
