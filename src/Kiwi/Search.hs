@@ -2,6 +2,7 @@
 
 module Kiwi.Search (
     initPageSearchEngine
+  , searchPages
   , queryTerms
   , normalizeText
   ) where
@@ -46,6 +47,27 @@ pageSearchConfig =
     -- dans le cas des tags, on indexe le tag sous sa forme canonique
     -- [tag] ainsi que les termes qui le composent
     extractTagTokens lg' t = (T.concat ["[", T.toLower t, "]"]) : extractTerms lg' t
+
+
+-- | Visible pages matching the query terms, best first, without the pages
+-- whose score is far below the best visible one (see 'relevanceThreshold').
+-- 'queryExplain' does the same work as 'query', it also gives the scores.
+searchPages :: PageSearchEngine -> (PageUID -> Bool) -> [T.Text] -> [PageUID]
+searchPages se visible terms = case filter (visible . snd) (queryExplain se terms) of
+  [] -> []
+  results@((best, _) : _) ->
+    let top = overallScore best
+        -- no threshold when the best score is not positive: the query has
+        -- only frequent terms (see the IDF below)
+        relevant (e, _) = top <= 0 || overallScore e >= relevanceThreshold * top
+    in map snd $ takeWhile relevant results
+
+-- | Minimal score of a displayed page, as a ratio of the best score. The score
+-- of a term is capped (see 'paramK1'), so a page with two of the terms has
+-- about twice the score of a page with only one of them, if they are about as
+-- rare: 0.5 keeps the pages close to the best one. 0 displays all the pages.
+relevanceThreshold :: Float
+relevanceThreshold = 0.4
 
 
 -- | Terms of a query, stemmed in the given lang, unless the query starts with

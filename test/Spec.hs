@@ -1,6 +1,7 @@
 module Main (main) where
 
 import           Data.Char (isAscii, isAlphaNum)
+import           Data.List (sort)
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe)
 import qualified Data.SearchEngine as SE
@@ -20,7 +21,7 @@ import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.LangDetect (detectLang, resolveLang, stopWords)
 import           Kiwi.Pandoc (linksInContext, loadPage, pageDoc, pagePath, parseMetaData,
                               parseCustomMeta, sourceMeta)
-import           Kiwi.Search (initPageSearchEngine, queryTerms)
+import           Kiwi.Search (initPageSearchEngine, searchPages, queryTerms)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
 import qualified Utils.DocIndex as DI
@@ -551,9 +552,13 @@ searchSpec = do
       se = SE.insertDocs [ page "a" "Un développement en été"
                          , page "b" "Elle est aimée"
                          , page "c" "Lui et moi"
-                         , pageIn Spanish "d" "Los niños corrían" ]
+                         , pageIn Spanish "d" "Los niños corrían"
+                         , page "e" "Le chat dort au soleil du jardin"
+                         , page "f" "Le chat mange"
+                         , page "g" "Le soleil brille" ]
                          initPageSearchEngine
       search q = map snd $ SE.query se (queryTerms French q)
+      searchVisible visible = sort . searchPages se (visible . snd) . queryTerms French
 
   it "matches inflections of accented words" $
     search "développer" `shouldBe` ["a"]
@@ -568,6 +573,15 @@ searchSpec = do
     search "corriendo" `shouldBe` []
     search "es:corriendo" `shouldBe` ["d"]
     search " ES: corriendo" `shouldBe` ["d"]
+
+  it "keeps only the pages with a score close to the best one" $ do
+    -- without threshold: e first, then f and g with one of the terms
+    take 1 (search "chat soleil jardin") `shouldBe` ["e"]
+    sort (search "chat soleil jardin") `shouldBe` ["e", "f", "g"]
+    searchVisible (const True) "chat soleil jardin" `shouldBe` [("src", "e")]
+
+  it "compares the scores of the visible pages only" $
+    searchVisible (/= "e") "chat soleil jardin" `shouldBe` [("src", "f"), ("src", "g")]
 
   it "keeps unknown prefixes, and prefixes after the start, in the query" $ do
     queryTerms French "fr:chevaux" `shouldBe` queryTerms French "chevaux"

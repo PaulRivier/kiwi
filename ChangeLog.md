@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Search results only list the pages whose score is close to the best one.
+
 - New footer, with links to the metadata of the pages (tags, langs,
   custom fields, by source, with copy buttons), the README and the
   CommonMark cheatsheet.

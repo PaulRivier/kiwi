@@ -20,9 +20,8 @@ import           Control.Monad.Reader
 import qualified Data.ByteString as BS
 import           Data.List (sortOn)
 import qualified Data.Map.Strict as M
-import           Data.Maybe (fromMaybe, mapMaybe)
+import           Data.Maybe (fromMaybe, isJust, mapMaybe)
 import           Data.Ord (Down (..))
-import qualified Data.SearchEngine as SE
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -38,7 +37,7 @@ import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
 import qualified Kiwi.DefaultPages as DP
 import           Kiwi.Pandoc (pageDoc, embeddedDoc)
-import           Kiwi.Search (queryTerms, normalizeText)
+import           Kiwi.Search (searchPages, queryTerms, normalizeText)
 import qualified Kiwi.Types as K
 import qualified Kiwi.View as V
 import           Kiwi.Utils (getDB, getSessions, asksK, tagsListSubSegments, 
@@ -222,9 +221,11 @@ serveSearch query = do
   db <- getRestrictedDB
   sources <- asksK K.sourcesContext
   let lang = K.baseLang $ K.metaLang $ K.defaultMeta db
-      matches = SE.query (K.searchEngine db) (queryTerms lang query)
-      inSources p = S.null sources || S.member (fst $ K.pageUID p) sources
-      pages = filter inSources $ mapMaybe (findPage db) matches
+      -- in the restricted index, and in the sources context
+      visible uid = isJust (findPage db uid) &&
+                    (S.null sources || S.member (fst uid) sources)
+      pages = mapMaybe (findPage db) $
+              searchPages (K.searchEngine db) visible (queryTerms lang query)
     in case pages of
          -- un seul résultat, on y va
          (p:[]) -> redirect $ TL.fromStrict $ U.inContext sources $ U.pageUrl p
