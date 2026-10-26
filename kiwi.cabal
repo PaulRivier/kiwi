@@ -116,6 +116,7 @@ test-suite kiwi-test
     , kiwi
     , lucid2
     , pandoc-types
+    , QuickCheck
     , text
     , time
   type: exitcode-stdio-1.0

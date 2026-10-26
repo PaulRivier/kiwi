@@ -99,7 +99,7 @@ emptyPagesDB md cmc sc =
                , customMetaConfig = cmc
                , sourcesConfig = sc
                , lastUpdate = oldDate
-               , pagesIndex = DI.init pageUID (pageExtractKeys cmc)
+               , pagesIndex = DI.empty pageUID (pageExtractKeys cmc)
                , searchEngine = initPageSearchEngine }
 
 
