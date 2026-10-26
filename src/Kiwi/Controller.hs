@@ -11,7 +11,7 @@ module Kiwi.Controller
   , logUserOut
   , serveNotFound
   , withLogin
-  , withSources
+  , withContext
   , ifAdmin
   ) where
 
@@ -88,12 +88,13 @@ serveEmbeddedDoc name withHeader defaultTitle content = do
 
 
 -- | Metadata of the pages, by source (all the sources with pages visible to
--- the user, whatever the sources context): the keys of the tags, langs,
--- custom fields and, for admins, access groups. Each key has its number of
--- pages, and a link to browse them in its source.
+-- the user, whatever the sources context, but in the archives or not): the
+-- keys of the tags, langs, custom fields and, for admins, access groups. Each
+-- key has its number of pages, and a link to browse them in its source.
 serveMetadata :: ActM ()
 serveMetadata = do
   db <- getRestrictedDB
+  ctx <- asksK K.context
   admin <- U.isAdmin
   let idx = K.pagesIndex db
       sources = sortOn textOrder [ s | K.KeyText s <- DI.getFieldKeys idx K.FieldSource ]
@@ -107,7 +108,7 @@ serveMetadata = do
       entry s sub f k = V.MetaEntry
         { V.metaLabel = keyLabel f k
         , V.metaCopy  = keyCopy f k
-        , V.metaLink  = U.browseUrl $ U.addToReq (U.sourcesReq $ S.singleton s) (f, k)
+        , V.metaLink  = U.browseUrl ctx $ U.addToReq (U.sourcesReq $ S.singleton s) (f, k)
         , V.metaCount = S.size $ DI.lookupIndex sub f k }
   V.renderMetadata (map section sources) >>= html
   where
@@ -145,21 +146,28 @@ recentPagesCount = 20
 -- union fields (sources), and links to narrow the request with intersection
 -- fields (next tags, custom fields keys) or to remove one of their keys.
 -- Without intersection in the request (none at all, or only sources), only
--- the most recently modified pages are listed.
+-- the most recently modified pages are listed. A link switches between the
+-- archives and the other pages, when the user can read archives.
 serveBrowseAll :: [(T.Text, T.Text)] -> ActM ()
 serveBrowseAll params = do
   db <- getRestrictedDB
-  sources <- asksK K.sourcesContext
+  ctx <- asksK K.context
   admin <- U.isAdmin
-  case U.decodeReq (K.customMetaConfig db) params of
+  archives <- hasArchives
+  -- the sources and the archive mode are those of the context
+  case U.decodeReq (K.customMetaConfig db) (U.withoutContextParams params) of
     Left err -> serveBadRequest err
     -- the access groups of the pages are only known by admins
     Right req | not admin && M.member K.FieldAccess req ->
                   serveBadRequest "unknown parameter: access"
-    -- the sources are those of the context, without the unknown ones
-    Right req -> metaIndex db (U.sourcesReq sources <> M.delete K.FieldSource req) >>= html
+    Right req ->
+      let req' = U.sourcesReq (K.contextSources ctx) <> req
+          switchCtx = ctx { K.contextArchive = not $ K.contextArchive ctx }
+          switch = if archives || K.contextArchive ctx
+                   then Just $ U.browseUrl switchCtx req' else Nothing
+      in metaIndex db ctx req' switch >>= html
   where
-    metaIndex db req =
+    metaIndex db ctx req switch =
       let idx = K.pagesIndex db
           subset = if M.null req then idx
                    else DI.narrow idx $ U.reqToQuery req
@@ -169,8 +177,11 @@ serveBrowseAll params = do
             U.Union        -> True
             U.Intersection -> False
           -- keys of a field that can be in the request: those of the selected
-          -- pages narrow it, while alternatives to an union are in all pages
-          fieldKeys f = if isUnion f then DI.getFieldKeys idx f
+          -- pages narrow it, while alternatives to an union are in all pages,
+          -- with the selected ones, so that they can be removed (a source
+          -- without pages in the archives)
+          fieldKeys f = if isUnion f
+                        then S.toList $ S.fromList (DI.getFieldKeys idx f) <> reqKeySet f
                         else DI.getFieldKeys subset f
           -- tags specific handling
           allTagsSegs = tagsListSubSegments $ K.fromKeys $ fieldKeys K.FieldTag
@@ -183,9 +194,9 @@ serveBrowseAll params = do
           toggles = [ (f, map (toggle f) $ fieldKeys f) | f <- fields, isUnion f ]
           toggle f k
             | S.member k (reqKeySet f) =
-                V.Toggle (keyLabel f k) (U.browseUrl $ U.removeFromReq req (f,k)) True
+                V.Toggle (keyLabel f k) (U.browseUrl ctx $ U.removeFromReq req (f,k)) True
             | otherwise =
-                V.Toggle (keyLabel f k) (U.browseUrl $ U.addToReq req (f,k)) False
+                V.Toggle (keyLabel f k) (U.browseUrl ctx $ U.addToReq req (f,k)) False
           -- intersection fields: the keys narrowing the request, and the keys
           -- of the request with a link to remove them
           menu = tags : filterOut [ (f, fieldKeys f) | f <- fields, not (isUnion f) ]
@@ -195,10 +206,10 @@ serveBrowseAll params = do
             case filter (`S.notMember` reqKeySet f) ks of
               [] -> Nothing
               a  -> Just (f, a)
-          active = [ (f, keyLabel f k, U.browseUrl $ U.removeFromReq req (f,k))
+          active = [ (f, keyLabel f k, U.browseUrl ctx $ U.removeFromReq req (f,k))
                    | (f, ks) <- M.toList req, not (isUnion f), k <- S.toList ks ]
           -- produce a label and a link to a narrower request
-          nextStepLink f k = (nextStepLabel f k, U.browseUrl $ U.addToReq req (f,k))
+          nextStepLink f k = (nextStepLabel f k, U.browseUrl ctx $ U.addToReq req (f,k))
           -- most recently modified first, only the latest ones without
           -- intersection
           byMTime = sortOn (Down . K.pageMTime) $ DI.documentsList subset
@@ -206,7 +217,7 @@ serveBrowseAll params = do
           pages = case listing of
             V.RecentPages -> take recentPagesCount byMTime
             V.AllPages    -> byMTime
-      in V.renderBrowseAll toggles nextStep active listing pages
+      in V.renderBrowseAll toggles switch nextStep active listing pages
 
     nextStepLabel K.FieldTag (K.KeyText tag) = case U.tagToSegments tag of
       (t:[]) -> t
@@ -231,13 +242,14 @@ serveBrowseAll params = do
               in ratio >= K.cmcThreshold cmc
 
 
--- | Full text search, in the pages of the sources context. The query is
+-- | Full text search, in the pages of the navigation context. The query is
 -- stemmed in the default lang, unless it starts with a lang code ("fr:")
 serveSearch :: T.Text -> ActM ()
 serveSearch query = do
   db <- getRestrictedDB
-  sources <- asksK K.sourcesContext
-  let lang = K.baseLang $ K.metaLang $ K.defaultMeta db
+  ctx <- asksK K.context
+  let sources = K.contextSources ctx
+      lang = K.baseLang $ K.metaLang $ K.defaultMeta db
       -- in the restricted index, and in the sources context
       visible uid = isJust (findPage db uid) &&
                     (S.null sources || S.member (fst uid) sources)
@@ -245,7 +257,7 @@ serveSearch query = do
               searchPages (K.searchEngine db) visible (queryTerms lang query)
     in case pages of
          -- un seul résultat, on y va
-         (p:[]) -> redirect $ TL.fromStrict $ U.inContext sources $ U.pageUrl p
+         (p:[]) -> redirect $ TL.fromStrict $ U.inContext ctx $ U.pageUrl p
          _      -> do r <- V.renderSearchResults pages
                       html r
 
@@ -348,15 +360,19 @@ withLogin run = do
     setLogin l ss = ss { K.login = l }
 
 
--- | Set the sources context from the "source" parameters of the URL, so that
--- each browser tab keeps its own. Unknown sources are ignored.
-withSources :: ActM a -> ActM a
-withSources run = do
+-- | Set the navigation context from the parameters of the URL (see
+-- 'U.contextParams'), so that each browser tab keeps its own. Unknown sources
+-- are ignored, and "archive" can only be "yes".
+withContext :: ActM () -> ActM ()
+withContext run = do
   params <- queryParams
   db <- getDB
   let known = DI.getFieldKeys (K.pagesIndex db) K.FieldSource
       sources = S.fromList [ s | ("source", s) <- params, K.KeyText s `elem` known ]
-  local (\ss -> ss { K.sourcesContext = sources }) run
+  case [ v | ("archive", v) <- params ] of
+    vs | all (== "yes") vs ->
+           local (\ss -> ss { K.context = K.Context sources (not $ null vs) }) run
+    _ -> serveBadRequest "invalid value for archive"
 
 
 ifAdmin :: ActM () -> ActM ()
@@ -366,16 +382,30 @@ ifAdmin a = withLogin $ do
     else serveForbidden
 
 
+-- | The pages the user can read, archived or not according to the context
 getRestrictedDB :: ActM K.PagesDB
 getRestrictedDB = do
   db <- getDB
+  query <- readableQuery =<< asksK (K.contextArchive . K.context)
+  return db { K.pagesIndex = DI.narrow (K.pagesIndex db) query }
+
+-- | Whether the user can read archived pages
+hasArchives :: ActM Bool
+hasArchives = do
+  db <- getDB
+  query <- readableQuery True
+  return $ not $ S.null $ DI.queryIdSet (K.pagesIndex db) query
+
+-- | The pages the user can read, archived or not: "public" ones for anonymous
+-- users, those of their groups too once logged in, all of them for admins
+readableQuery :: Bool -> ActM (DI.Query K.MetaField K.DocIndexKey)
+readableQuery archive = do
   loginM <- asksK K.login
   isAdmin <- U.isAdmin
+  let world = U.qOnly K.FieldArchive archive
+      readable groups = DI.And [U.qAny K.FieldAccess ("public" : groups :: [T.Text]), world]
   return $ case loginM of
-    Nothing -> restrictDB db ["public" :: T.Text ]
-    Just (_,g,_) -> if isAdmin then db else restrictDB db ("public":g)
-  where
-    restrictDB db groups =
-      let newIdx = DI.narrow (K.pagesIndex db) (U.qAny K.FieldAccess groups)
-      in db { K.pagesIndex = newIdx }
-  
+    Nothing -> readable []
+    Just (_, g, _) | isAdmin   -> world
+                   | otherwise -> readable g
+

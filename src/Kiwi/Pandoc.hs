@@ -8,6 +8,7 @@ module Kiwi.Pandoc
   , pagePath
   , linksInContext
   , unknownMetaKeys
+  , invalidMetaValues
   , loadPage         -- exported for tests
   , parseMetaData    -- exported for tests
   , parseCustomMeta  -- exported for tests
@@ -23,8 +24,7 @@ import qualified Commonmark.Pandoc as CmP
 import qualified Data.ByteString as BS
 import           Data.Functor ((<&>))
 import qualified Data.Map as M
-import           Data.Maybe (fromMaybe, mapMaybe)
-import qualified Data.Set as S
+import           Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
@@ -62,6 +62,8 @@ loadPage path c source md cmc dir =
                                          ( M.lookup "lang" docMeta >>=
                                            either (const Nothing) Just .
                                            parseLangSetting . last )
+                  , metaArchive = fromMaybe False $
+                                  M.lookup "archive" docMeta >>= parseBool . last
                   , metaCustom = parseCustomMeta docMeta cmc
                   }
     in loadDoc path source dir docMeta content <&>
@@ -78,8 +80,25 @@ loadPage path c source md cmc dir =
 unknownMetaKeys :: [CustomMetaConfig] -> T.Text -> [T.Text]
 unknownMetaKeys cmc c = filter (`notElem` known) $ M.keys $ fst $ splitPage c
   where
-    known = [ "id", "title", "tags", "access", "lang", "images-dir", "files-dir" ]
-            ++ map cmcName cmc
+    known = [ "id", "title", "tags", "access", "lang", "archive", "images-dir"
+            , "files-dir" ] ++ map cmcName cmc
+
+
+-- | Built-in metadata of the header of a page text whose value can not be
+-- read, with this value: the page has the default value instead. Only
+-- "archive" is checked.
+invalidMetaValues :: T.Text -> [(T.Text, T.Text)]
+invalidMetaValues c = case M.lookup "archive" (fst $ splitPage c) of
+  Just vs | v <- last vs, isNothing (parseBool v) -> [("archive", v)]
+  _ -> []
+
+
+-- | yes, true, 1 or no, false, 0, ignoring case
+parseBool :: T.Text -> Maybe Bool
+parseBool b = case T.toLower (T.strip b) of
+  v | v `elem` ["yes", "true", "1"] -> Just True
+    | v `elem` ["no", "false", "0"] -> Just False
+    | otherwise -> Nothing
 
 
 -- | Metadata and content of a page. Windows line endings are normalized,
@@ -159,12 +178,12 @@ pageSubDir relPath = case FP.takeDirectory relPath of
 pageLinkClass :: T.Text
 pageLinkClass = "kiwi-link-page"
 
--- | The links to other pages keep the sources context
-linksInContext :: S.Set T.Text -> PD.Pandoc -> PD.Pandoc
-linksInContext sources = PW.walk inContext
+-- | The links to other pages keep the navigation context
+linksInContext :: Context -> PD.Pandoc -> PD.Pandoc
+linksInContext ctx = PW.walk inContext
   where
     inContext (PD.Link attr@(_, classes, _) txt (url, lName))
-      | pageLinkClass `elem` classes = PD.Link attr txt (U.inContext sources url, lName)
+      | pageLinkClass `elem` classes = PD.Link attr txt (U.inContext ctx url, lName)
     inContext x = x
 
 
@@ -284,6 +303,7 @@ loadPageIO fullPath relPath source md cmc scM = do
                                   , pageLang = resolveLang (metaLang meta) (metaTitle meta)
                                                            content
                                   , pageLinks = links
+                                  , pageArchive = metaArchive meta
                                   , pageCustomMeta = metaCustom meta
                                   }
         in Right (page, content)

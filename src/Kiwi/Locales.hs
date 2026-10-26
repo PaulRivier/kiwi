@@ -43,6 +43,7 @@ loc_english = Locales
   , loc_Lang = "Language"
   , loc_Access = "Access"
   , loc_Copy = "Copy"
+  , loc_Archives = "Archives"
   -- , loc_TimeLocale = enTimeLocale
   }
 
@@ -77,6 +78,7 @@ loc_french = Locales
   , loc_Lang = "Langue"
   , loc_Access = "Accès"
   , loc_Copy = "Copier"
+  , loc_Archives = "Archives"
   -- , loc_TimeLocale = frTimeLocale
   }
 

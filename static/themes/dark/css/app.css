@@ -377,10 +377,48 @@ fieldset.flex ul {
   color: rgb(var(--kiwi-text));
 }
 
-/* sources of the context */
-.sources-selection ul.sources-list li.selected a {
+/* sources of the context (links on the browse page, text elsewhere) */
+.sources-selection ul.sources-list li.selected a,
+.sources-selection ul.sources-list li.selected span {
+  padding: 0 0.2em;
   color: rgb(var(--kiwi-text));
   font-weight: bold;
+}
+
+/* the sources on the left, the archive mode on the right */
+.sources-selection {
+  display: flex;
+  align-items: flex-start;
+  min-height: 1.5em;
+  margin-bottom: 12px;
+}
+
+.sources-selection ul.sources-list {
+  margin-bottom: 0;
+}
+
+.archive-switch {
+  margin-left: auto;
+  padding: 0 0.4em;
+  color: rgba(var(--kiwi-text), 0.3);
+  text-decoration: none;
+}
+
+a.archive-switch:hover {
+  color: rgb(var(--kiwi-text));
+}
+
+.archive-switch.active,
+a.archive-switch.active:hover,
+.archive-flag {
+  color: rgb(var(--kiwi-error));
+  font-weight: bold;
+}
+
+/* archive mode of a page or of search results, after the sources */
+.archive-flag {
+  padding: 0 0.4em;
+  white-space: nowrap;
 }
 
 .filters-selection ul.filters-list {
@@ -423,8 +461,30 @@ fieldset.flex ul {
 
 /* Page */
 
+/* one bar: the source and the archive mode on the left, the tags on the
+   right. Too many tags wrap on several lines, the source and the archive
+   mode stay on the first line. */
+.page-view .sources-selection {
+  margin: 12px 0;
+}
+
+.page-view .sources-selection ul.sources-list,
+.page-view .sources-selection .archive-flag {
+  flex-shrink: 0;
+  /* aligned with the text of the first line of tags */
+  padding-top: 6px;
+  white-space: nowrap;
+}
+
 .page-view ul.tags-list {
   justify-content: flex-end;
+  gap: 8px 12px;
+  margin: 0 0 0 auto;
+  padding: 0 4px;
+  min-width: 0;
+}
+
+.page-view ul.tags-list li {
   margin: 0;
 }
 

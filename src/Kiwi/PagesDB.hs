@@ -21,7 +21,7 @@ import qualified System.FilePath as FP
 import qualified Kiwi.Log as L
 import           Kiwi.Search
 import           Kiwi.Types
-import           Kiwi.Pandoc (loadPageIO, pagePath, unknownMetaKeys)
+import           Kiwi.Pandoc (loadPageIO, pagePath, unknownMetaKeys, invalidMetaValues)
 import           Kiwi.Utils (traverseDir, tagSubSegments, segmentsToTag,
                              nodup, isDotFile, isValidMdFilename)
 import qualified Utils.DocIndex as DI
@@ -68,6 +68,9 @@ updatePagesDB logger' contentDir' pagesDir db =
         let unknown = unknownMetaKeys (customMetaConfig db) (pageText pg)
         unless (null unknown) $ logger' L.Warn $ T.concat
           [ "unknown metadata, ", T.pack p, " : ", T.intercalate ", " unknown ]
+        forM_ (invalidMetaValues $ pageText pg) $ \(k, v) ->
+          logger' L.Warn $ T.concat [ "invalid metadata value, ", T.pack p, " : "
+                                    , k, ": ", v ]
       return [ pg | (_, Right pg) <- results ]
 
     getRemovedUIDs dbPages fsPaths =
@@ -113,6 +116,7 @@ pageExtractKeys cmc = [ mkField FieldSource KeyText ((:[]) . fst . pageUID)
                       , mkField FieldAccess KeyText pageAccess
                       , mkField FieldLink KeyPairText pageLinks
                       , mkField FieldLang KeyLang ((:[]) . pageLang)
+                      , mkField FieldArchive KeyBool ((:[]) . pageArchive)
                       ] ++
                       map mkCustomField cmc
   where

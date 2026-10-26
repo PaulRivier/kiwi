@@ -224,6 +224,7 @@ Some metadata keys are reserved by kiwi :
 * **tags** : powerful tags, see below (optional)
 * **lang** : language of the content, for full-text search (optional)
 * **access** : access restriction, comma separated allowed groups (optional)
+* **archive** : `yes` to archive the page, see below (optional)
 * **images-dir** : if you want to include many images in your document
   from one of your images subfolder, set it here, and Kiwi will look
   for your images links from there (optional)
@@ -365,6 +366,17 @@ so :
     
 Custom metadata type can be text, integer, date or bool. Date format
 is "YYYY-MM-DD".
+
+
+# Archives
+
+A page with `archive: yes` (or `true`, `1`) in its header is archived : it
+is left out of the normal navigation (browsing, search, backlinks, metadata).
+The "Archives" switch, at the right of the sources on the browse page, goes
+to the archives : you then only navigate in the archived pages, the switch
+is red, and a red "Archives" label is shown at the top of pages and search
+results. Both navigations are separated : a link from a page to a page of
+the other one is broken. Access restrictions apply to archives as usual.
 
 
 # Full-text search

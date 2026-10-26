@@ -43,6 +43,7 @@ configParser = do
                       , K.metaTags = U.splitTags defTags
                       , K.metaAccess = U.splitMeta defAccess 
                       , K.metaLang = defLang
+                      , K.metaArchive = False
                       , K.metaCustom = []
                       }
   customMeta' <- sectionsOf (T.stripPrefix "metadata ") customMetaParser

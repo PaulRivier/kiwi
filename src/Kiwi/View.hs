@@ -15,7 +15,7 @@ module Kiwi.View
 
 import           Control.Monad (forM_, unless, when)
 import           Data.List (intersperse, sortOn)
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, isJust)
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
@@ -39,7 +39,7 @@ data ViewCtx = ViewCtx { ctxLocales :: K.Locales
                        , ctxLogin   :: Maybe T.Text   -- ^ user id
                        , ctxIsAdmin :: Bool
                        , ctxToc     :: K.TocSetting
-                       , ctxSources :: S.Set T.Text   -- ^ sources context
+                       , ctxContext :: K.Context      -- ^ navigation context
                        }
 
 getViewCtx :: ActM ViewCtx
@@ -47,7 +47,7 @@ getViewCtx = ViewCtx <$> getLocales
                      <*> (fmap fst3 <$> asksK K.login)
                      <*> U.isAdmin
                      <*> asksK K.tocSetting
-                     <*> asksK K.sourcesContext
+                     <*> asksK K.context
 
 getLocales :: ActM K.Locales
 getLocales = Loc.locales <$> asksK K.uiLang
@@ -68,8 +68,9 @@ renderView title actions tocDoc content = do
 -- | A page, its document and the pages linking to it
 renderPage :: K.Page -> PD.Pandoc -> [K.Page] -> ActM TL.Text
 renderPage p doc backlinks = do
-  sources <- asksK K.sourcesContext
-  renderView (K.pageTitle p) (PageActions p) (Just doc) (pageView sources p doc backlinks)
+  loc <- getLocales
+  ctx <- asksK K.context
+  renderView (K.pageTitle p) (PageActions p) (Just doc) (pageView loc ctx p doc backlinks)
 
 -- | A document embedded in kiwi (README...), with its title as heading if
 -- given
@@ -99,19 +100,21 @@ type BrowseFilters = [(K.MetaField, T.Text, T.Text)]
 data PagesListing = RecentPages  -- ^ only the latest modified ones
                   | AllPages     -- ^ all the pages matching the request
 
-renderBrowseAll :: BrowseToggles -> BrowseMenu -> BrowseFilters -> PagesListing ->
-                   [K.Page] -> ActM TL.Text
-renderBrowseAll toggles menu filters listing pages = do
+-- | The browse page, with a link to switch between the archives and the
+-- other pages, if any
+renderBrowseAll :: BrowseToggles -> Maybe T.Text -> BrowseMenu -> BrowseFilters ->
+                   PagesListing -> [K.Page] -> ActM TL.Text
+renderBrowseAll toggles switch menu filters listing pages = do
   loc <- getLocales
-  sources <- asksK K.sourcesContext
+  ctx <- asksK K.context
   renderView (K.loc_Tags loc) ReloadAction Nothing $
-    browseView loc sources toggles menu filters listing pages
+    browseView loc ctx toggles switch menu filters listing pages
 
 renderSearchResults :: [K.Page] -> ActM TL.Text
 renderSearchResults pages = do
   loc <- getLocales
-  sources <- asksK K.sourcesContext
-  renderView (K.loc_Search loc) ReloadAction Nothing $ searchView loc sources pages
+  ctx <- asksK K.context
+  renderView (K.loc_Search loc) ReloadAction Nothing $ searchView loc ctx pages
 
 -- | A key of a field on the metadata page
 data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ as displayed
@@ -174,14 +177,14 @@ layout ctx title actions tocDoc content = do
       div_ [class_ "layout"] $ do
         navigation ctx actions
         main_ [class_ "page-content"] content
-      footer loc
+      footer loc (ctxContext ctx)
   where
     loc = ctxLocales ctx
 
 
 navigation :: ViewCtx -> Actions -> Html ()
 navigation ctx actions = nav_ [class_ "top-nav"] $ do
-  a_ [ href_ (U.inContext (ctxSources ctx) "/browse"), class_ "icon"
+  a_ [ href_ (U.inContext (ctxContext ctx) "/browse"), class_ "icon"
      , title_ (K.loc_Tags loc) ] $ icon "tags"
   div_ [class_ "nav-actions"] $ do
     when (ctxIsAdmin ctx) $ case actions of
@@ -193,7 +196,7 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
         reload
       ReloadAction -> reload
       NoActions -> mempty
-    searchForm loc (ctxSources ctx) False
+    searchForm loc (ctxContext ctx) False
   where
     loc = ctxLocales ctx
     reload = iconButton "reload" (K.loc_Reload loc) [] "reload"
@@ -201,12 +204,14 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
     cmLink p = T.concat ["[", K.pageTitle p, "](<page:", U.pageUIDLink p, ">)"]
 
 
--- | Links to the documentation, in new tabs, out of the sources context
-footer :: K.Locales -> Html ()
-footer loc = footer_ [class_ "site-footer"] $
-  forM_ [ (K.loc_Metadata loc, "/metadata"), ("README", "/readme")
+-- | Links to the documentation, in new tabs, out of the navigation context,
+-- except the archive mode of the metadata
+footer :: K.Locales -> K.Context -> Html ()
+footer loc ctx = footer_ [class_ "site-footer"] $
+  forM_ [ (K.loc_Metadata loc, U.inContext metaCtx "/metadata"), ("README", "/readme")
         , ("CommonMark", "/commonmark") ] $ \(label, target) ->
     a_ [href_ target, target_ "_blank", rel_ "noopener"] $ toHtml label
+  where metaCtx = ctx { K.contextSources = S.empty }
 
 
 loginBox :: ViewCtx -> Html ()
@@ -221,14 +226,14 @@ loginBox ctx = div_ [class_ "layout-login"] $ case ctxLogin ctx of
     loc = ctxLocales ctx
 
 
--- | The search is done in the sources context
-searchForm :: K.Locales -> S.Set T.Text -> Bool -> Html ()
-searchForm loc sources focus =
+-- | The search is done in the navigation context
+searchForm :: K.Locales -> K.Context -> Bool -> Html ()
+searchForm loc ctx focus =
   form_ [action_ "/search", method_ "get", class_ "search"] $ do
     input_ [ name_ "query", type_ "search"
            , placeholder_ (K.loc_Search loc)
            , if focus then autofocus_ else mempty ]
-    forM_ sources $ \s -> input_ [type_ "hidden", name_ "source", value_ s]
+    forM_ (U.contextParams ctx) $ \(n, v) -> input_ [type_ "hidden", name_ n, value_ v]
 
 
 -- | Table of contents of the document headings (levels 1&2), with the
@@ -273,10 +278,12 @@ plainText = PW.query txt
 
 -- * Views
 
-pageView :: S.Set T.Text -> K.Page -> PD.Pandoc -> [K.Page] -> Html ()
-pageView sources p doc backlinks = div_ [class_ "page-view"] $ do
-  linksList "tags-list" [ (prettyTag t, browseLink K.FieldTag (K.KeyText t))
-                        | t <- K.pageTags p ]
+pageView :: K.Locales -> K.Context -> K.Page -> PD.Pandoc -> [K.Page] -> Html ()
+pageView loc ctx p doc backlinks = div_ [class_ "page-view"] $ do
+  contextBar loc [fst $ K.pageUID p]
+    (linksList "tags-list" [ (prettyTag t, browseLink K.FieldTag (K.KeyText t))
+                           | t <- K.pageTags p ])
+    (K.contextArchive ctx)
   unless (null $ K.pageCustomMeta p) $
     ul_ [class_ "custom-meta-list"] $ forM_ (K.pageCustomMeta p) $ \cmd -> li_ $ do
       span_ [class_ "field"] $ toHtml $ K.cmdName cmd
@@ -285,19 +292,26 @@ pageView sources p doc backlinks = div_ [class_ "page-view"] $ do
         [ link (U.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
         | k <- K.cmdKeys cmd ]
   h1_ [class_ "page-title"] $ toHtml $ K.pageTitle p
-  div_ [class_ "document"] $ writeHtml5 $ linksInContext sources doc
-  linksList "pages-list backlinks" $ map (pageLink sources) backlinks
+  div_ [class_ "document"] $ writeHtml5 $ linksInContext ctx doc
+  linksList "pages-list backlinks" $ map (pageLink ctx) backlinks
   where
-    browseLink f k = U.browseUrl $ U.addToReq (U.sourcesReq sources) (f, k)
+    browseLink f k = U.browseUrl ctx $ U.addToReq (U.sourcesReq $ K.contextSources ctx) (f, k)
 
 
-browseView :: K.Locales -> S.Set T.Text -> BrowseToggles -> BrowseMenu -> BrowseFilters ->
-              PagesListing -> [K.Page] -> Html ()
-browseView loc sources toggles menu filters listing pages = div_ [class_ "tags-page"] $ do
-  -- toggling the only source would change nothing
-  when (length sourceToggles > 1) $
-    div_ [class_ "sources-selection"] $
-      ul_ [class_ "flex-hz sources-list"] $ mapM_ toggleItem sourceToggles
+browseView :: K.Locales -> K.Context -> BrowseToggles -> Maybe T.Text -> BrowseMenu ->
+              BrowseFilters -> PagesListing -> [K.Page] -> Html ()
+browseView loc ctx toggles switch menu filters listing pages = div_ [class_ "tags-page"] $ do
+  -- toggling the only source would change nothing, but it is shown with the
+  -- archive switch
+  when (length sourceToggles > 1 || isJust switch) $
+    div_ [class_ "sources-selection"] $ do
+      unless (null sourceToggles) $
+        ul_ [class_ "flex-hz sources-list"] $ mapM_ toggleItem sourceToggles
+      forM_ switch $ \target ->
+        a_ [ href_ target
+           , class_ $ if K.contextArchive ctx then "archive-switch active"
+                      else "archive-switch" ] $
+          toHtml $ K.loc_Archives loc
   unless (null filters) $
     div_ [class_ "filters-selection"] $ fieldset (K.loc_FiltersList loc) $
       ul_ [class_ "flex-hz filters-list"] $ forM_ filters $ \(f, label, target) ->
@@ -313,7 +327,7 @@ browseView loc sources toggles menu filters listing pages = div_ [class_ "tags-p
   unless (null pages) $
     div_ [class_ "results"] $
       fieldset ("→ " <> pagesLegend) $ linksList "pages-list" $
-        map (pageLink sources) pages
+        map (pageLink ctx) pages
   where
     pagesLegend = case listing of
       RecentPages -> K.loc_RecentPages loc
@@ -334,14 +348,29 @@ browseView loc sources toggles menu filters listing pages = div_ [class_ "tags-p
       content
 
 
-searchView :: K.Locales -> S.Set T.Text -> [K.Page] -> Html ()
-searchView loc sources pages = div_ [class_ "search-results-page"] $ case pages of
-  [] -> do
-    h1_ $ toHtml $ K.loc_SearchNothing loc
-    searchForm loc sources True
-  _ -> do
-    h1_ $ toHtml $ K.loc_SearchResults loc
-    linksList "results" $ map (pageLink sources) pages
+searchView :: K.Locales -> K.Context -> [K.Page] -> Html ()
+searchView loc ctx pages = div_ [class_ "search-results-page"] $ do
+  contextBar loc (S.toList $ K.contextSources ctx) mempty (K.contextArchive ctx)
+  case pages of
+    [] -> do
+      h1_ $ toHtml $ K.loc_SearchNothing loc
+      searchForm loc ctx True
+    _ -> do
+      h1_ $ toHtml $ K.loc_SearchResults loc
+      linksList "results" $ map (pageLink ctx) pages
+
+
+-- | Bar of the navigation context, at the top of a page or of search results:
+-- the sources, as selected on the browse page but without link, the archive
+-- mode, and some content (the tags of a page)
+contextBar :: K.Locales -> [T.Text] -> Html () -> Bool -> Html ()
+contextBar loc sources content archive = div_ [class_ "sources-selection"] $ do
+  unless (null sources) $
+    ul_ [class_ "flex-hz sources-list"] $
+      forM_ sources $ li_ [class_ "selected"] . span_ . toHtml
+  when archive $
+    span_ [class_ "archive-flag"] $ toHtml $ "[" <> K.loc_Archives loc <> "]"
+  content
 
 
 -- | One section by source, one frame by field, one key by line, the sub-keys
@@ -399,9 +428,9 @@ fieldName loc f = case f of
 link :: (T.Text, T.Text) -> Html ()
 link (label, target) = a_ [href_ target] $ toHtml label
 
--- | Link to a page, in the sources context
-pageLink :: S.Set T.Text -> K.Page -> (T.Text, T.Text)
-pageLink sources page = (K.pageTitle page, U.inContext sources $ U.pageUrl page)
+-- | Link to a page, in the navigation context
+pageLink :: K.Context -> K.Page -> (T.Text, T.Text)
+pageLink ctx page = (K.pageTitle page, U.inContext ctx $ U.pageUrl page)
 
 -- | Button handled by app.js
 iconButton :: T.Text -> T.Text -> [Attributes] -> T.Text -> Html ()

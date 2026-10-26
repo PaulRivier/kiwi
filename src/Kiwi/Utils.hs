@@ -51,6 +51,8 @@ module Kiwi.Utils
   , pathToPageId
   , normalizePageId
   , pageUrl
+  , contextParams
+  , withoutContextParams
   , inContext
   , pageUIDLink
   , joinPathT
@@ -409,13 +411,15 @@ removeFromReq r (f,k) = M.update remove f r
   where remove ks = let ks' = S.delete k ks
                     in if S.null ks' then Nothing else Just ks'
 
--- | Link to the browse page of a request. Fields and keys are always in the
+-- | Link to the browse page of a request, in the navigation context. On the
+-- browse page, the sources context is part of the request: the sources of the
+-- request replace those of the context. Fields and keys are always in the
 -- same order, so a request has only one URL.
-browseUrl :: BrowseAllReq -> T.Text
-browseUrl r = T.append "/browse" $ TE.decodeUtf8 $ URI.renderQuery True
-  [ (TE.encodeUtf8 n, Just $ TE.encodeUtf8 v)
-  | (f, ks) <- M.toList r, Just n <- [fieldParam f]
-  , k <- S.toList ks, Just v <- [keyParam k] ]
+browseUrl :: Context -> BrowseAllReq -> T.Text
+browseUrl ctx r = T.append "/browse" $ renderParams $
+  [ (n, v) | (f, ks) <- M.toList r, Just n <- [fieldParam f]
+           , k <- S.toList ks, Just v <- [keyParam k] ]
+  ++ contextParams ctx { contextSources = S.empty }
   where
     fieldParam FieldSource = Just "source"
     fieldParam FieldTag = Just "tag"
@@ -491,16 +495,27 @@ pageUrl :: Page -> T.Text
 pageUrl p = let (s,i) = pageUID p in
   T.concat ["/page/", urlEncodeText s, "/", urlEncodeText i]
 
--- | Add the sources context to an URL without query string, as the "source"
--- parameters of the browse page, before the fragment if any
-inContext :: S.Set T.Text -> T.Text -> T.Text
-inContext ss url
-  | S.null ss = url
-  | otherwise = let (path, fragment) = T.breakOn "#" url
-                in T.concat [path, query, fragment]
-  where
-    query = TE.decodeUtf8 $ URI.renderQuery True
-              [ ("source", Just $ TE.encodeUtf8 s) | s <- S.toList ss ]
+-- | Query parameters of the navigation context: "source" for each source,
+-- as on the browse page, and "archive=yes" in the archives
+contextParams :: Context -> [(T.Text, T.Text)]
+contextParams ctx = [ ("source", s) | s <- S.toList (contextSources ctx) ]
+                    ++ [ ("archive", "yes") | contextArchive ctx ]
+
+-- | The query parameters that are not those of the navigation context (see
+-- 'contextParams'): the parameters of the page itself
+withoutContextParams :: [(T.Text, T.Text)] -> [(T.Text, T.Text)]
+withoutContextParams = filter ((`notElem` ["source", "archive"]) . fst)
+
+-- | Add the navigation context to an URL without query string, before the
+-- fragment if any
+inContext :: Context -> T.Text -> T.Text
+inContext ctx url = let (path, fragment) = T.breakOn "#" url
+                    in T.concat [path, renderParams (contextParams ctx), fragment]
+
+-- | Query string of the parameters, empty without parameter
+renderParams :: [(T.Text, T.Text)] -> T.Text
+renderParams ps = TE.decodeUtf8 $ URI.renderQuery True
+  [ (TE.encodeUtf8 n, Just $ TE.encodeUtf8 v) | (n, v) <- ps ]
 
 pageUIDLink :: Page -> T.Text
 pageUIDLink p = let (_,i) = pageUID p in

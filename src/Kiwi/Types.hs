@@ -3,6 +3,8 @@
 module Kiwi.Types
   ( -- * Server
     ServerState(..)
+  , Context(..)
+  , noContext
   , Account(..)
   , Login
   , Sessions
@@ -67,8 +69,7 @@ data ServerState =
               , accounts      :: [Account]
               , sessions      :: MVar Sessions
               , login         :: Maybe Login
-              , sourcesContext :: S.Set T.Text  -- ^ navigation restricted to
-                                                -- these sources, all if empty
+              , context       :: Context
               , pagesDB       :: IORef PagesDB
               , pagesDBLock   :: MVar ()  -- ^ serializes pagesDB updates
               , tocSetting    :: TocSetting
@@ -77,7 +78,21 @@ data ServerState =
               }
 
 
-data Account = 
+-- | Navigation context, kept in the query string of the links, so that each
+-- browser tab has its own
+data Context =
+  Context { contextSources :: S.Set T.Text  -- ^ navigation restricted to these
+                                            -- sources, all if empty
+          , contextArchive :: Bool          -- ^ in the archived pages only,
+                                            -- instead of the other ones
+          }
+
+-- | Context of a new navigation: all the sources, not archived pages
+noContext :: Context
+noContext = Context S.empty False
+
+
+data Account =
   Account { accountId :: T.Text
           , accountSalt :: T.Text
           , accountHash :: T.Text
@@ -111,6 +126,7 @@ data MetaField = FieldSource
                | FieldAccess
                | FieldLang
                | FieldLink
+               | FieldArchive  -- ^ every page, archived or not
                | FieldCustom T.Text
   deriving (Show, Read, Eq, Ord)
 
@@ -122,6 +138,7 @@ data MetaData =
            , metaTags  :: [TagId]
            , metaAccess :: [T.Text]
            , metaLang  :: LangSetting
+           , metaArchive :: Bool
            , metaCustom :: [CustomMetaData]
            }
   deriving (Show)
@@ -139,6 +156,7 @@ data Page =
        , pageLang :: !Lang
        , pageAccess :: ![T.Text]
        , pageLinks :: ![PageUID]
+       , pageArchive :: !Bool  -- ^ only in the archives navigation
        , pageCustomMeta :: ![CustomMetaData]
        }
   deriving (Show)
@@ -361,6 +379,7 @@ data Locales = Locales
   , loc_Lang :: T.Text
   , loc_Access :: T.Text
   , loc_Copy :: T.Text
+  , loc_Archives :: T.Text
   -- , loc_TimeLocale :: Time.TimeLocale
   }
   deriving (Show)

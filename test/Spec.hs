@@ -22,7 +22,8 @@ import           Kiwi.HtmlWriter (writeHtml5)
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.LangDetect (detectLang, resolveLang, stopWords)
 import           Kiwi.Pandoc (linksInContext, loadPage, pageDoc, pagePath, parseMetaData,
-                              parseCustomMeta, sourceMeta, unknownMetaKeys)
+                              parseCustomMeta, sourceMeta, unknownMetaKeys,
+                              invalidMetaValues)
 import           Kiwi.Search (initPageSearchEngine, searchPages, queryTerms)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
@@ -51,6 +52,7 @@ defMeta = MetaData { metaId = Nothing
                    , metaTags = ["untagged"]
                    , metaAccess = ["private"]
                    , metaLang = LangFixed English
+                   , metaArchive = False
                    , metaCustom = []
                    }
 
@@ -144,12 +146,24 @@ loadPageSpec = do
     links p `shouldBe` [ (["kiwi-link-anchor"], "#section")
                        , (["kiwi-link-external"], "https://example.org") ]
 
-  it "keeps the sources context in page links only" $ do
+  it "keeps the navigation context in page links only" $ do
     let p = load "title: t\n\n[a](<page:Other#part>) [b](#section) [c](https://example.org)"
-        p' = p { pandocDoc = linksInContext (S.fromList ["x"]) (pandocDoc p) }
-    links p' `shouldBe` [ (["kiwi-link-page"], "/page/src/sub:Other?source=x#part")
-                        , (["kiwi-link-anchor"], "#section")
-                        , (["kiwi-link-external"], "https://example.org") ]
+        inCtx archive = links p { pandocDoc = linksInContext
+                                    (Context (S.fromList ["x"]) archive) (pandocDoc p) }
+    inCtx False `shouldBe` [ (["kiwi-link-page"], "/page/src/sub:Other?source=x#part")
+                           , (["kiwi-link-anchor"], "#section")
+                           , (["kiwi-link-external"], "https://example.org") ]
+    take 1 (inCtx True)
+      `shouldBe` [(["kiwi-link-page"], "/page/src/sub:Other?source=x&archive=yes#part")]
+
+  it "reads the archive metadata" $ do
+    let archived = metaArchive . pandocMeta . load
+    archived "title: t\n\nx" `shouldBe` False
+    archived "title: t\narchive: Yes\n\nx" `shouldBe` True
+    archived "title: t\narchive: 0\n\nx" `shouldBe` False
+    archived "title: t\narchive: oui\n\nx" `shouldBe` False
+    invalidMetaValues "title: t\narchive: oui\n\narchive: x" `shouldBe` [("archive", "oui")]
+    invalidMetaValues "title: t\narchive: true\n\narchive: x" `shouldBe` []
 
   it "fixes images paths" $ do
     let p = load "title: t\n\n![x](<image:a.png>) ![y](<image:/b.png>) ![z](http://e.org/c.png)"
@@ -173,6 +187,7 @@ loadPageSpec = do
                     , pageLang = English
                     , pageAccess = []
                     , pageLinks = []
+                    , pageArchive = False
                     , pageCustomMeta = []
                     }
     pageDoc "/k/content" page `shouldBe` Right (pandocDoc $ load c)
@@ -383,16 +398,21 @@ browseReqSpec = do
                 , (FieldAccess, [KeyText "family"])
                 , (FieldLang, [KeyLang French])
                 , (FieldSource, [KeyText "my source"]) ]
-    decodeUrl (U.browseUrl r) `shouldBe` Right r
-    U.browseUrl (req [(FieldLang, [KeyLang French])]) `shouldBe` "/browse?lang=french"
+    decodeUrl (U.browseUrl noContext r) `shouldBe` Right r
+    U.browseUrl noContext (req [(FieldLang, [KeyLang French])])
+      `shouldBe` "/browse?lang=french"
 
   it "builds readable URLs, in a stable order" $ do
-    U.browseUrl M.empty `shouldBe` "/browse"
-    U.browseUrl (req [ (FieldCustom "done", [KeyBool False])
+    U.browseUrl noContext M.empty `shouldBe` "/browse"
+    U.browseUrl noContext (req [ (FieldCustom "done", [KeyBool False])
                      , (FieldTag, [KeyText "maison>produits"])
                      , (FieldSource, [KeyText "a-p"])
                      , (FieldCustom "date", [KeyDay (Time.fromGregorian 2020 2 9)]) ])
       `shouldBe` "/browse?source=a-p&tag=maison%3Eproduits&m.date=2020-02-09&m.done=false"
+
+  it "keeps the archive mode of the context in browse URLs, not its sources" $
+    U.browseUrl (Context (S.fromList ["x"]) True) (req [(FieldTag, [KeyText "t"])])
+      `shouldBe` "/browse?tag=t&archive=yes"
 
   it "refuses unknown parameters and invalid values" $ do
     let isLeft = either (const True) (const False)
@@ -422,11 +442,16 @@ browseReqSpec = do
       `shouldBe` DI.And [ DI.Any FieldSource (S.fromList [KeyText "a", KeyText "b"])
                         , DI.All FieldTag (S.fromList [KeyText "x", KeyText "y"]) ]
 
-  it "adds the sources context to URLs, before the fragment" $ do
+  it "adds the navigation context to URLs, before the fragment" $ do
     let ss = S.fromList ["b c", "a"]
-    U.inContext S.empty "/page/s/p#h" `shouldBe` "/page/s/p#h"
-    U.inContext ss "/page/s/p#h" `shouldBe` "/page/s/p?source=a&source=b%20c#h"
-    U.inContext ss "/browse" `shouldBe` U.browseUrl (U.sourcesReq ss)
+    U.inContext noContext "/page/s/p#h" `shouldBe` "/page/s/p#h"
+    U.inContext (Context ss False) "/page/s/p#h"
+      `shouldBe` "/page/s/p?source=a&source=b%20c#h"
+    U.inContext (Context ss True) "/page/s/p"
+      `shouldBe` "/page/s/p?source=a&source=b%20c&archive=yes"
+    U.inContext (Context S.empty True) "/metadata" `shouldBe` "/metadata?archive=yes"
+    U.inContext (Context ss True) "/browse"
+      `shouldBe` U.browseUrl (Context ss True) (U.sourcesReq ss)
 
   it "removes keys from a request" $ do
     let r = req [(FieldTag, [KeyText "a", KeyText "b"]), (FieldSource, [KeyText "s"])]
@@ -638,6 +663,7 @@ searchSpec = do
                , pageLang = lang
                , pageAccess = []
                , pageLinks = []
+               , pageArchive = False
                , pageCustomMeta = []
                }
         , content )

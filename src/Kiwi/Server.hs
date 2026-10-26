@@ -11,7 +11,6 @@ import           Data.IORef (newIORef, readIORef, atomicWriteIORef)
 import           Data.List (stripPrefix, isInfixOf)
 import qualified Data.Map.Strict as M
 import qualified Data.SearchEngine as SE
-import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import           Network.Wai.Handler.Warp (setPort)
@@ -76,13 +75,14 @@ kiwiRoute ss cache = do
   get "/page/:source/:pId" $ do
     source <- pathParam "source"
     pId <- pathParam "pId"
-    withLogin $ withSources $ servePage (source, pId)
-  get "/browse" $ withLogin $ withSources $ queryParams >>= serveBrowseAll
-  get "/search" $ withLogin $ withSources $ do
+    withLogin $ withContext $ servePage (source, pId)
+  get "/browse" $ withLogin $ withContext $ queryParams >>= serveBrowseAll
+  get "/search" $ withLogin $ withContext $ do
     query <- queryParam "query"
     serveSearch query
-  -- documentation, out of the sources context
-  get "/metadata" $ withLogin serveMetadata
+  -- in the archive mode, but not in the sources context
+  get "/metadata" $ withLogin $ withContext serveMetadata
+  -- documentation, out of the navigation context
   get "/readme" $ withLogin serveReadme
   get "/commonmark" $ withLogin serveCommonMark
   post "/reload" $ ifAdmin $ do
@@ -159,7 +159,7 @@ initServerState cfp conf logger' = do
     , accounts     = accounts'
     , sessions     = sessM
     , login        = Nothing
-    , sourcesContext = S.empty
+    , context      = noContext
     , pagesDB      = dbR
     , pagesDBLock  = dbLock
     , tocSetting   = Conf.toc conf
