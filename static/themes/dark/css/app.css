@@ -482,7 +482,7 @@ h1.page-title {
 }
 
 .metadata-page ul.meta-list {
-  margin: 0.4em 0 0.8em 0;
+  margin: 1em 0 0.8em 1em;
   padding: 0;
   list-style: none;
 }
@@ -504,7 +504,7 @@ h1.page-title {
 
 .metadata-page ul.meta-list ul > li {
   position: relative;
-  padding-left: 1em;
+  padding-left: 1.7em;
 }
 
 .metadata-page ul.meta-list ul > li:not(:last-child)::before {
@@ -513,22 +513,22 @@ h1.page-title {
   left: 0;
   top: 0;
   bottom: 0;
-  border-left: 1px solid rgba(var(--kiwi-tag-link), 0.3);
+  border-left: 2px solid rgba(var(--kiwi-text), 0.3);
 }
 
 .metadata-page ul.meta-list ul > li > .meta-entry::before {
   content: "";
   position: absolute;
-  left: -1em;
+  left: -1.7em;
   top: 0;
   height: 50%;
-  width: 0.7em;
-  border-bottom: 1px solid rgba(var(--kiwi-tag-link), 0.3);
+  width: 1.4em;
+  border-bottom: 2px solid rgba(var(--kiwi-text), 0.3);
 }
 
 /* the last child has no line below it: its tick is a corner */
 .metadata-page ul.meta-list ul > li:last-child > .meta-entry::before {
-  border-left: 1px solid rgba(var(--kiwi-tag-link), 0.3);
+  border-left: 2px solid rgba(var(--kiwi-text), 0.3);
 }
 
 .metadata-page .key {
@@ -548,18 +548,22 @@ h1.page-title {
   color: rgb(var(--kiwi-tag-link));
 }
 
+.metadata-page fieldset.tags-meta ul.meta-list > li {
+  margin-top: 1em;
+}
+
 /* tags size by level: 1, 2, then 3 and more. Only the label, so that the
    tree lines (in em) stay aligned */
 .metadata-page fieldset.tags-meta ul.meta-list > li > .meta-entry > a.key {
-  font-size: 130%;
+  font-size: 125%;
 }
 
 .metadata-page fieldset.tags-meta ul.meta-list > li > ul > li > .meta-entry > a.key {
-  font-size: 115%;
+  font-size: 110%;
 }
 
 .metadata-page .count {
-  color: rgba(var(--kiwi-text), 0.4);
+  color: rgba(var(--kiwi-text), 0.6);
   font-size: 0.85em;
 }
 

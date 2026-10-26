@@ -27,47 +27,20 @@ Kiwi is beta software, use at your own risk. Some notes:
   access control reliability, consider reviewing this code (it is
   short and simple), or getting in touch with the author about it.
 
-# Install
-
-## From released binaries
+# Install from released binaries (Linux)
 
 Static binaries are provided for GNU/Linux x64 systems, you can find
 them from https://github.com/PaulRivier/kiwi/releases . Follow the
 deployment instructions from there, then come back to this page.
 
-To update it later to the latest release, run `kiwi update` (or
-`kiwi update --check` to only check for a new release). It needs
-`bash`, `curl`, `tar` and `sha256sum`, and asks for a confirmation
-before replacing the binary; the previous one is kept as `kiwi.old`.
-Restart your kiwi servers afterwards.
+To update it later to the latest release, run `kiwi update` (or `kiwi
+update --check` to only check for a new release). It asks for a
+confirmation before replacing the binary; the previous one is kept as
+`kiwi.old`. Restart your kiwi servers afterwards.
 
-## From source
+For more installation options, see "Other install methods" further
+down.
 
-
-### podman way (easy)
-
-This is for GNU/Linux x64 builds, based on Alpine/musl/ghc with native
-integers.
-
-From the project directory, run :
-
-    ./podman-build.sh
-    
-It should build the static binary in the `release` directory.
-
-### Cabal way
-
-Get the source code, check GHC compiler version from head of file `cabal.project`, and install it for example with `ghcup`.
-
-Then, from source directory, run as user :
-
-    cabal install --project-file=cabal.project.devel
-
-You may need to install the following packages on your system :
-
-- libgmp-dev
-- zlib1g-dev
-- pkg-config
 
 
 # Getting started
@@ -432,6 +405,57 @@ documents.
 
 Kiwi is unaware of your content history, however you are strongly
 encouraged to keep your content in a revision control system.
+
+
+# Other install methods
+
+## From released binaries
+
+Static binaries are provided for GNU/Linux x64 systems, you can find
+them from https://github.com/PaulRivier/kiwi/releases . Follow the
+deployment instructions from there, then come back to this page.
+
+To update it later to the latest release, run `kiwi update` (or
+`kiwi update --check` to only check for a new release). It needs
+`bash`, `curl`, `tar` and `sha256sum`, and asks for a confirmation
+before replacing the binary; the previous one is kept as `kiwi.old`.
+Restart your kiwi servers afterwards.
+
+## From source
+
+
+### podman way (easy)
+
+This is for GNU/Linux x64 builds, based on Alpine/musl/ghc with native
+integers.
+
+From the project directory, run :
+
+    ./podman-build.sh
+    
+It should build the static binary in the `release` directory.
+
+### Cabal way
+
+Get the source code, check GHC compiler version from head of file `cabal.project`, and install it for example with `ghcup`.
+
+Then, from source directory, run as user :
+
+    cabal install --project-file=cabal.project.devel
+
+You may need to install the following packages on your system :
+
+- libgmp-dev
+- zlib1g-dev
+- pkg-config
+
+
+# Development
+
+The theme files (css, js, images) are embedded in the binary. To work on them without building again, set `KIWI_THEME_DIR` to the theme folder when running kiwi : the files are then read from this folder at each request, and a page reload shows the changes.
+
+    KIWI_THEME_DIR=static/themes/dark kiwi serve path/to/kiwi.ini
+
 
 # License
 
