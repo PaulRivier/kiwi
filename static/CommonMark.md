@@ -280,10 +280,24 @@ Home.md file.
 [Home page](<page:Home>)
 ```
 
-→ [Home page](<page:Home>)
+There is a convenient feature to help link : click the chainlink
+button in the page header on any page, to get a preformated Kiwi Link copied to your clipboard. Paste it as usual in your document to make the link.
 
 
-Or make a link to an external page.
+You can make a link to one of your files
+
+```
+[My best spreadsheet](<file:my-spreadsheet.xls>)
+```
+
+And you can also link to images from your database. This will link to
+the image but not display it in the page.
+
+```
+[This flower](<image:flower.jpg>)
+```
+
+You can also make a link to an external page:
 
 ```
 [Cheesecake](<https://en.wikipedia.org/wiki/Cheesecake>)
@@ -291,18 +305,11 @@ Or make a link to an external page.
 
 → [Cheesecake](<https://en.wikipedia.org/wiki/Cheesecake>)
 
-Or make a link to one of your files
-
-```
-[My best spreadsheet](<file:my-spreadsheet.xls>)
-
-[This flower](<image:flower.jpg>)
-```
-
 
 ## Images
 
-Images have a similar syntax to links but include a preceding exclamation point.
+Images have a similar syntax to links but include a preceding
+exclamation point. This will display the image in the page.
 
 ```
 ![Flower](image:flower.png)

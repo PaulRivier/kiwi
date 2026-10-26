@@ -2,6 +2,9 @@ module Kiwi.Controller
   ( servePage
   , serveBrowseAll
   , serveSearch
+  , serveMetadata
+  , serveReadme
+  , serveCommonMark
   , serveEditPage
   , serveLogin
   , logUserIn
@@ -14,13 +17,15 @@ module Kiwi.Controller
 
 import           Control.Monad (forM_)
 import           Control.Monad.Reader
+import qualified Data.ByteString as BS
 import           Data.List (sortOn)
 import qualified Data.Map.Strict as M
-import           Data.Maybe (mapMaybe)
+import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.Ord (Down (..))
 import qualified Data.SearchEngine as SE
 import qualified Data.Set as S
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
 import qualified Network.HTTP.Types.Status as Net
@@ -31,8 +36,9 @@ import           Web.Scotty.Trans (formParam, queryParams, redirect, status, htm
 
 import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
-import           Kiwi.Pandoc (pageDoc)
-import           Kiwi.Search (queryTerms)
+import qualified Kiwi.DefaultPages as DP
+import           Kiwi.Pandoc (pageDoc, embeddedDoc)
+import           Kiwi.Search (queryTerms, normalizeText)
 import qualified Kiwi.Types as K
 import qualified Kiwi.View as V
 import           Kiwi.Utils (getDB, getSessions, asksK, tagsListSubSegments, 
@@ -46,17 +52,73 @@ servePage pgId = do
   case findPage db pgId of
     Just p -> do
       cd <- asksK K.contentDir
-      doc <- case pageDoc cd p of
-        Right d -> return d
-        -- the page was parsed when loaded, so this should not happen
-        Left e -> do
-          logMsg L.Warn $ T.pack $ concat ["unable to render page ",
-                                           K.pageAbsoluteFSPath p, " : ", e]
-          return $ PD.Pandoc mempty [PD.Para [PD.Str "Unable to render this page."]]
+      -- the page was parsed when loaded, so this should not fail
+      doc <- orRenderError (K.pageAbsoluteFSPath p) $ pageDoc cd p
       let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
       r <- V.renderPage p doc backLinkPages
       html r
     Nothing -> serveNotFound
+
+-- | The document, or a document telling that it can not be rendered
+orRenderError :: FP.FilePath -> Either String PD.Pandoc -> ActM PD.Pandoc
+orRenderError _ (Right doc) = return doc
+orRenderError path (Left e) = do
+  logMsg L.Warn $ T.pack $ concat ["unable to render ", path, " : ", e]
+  return $ PD.Pandoc mempty [PD.Para [PD.Str "Unable to render this page."]]
+
+
+-- | README of kiwi, embedded in the binary
+serveReadme :: ActM ()
+serveReadme = serveEmbeddedDoc "README.md" False "README" DP.readmePage
+
+-- | CommonMark cheatsheet, embedded in the binary
+serveCommonMark :: ActM ()
+serveCommonMark = serveEmbeddedDoc "CommonMark.md" True "CommonMark" DP.commonmarkDocPage
+
+-- | A file embedded in kiwi, with or without metadata header. The title of
+-- its header is displayed, the default title is only the one of the tab.
+serveEmbeddedDoc :: FP.FilePath -> Bool -> T.Text -> BS.ByteString -> ActM ()
+serveEmbeddedDoc name withHeader defaultTitle content = do
+  let (titleM, docE) = case embeddedDoc name withHeader (TE.decodeUtf8Lenient content) of
+        Right (t, d) -> (t, Right d)
+        Left e       -> (Nothing, Left e)
+  doc <- orRenderError name docE
+  r <- V.renderDoc (fromMaybe defaultTitle titleM) titleM doc
+  html r
+
+
+-- | Metadata of the pages, by source (all the sources with pages visible to
+-- the user, whatever the sources context): the keys of the tags, langs,
+-- custom fields and, for admins, access groups. Each key has its number of
+-- pages, and a link to browse them in its source.
+serveMetadata :: ActM ()
+serveMetadata = do
+  db <- getRestrictedDB
+  admin <- U.isAdmin
+  let idx = K.pagesIndex db
+      sources = sortOn textOrder [ s | K.KeyText s <- DI.getFieldKeys idx K.FieldSource ]
+      fields = [K.FieldTag, K.FieldLang]
+               ++ map (K.FieldCustom . K.cmcName) (K.customMetaConfig db)
+               ++ [K.FieldAccess | admin]
+      section s =
+        let sub = DI.narrow idx (U.qOnly K.FieldSource s)
+        in (s, [ (f, map (entry s sub f) keys) | f <- fields
+               , let keys = sortKeys f $ DI.getFieldKeys sub f, not (null keys) ])
+      entry s sub f k = V.MetaEntry
+        { V.metaLabel = keyLabel f k
+        , V.metaLink  = U.browseUrl $ U.addToReq (U.sourcesReq $ S.singleton s) (f, k)
+        , V.metaCount = S.size $ DI.lookupIndex sub f k }
+  V.renderMetadata (map section sources) >>= html
+  where
+    keyLabel K.FieldTag (K.KeyText t) = U.prettyTag t
+    keyLabel _ k = U.showKeyLabel k
+    -- texts without case nor accents, tags segment by segment, the other
+    -- keys (numbers, dates...) in their natural order
+    sortKeys f = sortOn $ \k -> case (f, k) of
+      (K.FieldTag, K.KeyText t) -> Left (map textOrder $ U.tagToSegments t, t)
+      (_, K.KeyText t)          -> Left ([textOrder t], t)
+      _                         -> Right k
+    textOrder = normalizeText . T.toLower
 
 
 -- | Number of pages listed on the browse page without intersection
@@ -72,8 +134,12 @@ serveBrowseAll :: [(T.Text, T.Text)] -> ActM ()
 serveBrowseAll params = do
   db <- getRestrictedDB
   sources <- asksK K.sourcesContext
+  admin <- U.isAdmin
   case U.decodeReq (K.customMetaConfig db) params of
     Left err -> serveBadRequest err
+    -- the access groups of the pages are only known by admins
+    Right req | not admin && M.member K.FieldAccess req ->
+                  serveBadRequest "unknown parameter: access"
     -- the sources are those of the context, without the unknown ones
     Right req -> metaIndex db (U.sourcesReq sources <> M.delete K.FieldSource req) >>= html
   where

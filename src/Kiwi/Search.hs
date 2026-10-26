@@ -3,6 +3,7 @@
 module Kiwi.Search (
     initPageSearchEngine
   , queryTerms
+  , normalizeText
   ) where
 
 -- import           Data.Text.ICU.Char
@@ -89,6 +90,7 @@ tokenizeText brk = filter (not . T.null) .
 
 
 
+-- | Text without its accents (also used to sort texts, with T.toLower)
 normalizeText :: T.Text -> T.Text
 normalizeText = T.filter ((/= NonSpacingMark) . generalCategory) .
                 normalize NFD

@@ -39,6 +39,10 @@ loc_english = Locales
   , loc_EditPage = "Edit this page"
   , loc_CopyLink = "Copy a link to this page"
   , loc_Reload = "Reload pages"
+  , loc_Metadata = "Metadata"
+  , loc_Lang = "Language"
+  , loc_Access = "Access"
+  , loc_Copy = "Copy"
   -- , loc_TimeLocale = enTimeLocale
   }
 
@@ -69,6 +73,10 @@ loc_french = Locales
   , loc_EditPage = "Modifier cette page"
   , loc_CopyLink = "Copier un lien vers cette page"
   , loc_Reload = "Recharger les pages"
+  , loc_Metadata = "Métadonnées"
+  , loc_Lang = "Langue"
+  , loc_Access = "Accès"
+  , loc_Copy = "Copier"
   -- , loc_TimeLocale = frTimeLocale
   }
 

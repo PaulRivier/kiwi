@@ -4,6 +4,7 @@
 module Kiwi.DefaultPages
   ( defaultHomePage
   , commonmarkDocPage
+  , readmePage
   ) where
 
 
@@ -17,3 +18,7 @@ defaultHomePage = $(embedFileRelative "static/defaultHomePage.md")
 
 commonmarkDocPage :: BS.ByteString
 commonmarkDocPage = $(embedFileRelative "static/CommonMark.md")
+
+
+readmePage :: BS.ByteString
+readmePage = $(embedFileRelative "README.md")

@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+- New footer, with links to the metadata of the pages (tags, langs,
+  custom fields, by source, with copy buttons), the README and the
+  CommonMark cheatsheet.
+
 - `kiwi update` updates the binary to the latest release (Linux x86_64),
   `kiwi --version` shows the version.
 

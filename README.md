@@ -359,7 +359,7 @@ Groups can be nested, and placed anywhere in a tag :
     tags: sport > {mountain > {climbing, hiking}, swimming}
     tags: {sport, leisure} > mountain
 
-Also if you want to include a comma or a brace in your tag, escape it with a
+Also if you need to include a comma or a brace in your tag, escape it with a
 backslash : '\,', '\{' or '\}'.
 
 Browsing files by tags should be intuitive from the web interface,

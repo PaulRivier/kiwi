@@ -81,6 +81,10 @@ kiwiRoute ss cache = do
   get "/search" $ withLogin $ withSources $ do
     query <- queryParam "query"
     serveSearch query
+  -- documentation, out of the sources context
+  get "/metadata" $ withLogin serveMetadata
+  get "/readme" $ withLogin serveReadme
+  get "/commonmark" $ withLogin serveCommonMark
   post "/reload" $ ifAdmin $ do
     withLogin updateDB
     html ""

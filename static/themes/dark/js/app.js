@@ -16,8 +16,16 @@ $(".top-nav .edit-page")?.addEventListener("click", (e) => {
   post("/edit-page", { "page-source": pageSource, "page-id": pageId });
 });
 
-$(".top-nav .copy-link")?.addEventListener("click", (e) =>
-  navigator.clipboard.writeText(e.currentTarget.dataset.pageLink));
+
+// Copy buttons: their data-copy text, a tick shows it is done
+
+document.addEventListener("click", async (e) => {
+  const button = e.target.closest("button.copy");
+  if (!button) return;
+  await navigator.clipboard.writeText(button.dataset.copy);
+  button.classList.add("copied");
+  setTimeout(() => button.classList.remove("copied"), 1500);
+});
 
 
 // Images lightbox

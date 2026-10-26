@@ -4,6 +4,7 @@
 module Kiwi.Pandoc
   ( loadPageIO
   , pageDoc
+  , embeddedDoc
   , pagePath
   , linksInContext
   , loadPage         -- exported for tests
@@ -114,6 +115,17 @@ pageDoc contentDir' p =
       relPath = snd $ pagePath contentDir' path
       (docMeta, content) = splitPage $ pageText p
   in fst <$> loadDoc path source (pageSubDir relPath) docMeta content
+
+
+-- | Document of a file embedded in kiwi (README, CommonMark cheatsheet), with
+-- or without a metadata header, and the title of its header. Its links are
+-- not relative to any source.
+embeddedDoc :: FP.FilePath -> Bool -> T.Text -> Either String (Maybe T.Text, PD.Pandoc)
+embeddedDoc name withHeader c =
+  let (docMeta, content) = if withHeader then splitPage c
+                           else (M.empty, T.replace "\r\n" "\n" c)
+      title = T.intercalate " " <$> M.lookup "title" docMeta
+  in (\(doc, _) -> (title, doc)) <$> loadDoc name "" "" docMeta content
 
 
 -- | Source of a page file, and its path in the pages folder, without

@@ -1,11 +1,21 @@
 TODO
 ====
 
-SQLITE
+SQLITE:
 - utiliser SQLITE pour les pages parsées et la recherche full-text
+- peut-être aussi pour remplacer DocIndex
 
 Recherche:
- - améliorer le paramétrage du moteur de recherche
+- améliorer le paramétrage du moteur de recherche ?
+
+Features:
+- Page "metadata" :
+  - Liste des tags avec sous-tags etc (chemins complets)
+  - Liste de chaque autre métadonnée
+  - Tri lexico
+
+- Page documentation : Le README.md
+- Page CommonMark : Le CommonMark.md
 
 Code:
 

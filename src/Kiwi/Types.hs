@@ -357,6 +357,10 @@ data Locales = Locales
   , loc_EditPage :: T.Text
   , loc_CopyLink :: T.Text
   , loc_Reload :: T.Text
+  , loc_Metadata :: T.Text
+  , loc_Lang :: T.Text
+  , loc_Access :: T.Text
+  , loc_Copy :: T.Text
   -- , loc_TimeLocale :: Time.TimeLocale
   }
   deriving (Show)

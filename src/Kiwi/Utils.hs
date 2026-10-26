@@ -365,8 +365,8 @@ qHasField f = DI.HasField f
 -- | Filter of the browse page: the keys of each field are combined according
 -- to 'fieldCombination', and the pages must match every field. In URLs, it is
 -- a query string with one parameter per key, e.g.
--- @/browse?source=s&tag=a%3Eb&tag=c&m.author=Smith@: "source", "tag", and
--- "m." followed by the name of a custom metadata field.
+-- @/browse?source=s&tag=a%3Eb&tag=c&m.author=Smith@: "source", "tag",
+-- "access", "lang", and "m." followed by the name of a custom metadata field.
 type BrowseAllReq = M.Map MetaField (S.Set DocIndexKey)
 
 -- | How the keys of a field are combined in a request
@@ -419,12 +419,15 @@ browseUrl r = T.append "/browse" $ TE.decodeUtf8 $ URI.renderQuery True
   where
     fieldParam FieldSource = Just "source"
     fieldParam FieldTag = Just "tag"
+    fieldParam FieldAccess = Just "access"
+    fieldParam FieldLang = Just "lang"
     fieldParam (FieldCustom n) = Just $ T.append "m." n
     fieldParam _ = Nothing
     keyParam (KeyText t) = Just t
     keyParam (KeyInt i) = Just $ T.pack $ show i
     keyParam (KeyDay d) = Just $ T.pack $ Time.showGregorian d
     keyParam (KeyBool b) = Just $ if b then "true" else "false"
+    keyParam (KeyLang l) = Just $ T.toLower $ T.pack $ show l
     keyParam _ = Nothing
 
 -- | Decode the parameters of a browse URL (see 'BrowseAllReq'). Custom
@@ -442,6 +445,8 @@ decodeReq cmcs = foldM addParam M.empty
 
     fieldReader "source" = Just (FieldSource, readText)
     fieldReader "tag" = Just (FieldTag, readText . segmentsToTag . tagToSegments)
+    fieldReader "access" = Just (FieldAccess, readText)
+    fieldReader "lang" = Just (FieldLang, fmap KeyLang . readMaybe . T.unpack)
     fieldReader n = do
       name <- T.stripPrefix "m." n
       cmc <- L.find ((== name) . cmcName) cmcs

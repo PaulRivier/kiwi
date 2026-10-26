@@ -371,8 +371,11 @@ browseReqSpec = do
                 , (FieldCustom "year", [KeyInt 1999, KeyInt (-3)])
                 , (FieldCustom "date", [KeyDay (Time.fromGregorian 2020 2 29)])
                 , (FieldCustom "done", [KeyBool True])
+                , (FieldAccess, [KeyText "family"])
+                , (FieldLang, [KeyLang French])
                 , (FieldSource, [KeyText "my source"]) ]
     decodeUrl (U.browseUrl r) `shouldBe` Right r
+    U.browseUrl (req [(FieldLang, [KeyLang French])]) `shouldBe` "/browse?lang=french"
 
   it "builds readable URLs, in a stable order" $ do
     U.browseUrl M.empty `shouldBe` "/browse"
@@ -387,7 +390,8 @@ browseReqSpec = do
     mapM_ (\url -> decodeUrl url `shouldSatisfy` isLeft)
       [ "/browse?foo=bar", "/browse?author=Smith", "/browse?m.unknown=x"
       , "/browse?m.year=12a", "/browse?m.date=2020-02-30", "/browse?m.done=yes"
-      , "/browse?tag=", "/browse?tag=>", "/browse?source=" ]
+      , "/browse?tag=", "/browse?tag=>", "/browse?source="
+      , "/browse?lang=klingon", "/browse?access=" ]
 
   it "normalizes the tags of a request" $ do
     decodeUrl "/browse?tag=maison%20%3E%20produits"

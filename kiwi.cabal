@@ -18,6 +18,7 @@ extra-doc-files:
     ChangeLog.md
 -- files embedded at compile time (file-embed)
 extra-source-files:
+    README.md
     static/*.md
     static/*.default
     static/themes/**/*.css
