@@ -340,8 +340,25 @@ look for the button with labels. Don't forget to reload when you want.
 
 # Custom metadata
 
-You can use your own custom metadata. Set them in your *kiwi.ini*
-file, and restart Kiwi. Then you can use them like so :
+You can use your own custom metadata. Declare them first in your *kiwi.ini*
+file, with an entry similar to the following.
+
+
+    [metadata category]
+    type: text
+    threshold: 0.8
+
+    [metadata author]
+    type: text
+    threshold: 0.5
+    
+`threshold` defines when a custom filter for this metadata key will
+show in the browsing interface. At `0.8`, it will appear as soon as
+the number of pages having this metadata is more than 80% of the total
+number of pages matching the current browsing filters.
+
+Then restart Kiwi. You can use them in metadata section of pages like
+so :
 
     category: Places
     authors: John, Jack
