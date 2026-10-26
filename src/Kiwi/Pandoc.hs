@@ -7,6 +7,7 @@ module Kiwi.Pandoc
   , embeddedDoc
   , pagePath
   , linksInContext
+  , unknownMetaKeys
   , loadPage         -- exported for tests
   , parseMetaData    -- exported for tests
   , parseCustomMeta  -- exported for tests
@@ -70,6 +71,15 @@ loadPage path c source md cmc dir =
     findWith def join' field meta = fromMaybe def $
                                     fmap join' $
                                     M.lookup field meta
+
+
+-- | Keys of the metadata header of a page text that kiwi does not use: neither
+-- built-in (read by 'loadPage' and 'loadDoc') nor declared custom metadata
+unknownMetaKeys :: [CustomMetaConfig] -> T.Text -> [T.Text]
+unknownMetaKeys cmc c = filter (`notElem` known) $ M.keys $ fst $ splitPage c
+  where
+    known = [ "id", "title", "tags", "access", "lang", "images-dir", "files-dir" ]
+            ++ map cmcName cmc
 
 
 -- | Metadata and content of a page. Windows line endings are normalized,

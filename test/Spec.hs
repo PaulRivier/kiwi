@@ -22,7 +22,7 @@ import           Kiwi.HtmlWriter (writeHtml5)
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.LangDetect (detectLang, resolveLang, stopWords)
 import           Kiwi.Pandoc (linksInContext, loadPage, pageDoc, pagePath, parseMetaData,
-                              parseCustomMeta, sourceMeta)
+                              parseCustomMeta, sourceMeta, unknownMetaKeys)
 import           Kiwi.Search (initPageSearchEngine, searchPages, queryTerms)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
@@ -220,6 +220,12 @@ metaDataSpec = do
                    , ("count", [KeyInt 3, KeyInt 12])
                    , ("flag", [KeyBool True])
                    , ("authors", [KeyText "John", KeyText "Jack, Jr"]) ]
+
+  it "finds the unknown metadata keys, in the header only" $ do
+    let cfg = [CustomMetaConfig "authors" CmtText 1]
+        c = "title: t\ntag: typo\nTitle: case\nauthors: a\nfiles-dir: f\n\nbody: no"
+    unknownMetaKeys cfg c `shouldBe` ["Title", "tag"]
+    unknownMetaKeys [] "title: t\nauthors: a" `shouldBe` ["authors"]
 
   it "reads booleans" $ do
     let cfg = [CustomMetaConfig "b" CmtBool 1]

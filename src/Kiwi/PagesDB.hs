@@ -6,7 +6,7 @@ module Kiwi.PagesDB
   ) where
 
 import           Control.Exception (IOException, try)
-import           Control.Monad (forM_)
+import           Control.Monad (forM_, unless)
 import           Data.List (find)
 -- import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe)
@@ -21,7 +21,7 @@ import qualified System.FilePath as FP
 import qualified Kiwi.Log as L
 import           Kiwi.Search
 import           Kiwi.Types
-import           Kiwi.Pandoc (loadPageIO, pagePath)
+import           Kiwi.Pandoc (loadPageIO, pagePath, unknownMetaKeys)
 import           Kiwi.Utils (traverseDir, tagSubSegments, segmentsToTag,
                              nodup, isDotFile, isValidMdFilename)
 import qualified Utils.DocIndex as DI
@@ -62,8 +62,12 @@ updatePagesDB logger' contentDir' pagesDir db =
       forM_ [ (p, e) | (p, Left e) <- results ] $ \(p, e) ->
         logger' L.Warn $ T.pack $ concat ["page ignored, ", p, " : ", e]
       -- the lang may have been detected from the content
-      forM_ [ (p, pg) | (p, Right (pg, _)) <- results ] $ \(p, pg) ->
+      forM_ [ (p, pg) | (p, Right (pg, _)) <- results ] $ \(p, pg) -> do
         logger' L.Debug $ T.pack $ concat ["page loaded, ", p, " : ", show (pageLang pg)]
+        -- typos, or custom metadata not declared in kiwi.ini
+        let unknown = unknownMetaKeys (customMetaConfig db) (pageText pg)
+        unless (null unknown) $ logger' L.Warn $ T.concat
+          [ "unknown metadata, ", T.pack p, " : ", T.intercalate ", " unknown ]
       return [ pg | (_, Right pg) <- results ]
 
     getRemovedUIDs dbPages fsPaths =
