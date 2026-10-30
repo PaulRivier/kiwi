@@ -15,6 +15,8 @@ module Kiwi.Controller
   , ifAdmin
   ) where
 
+import           Control.Concurrent (forkIO)
+import           Control.Exception (IOException, try)
 import           Control.Monad (forM_)
 import           Control.Monad.Reader
 import qualified Data.ByteString as BS
@@ -29,6 +31,7 @@ import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
 import qualified Data.Tree as Tree
 import qualified Network.HTTP.Types.Status as Net
+import           System.Exit (ExitCode (..))
 import qualified System.FilePath as FP
 import qualified System.Process as Proc
 import qualified Text.Pandoc.Definition as PD
@@ -271,7 +274,16 @@ serveEditPage editorM pgId =
       case findPage db pgId of
         Nothing -> serveNotFound
         Just p -> do
-          _ <- liftIO $ Proc.spawnProcess cmd $ args ++ [K.pageAbsoluteFSPath p]
+          logger <- asksK K.logger
+          let editorFailed msg = logger L.Warn $ T.pack $ "editor failed: " ++ msg
+          -- the editor may outlive the request: wait for it in a thread,
+          -- so that it does not stay a zombie, and log its failures
+          _ <- liftIO $ forkIO $ do
+            r <- try $ Proc.spawnProcess cmd (args ++ [K.pageAbsoluteFSPath p]) >>= Proc.waitForProcess
+            case r of
+              Left e -> editorFailed $ show (e :: IOException)
+              Right (ExitFailure c) -> editorFailed $ cmd ++ " : exit code " ++ show c
+              Right ExitSuccess -> pure ()
           html "ok"
       
 
