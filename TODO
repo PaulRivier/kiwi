@@ -9,14 +9,33 @@ Recherche:
 - améliorer le paramétrage du moteur de recherche ?
 
 Features:
-- Page "metadata" :
-  - Liste des tags avec sous-tags etc (chemins complets)
-  - Liste de chaque autre métadonnée
-  - Tri lexico
 
-- Page documentation : Le README.md
-- Page CommonMark : Le CommonMark.md
+- Changer structure dossier source. Passer à un dossier unique (au
+  lieu de pages/files/images). Utiliser un système de PATH pour
+  résoudre un lien vers une image ou un fichier. Par exemple, depuis
+  une page "cuisine.md", pour un lien type
+  [salade](<image:salade.png>), on peut commencer par chercher le
+  fichier salade.png dans un dossier "salade" à coté du fichier
+  cuisine.md, puis dans un dossier "images" à côté aussi, puis
+  remonter l'arboresence à la recherche d'un dossier "images" qui
+  contient un fichier "salade.png". Proposer d'ajouter des chemins au
+  PATH dans les metadata.
 
 Code:
 
 Archi:
+
+
+
+Abandonné
+=========
+
+- améliorer la fonction de modification d'une page via une commande
+  shell, notamment via un lien "kiwi-edit://" et une règle .desktop
+  pour lancer l'éditeur de notre choix.
+  => plus lourd sans gain
+
+- possibilité d'utiliser sessionstorage (JS) à la place de query pour
+  maintenir un contexte local à un onglet ?
+  => moins bien que le query
+
