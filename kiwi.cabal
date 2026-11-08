@@ -113,6 +113,8 @@ test-suite kiwi-test
   build-depends:
       base >=4.7 && <5
     , containers
+    , directory
+    , filepath
     , full-text-search
     , hspec
     , http-types

@@ -116,7 +116,7 @@ data PagesDB =
   PagesDB { defaultMeta   :: MetaData
           , customMetaConfig :: [CustomMetaConfig]
           , sourcesConfig :: [SourceConfig]
-          , lastUpdate :: Time.UTCTime
+          -- , lastUpdate :: Time.UTCTime
           , pagesIndex :: DI.DocIndex Page PageUID MetaField DocIndexKey
           , searchEngine :: PageSearchEngine }
 

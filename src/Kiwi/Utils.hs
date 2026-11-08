@@ -36,9 +36,9 @@ import           Data.IORef
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.IO as TSIO
+import           GHC.Clock (getMonotonicTime)
 import qualified Network.Wai.Middleware.Static as Static
 import           Network.HTTP.Types.Header (RequestHeaders)
-import           System.CPUTime
 import qualified System.Directory as D
 import qualified System.FilePath as FP
 import qualified Text.Pandoc.Definition as PD
@@ -187,13 +187,13 @@ getFileContent p = do
     else return Nothing
 
 
+-- | Result of the action, and the time elapsed while running it, in seconds
 timeIO :: IO a -> IO (a, Double)
 timeIO x = do
-  bef <- liftIO getCPUTime
+  bef <- getMonotonicTime
   res <- x
-  aft <- liftIO getCPUTime
-  let t = fromIntegral (aft-bef) * 1e-12
-  return (res, t)
+  aft <- getMonotonicTime
+  return (res, aft - bef)
 
 
 

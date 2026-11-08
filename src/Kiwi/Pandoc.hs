@@ -17,6 +17,7 @@ module Kiwi.Pandoc
 
 import           Control.Applicative ((<|>))
 import           Control.Exception (IOException, try)
+import           Control.Monad (mfilter)
 import qualified Commonmark as Cm
 import qualified Commonmark.Extensions as CmEx
 import qualified Commonmark.Pandoc as CmP
@@ -53,7 +54,9 @@ loadPage :: FP.FilePath -> T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
               FP.FilePath -> Either String PandocPage
 loadPage path c source md cmc dir =
     let (docMeta, content) = splitPage c
-        meta = md { metaId    = T.concat <$> M.lookup "id" docMeta
+        -- an empty id is ignored: the page gets the id of its path
+        meta = md { metaId    = mfilter (not . T.null) $
+                                T.concat <$> M.lookup "id" docMeta
                   , metaTitle = findWith (metaTitle md) (T.intercalate " ")
                                          "title" docMeta
                   , metaTags = findWith (metaTags md) (splitTags . T.intercalate ",")
@@ -276,8 +279,10 @@ loadPageIO :: FP.FilePath -> FP.FilePath -> T.Text ->
               MetaData -> [CustomMetaConfig] -> Maybe SourceConfig ->
               IO (Either String (Page, T.Text))
 loadPageIO fullPath relPath source md cmc scM = do
-  -- file may have been removed since directory listing
-  fileE <- try $ (,) <$> BS.readFile fullPath <*> D.getModificationTime fullPath
+  -- file may have been removed since directory listing. The time is read
+  -- first: a file modified while it is read then gets another time, and is
+  -- loaded again at the next reload.
+  fileE <- try $ flip (,) <$> D.getModificationTime fullPath <*> BS.readFile fullPath
   let rootTag = fromMaybe [] (scRootTag <$> scM)
   return $ case fileE of
     Left (e :: IOException) -> Left $ "unable to read file : " ++ ioeGetErrorString e
