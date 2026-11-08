@@ -222,8 +222,8 @@ data DocIndexKey = KeyText T.Text
 class Ord k => FieldKey k where
   toKey :: k -> DocIndexKey
   fromKey :: DocIndexKey -> Maybe k
-  toKeys :: [k] -> [DocIndexKey]
-  toKeys = map toKey
+  -- toKeys :: [k] -> [DocIndexKey]
+  -- toKeys = map toKey
   fromKeys :: [DocIndexKey] -> [k]
   fromKeys = mapMaybe fromKey
 
@@ -349,8 +349,7 @@ instance Read UI_Lang where
 
 
 data Locales = Locales
-  { loc_Home :: T.Text
-  , loc_Tags :: T.Text
+  { loc_Tags :: T.Text
   , loc_TagsList :: T.Text
   , loc_FiltersList :: T.Text
   , loc_PagesList :: T.Text
@@ -358,9 +357,6 @@ data Locales = Locales
   , loc_Search :: T.Text
   , loc_SearchResults :: T.Text
   , loc_SearchNothing :: T.Text
-  , loc_Agenda :: T.Text
-  , loc_Today :: T.Text
-  , loc_ToCome :: T.Text
   , loc_NotFound :: T.Text
   , loc_BadRequest :: T.Text
   , loc_Forbidden :: T.Text

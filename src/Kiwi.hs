@@ -19,6 +19,7 @@ import           GHC.IO.Encoding (setLocaleEncoding, setFileSystemEncoding)
 
 import Paths_kiwi (version)
 
+import qualified Kiwi.Auth as Auth
 import Kiwi.CLI as CLI
 import Kiwi.ConfigFile as Conf
 import qualified Kiwi.DefaultPages as DP
@@ -93,8 +94,7 @@ initKiwiDir d = do
                           "You should now do the following steps :",
                           " - check kiwi.ini file",
                           " - start wiki with command : kiwi serve " ++ FP.combine r "kiwi.ini"]
-      -- todo : config, Home.md, static
-      
+
     dirs r = map (FP.combine r) ["content", "content/my", "content/my/pages",
                                  "content/my/images", "content/my/files"]
       
@@ -105,24 +105,24 @@ runAccess c = do
   let cfp = accessCfp c
   let op = accessOp c
   let accountsFilePath = FP.combine (FP.takeDirectory cfp) "_accounts"
-  accounts' <- U.loadAccounts accountsFilePath
+  accounts' <- Auth.loadAccounts accountsFilePath
   case op of
     AccessCreate l -> do
       putStrLn "Password:"
       pass <- noEcho TIO.getLine
       putStrLn "Groups (comma separated):"
       groups <- TIO.getLine
-      salt <- U.randomText 16
-      case U.hashPassword salt pass of
+      salt <- Auth.randomText 16
+      case Auth.hashPassword salt pass of
         Nothing -> putStrLn "Error: unable to hash password"
         Just hash -> do
           let acc = Account (T.pack l) salt hash (map T.strip $ T.splitOn "," groups)
           let newAccounts = L.nubBy (\a b -> accountId a == accountId b) (acc:accounts')
-          U.dumpAccounts newAccounts accountsFilePath
+          Auth.dumpAccounts newAccounts accountsFilePath
           putStrLn "Access created"
     AccessRemove l -> do
       let newAccounts = filter (\a -> accountId a /= (T.pack l)) accounts'
-      U.dumpAccounts newAccounts accountsFilePath
+      Auth.dumpAccounts newAccounts accountsFilePath
       putStrLn "Access removed"
 
 -- | The update is done by scripts/update-kiwi-linux.sh, downloaded from the

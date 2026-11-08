@@ -13,6 +13,7 @@ import           Data.Foldable (toList)
 import qualified Data.Text as T
 import qualified System.FilePath as FP
 
+import qualified Kiwi.Tags as Tags
 import qualified Kiwi.Types as K
 import qualified Kiwi.Utils as U
 
@@ -40,8 +41,8 @@ configParser = do
     defLang  <- fieldDefOf "lang" U.parseLangSetting (K.LangFixed K.English)
     return K.MetaData { K.metaId = Nothing
                       , K.metaTitle = T.strip defTitle
-                      , K.metaTags = U.splitTags defTags
-                      , K.metaAccess = U.splitMeta defAccess 
+                      , K.metaTags = Tags.splitTags defTags
+                      , K.metaAccess = Tags.splitMeta defAccess
                       , K.metaLang = defLang
                       , K.metaArchive = False
                       , K.metaCustom = []
@@ -86,9 +87,9 @@ sourceConfigParser source = do
   access <- fieldDefOf "access" string ""
   lang <- fieldMbOf "lang" U.parseLangSetting
   return K.SourceConfig { K.scSourceName = source
-                        , K.scRootTag = U.tagToSegments $ T.pack rt
+                        , K.scRootTag = Tags.tagToSegments $ T.pack rt
                         -- without any group, the global default is used
-                        , K.scAccess = case U.splitMeta (T.pack access) of
+                        , K.scAccess = case Tags.splitMeta (T.pack access) of
                             [] -> Nothing
                             groups -> Just groups
                         , K.scLang = lang

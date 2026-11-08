@@ -5,14 +5,14 @@ module Kiwi.Server
 
 import           Control.Concurrent (forkIO)
 import           Control.Concurrent.MVar (newMVar, withMVar)
-import           Control.Monad (when, forM_)
+import           Control.Exception (evaluate)
+import           Control.Monad (when, forM_, void)
 import           Control.Monad.Reader
 import           Data.IORef (newIORef, readIORef, atomicWriteIORef)
 import           Data.List (stripPrefix, isInfixOf)
 import qualified Data.Map.Strict as M
 import qualified Data.SearchEngine as SE
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
 import           Network.Wai.Handler.Warp (setPort)
 import           Network.Wai.Middleware.RequestLogger (DetailedSettings (..), OutputFormat (..),
                                                        RequestLoggerSettings (..),
@@ -26,13 +26,14 @@ import qualified System.FilePath as FP
 import           Text.Printf (printf)
 import           Web.Scotty.Trans
 
+import           Kiwi.Auth (loadAccounts, loadSessions)
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.Controller
 import qualified Kiwi.Log as L
 import qualified Kiwi.PagesDB as DB
 import           Kiwi.Theme (serveTheme)
 import           Kiwi.Types
-import           Kiwi.Utils
+import           Kiwi.Utils (asksK, isDotFile, timeIO)
 import qualified Utils.DocIndex as DI
 
 
@@ -86,7 +87,7 @@ kiwiRoute ss cache = do
   get "/readme" $ withLogin serveReadme
   get "/commonmark" $ withLogin serveCommonMark
   post "/reload" $ ifAdmin $ do
-    withLogin updateDB
+    updateDB
     html ""
   post "/edit-page" $ ifAdmin $ do
     source <- formParam "page-source"
@@ -95,9 +96,6 @@ kiwiRoute ss cache = do
   get  "/login" $ serveLogin
   post "/login" $ logUserIn
   post "/logout" $ logUserOut
-  get "/show-index" $ ifAdmin $ do
-    db <- getDB
-    html $ TL.pack $ show $ DI.index $ pagesIndex db
 
   middleware serveTheme
 
@@ -126,12 +124,19 @@ updateDB = do
     db' <- readIORef dbR
     (db, t) <- timeIO $ DB.updatePagesDB logger' cd pagesFSDir db'
     atomicWriteIORef dbR db
+    warmUpSearchEngine (searchEngine db)
     logger' L.Info $ T.pack $ concat [ "pages reloaded in ", printf "%.2f" t
                                      , "s, ", pagesCount db, " pages" ]
 
 
 pagesCount :: PagesDB -> String
 pagesCount = show . M.size . DI.store . pagesIndex
+
+
+-- | Evaluate the search engine in a thread, so that the first search after
+-- a load does not wait for it
+warmUpSearchEngine :: PageSearchEngine -> IO ()
+warmUpSearchEngine se = void $ forkIO $ void $ evaluate $ SE.invariant se
 
 
 initServerState :: FP.FilePath -> Conf.KiwiConfig -> L.Logger -> IO ServerState
@@ -146,7 +151,7 @@ initServerState cfp conf logger' = do
           (DB.emptyPagesDB (Conf.defaultMeta conf)
                            (Conf.customMetaConfig conf)
                            (Conf.sourcesConfig conf))
-  _ <- warmUpSearchEngine (searchEngine db)
+  warmUpSearchEngine (searchEngine db)
   dbR <- newIORef db
   dbLock <- newMVar ()
   return $ ServerState {
@@ -170,10 +175,6 @@ initServerState cfp conf logger' = do
     findInterfaceLang :: UI_Lang -> UI_Lang
     findInterfaceLang UI_French = UI_French
     findInterfaceLang _         = UI_English
-
-    warmUpSearchEngine se = forkIO $ do   -- deep eval of search engine
-      True <- return $ SE.invariant se
-      return ()
 
 
 serveStatic :: Static.CacheContainer -> [(String, FP.FilePath)] -> WebM ()

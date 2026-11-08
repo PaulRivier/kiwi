@@ -13,8 +13,7 @@ locales lg = case lg of
 loc_english, loc_french :: Locales
 
 loc_english = Locales
-  { loc_Home = "Home"
-  , loc_Tags = "Tags"
+  { loc_Tags = "Tags"
   , loc_TagsList = "tags"
   , loc_FiltersList = "Filters"
   , loc_PagesList = "Pages"
@@ -22,9 +21,6 @@ loc_english = Locales
   , loc_Search = "Search"
   , loc_SearchResults = "Results"
   , loc_SearchNothing = "No page match"
-  , loc_Agenda = "Agenda"
-  , loc_Today = "Today"
-  , loc_ToCome = "To come"
   , loc_NotFound = "This page does not exists"
   , loc_BadRequest = "Invalid request"
   , loc_Forbidden = "Forbidden access"
@@ -48,8 +44,7 @@ loc_english = Locales
   }
 
 loc_french = Locales
-  { loc_Home = "Home"
-  , loc_Tags = "Tags"
+  { loc_Tags = "Tags"
   , loc_TagsList = "tags"
   , loc_FiltersList = "Filtres"
   , loc_PagesList = "pages"
@@ -57,9 +52,6 @@ loc_french = Locales
   , loc_Search = "Recherche"
   , loc_SearchResults = "Résultats"
   , loc_SearchNothing = "Aucun résultat"
-  , loc_Agenda = "Agenda"
-  , loc_Today = "Aujourd'hui"
-  , loc_ToCome = "À venir"
   , loc_NotFound = "Cette page n'existe pas"
   , loc_BadRequest = "Requête invalide"
   , loc_Forbidden = "Accès interdit"

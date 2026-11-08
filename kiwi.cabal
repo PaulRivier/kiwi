@@ -6,7 +6,7 @@ synopsis:       Minimalist wiki/CMS based on CommonMark files
 category:       Web
 description:    Please see the README on GitHub at <https://github.com/PaulRivier/kiwi>
 homepage:       https://github.com/PaulRivier/kiwi
-bug-reports:    https://github.com/PaulRivier/kiwi
+bug-reports:    https://github.com/PaulRivier/kiwi/issues
 author:         Paul Rivier
 maintainer:     Paul Rivier
 copyright:      2020 Paul Rivier
@@ -24,7 +24,6 @@ extra-source-files:
     static/themes/**/*.css
     static/themes/**/*.js
     static/themes/**/*.svg
-    static/themes/**/*.png
     static/themes/**/*.ico
 
 source-repository head
@@ -76,6 +75,8 @@ library
     , warp
   exposed-modules:
       Kiwi
+      Kiwi.Auth
+      Kiwi.Browse
       Kiwi.CLI
       Kiwi.ConfigFile
       Kiwi.Controller
@@ -88,8 +89,10 @@ library
       Kiwi.Pandoc
       Kiwi.Search
       Kiwi.Server
+      Kiwi.Tags
       Kiwi.Theme
       Kiwi.Types
+      Kiwi.Url
       Kiwi.Utils
       Kiwi.View
       Utils.DocIndex

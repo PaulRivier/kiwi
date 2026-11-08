@@ -28,8 +28,11 @@ import qualified Text.Pandoc.Walk as PW
 import qualified Kiwi.Locales as Loc
 import qualified Kiwi.Types as K
 import           Kiwi.Types (ActM)
-import           Kiwi.Utils (prettyTag, asksK, fst3)
-import qualified Kiwi.Utils as U
+import qualified Kiwi.Auth as Auth
+import qualified Kiwi.Browse as Browse
+import           Kiwi.Tags (prettyTag)
+import qualified Kiwi.Url as Url
+import           Kiwi.Utils (asksK, fst3)
 import           Kiwi.HtmlWriter (writeHtml5)
 import           Kiwi.Pandoc (linksInContext)
 
@@ -45,7 +48,7 @@ data ViewCtx = ViewCtx { ctxLocales :: K.Locales
 getViewCtx :: ActM ViewCtx
 getViewCtx = ViewCtx <$> getLocales
                      <*> (fmap fst3 <$> asksK K.login)
-                     <*> U.isAdmin
+                     <*> Auth.isAdmin
                      <*> asksK K.tocSetting
                      <*> asksK K.context
 
@@ -86,6 +89,7 @@ data Toggle = Toggle { toggleLabel    :: T.Text
                      , toggleTarget   :: T.Text
                      , toggleSelected :: Bool
                      }
+  deriving (Eq, Show)
 
 -- | Keys of the union fields, by field
 type BrowseToggles = [(K.MetaField, [Toggle])]
@@ -99,6 +103,7 @@ type BrowseFilters = [(K.MetaField, T.Text, T.Text)]
 -- | Pages listed on the browse page
 data PagesListing = RecentPages  -- ^ only the latest modified ones
                   | AllPages     -- ^ all the pages matching the request
+  deriving (Eq, Show)
 
 -- | The browse page, with a link to switch between the archives and the
 -- other pages, if any
@@ -184,7 +189,7 @@ layout ctx title actions tocDoc content = do
 
 navigation :: ViewCtx -> Actions -> Html ()
 navigation ctx actions = nav_ [class_ "top-nav"] $ do
-  a_ [ href_ (U.inContext (ctxContext ctx) "/browse"), class_ "icon"
+  a_ [ href_ (Url.inContext (ctxContext ctx) "/browse"), class_ "icon"
      , title_ (K.loc_Tags loc) ] $ icon "tags"
   div_ [class_ "nav-actions"] $ do
     when (ctxIsAdmin ctx) $ case actions of
@@ -201,14 +206,14 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
     loc = ctxLocales ctx
     reload = iconButton "reload" (K.loc_Reload loc) [] "reload"
     -- commonmark link to the page, to paste in another page
-    cmLink p = T.concat ["[", K.pageTitle p, "](<page:", U.pageUIDLink p, ">)"]
+    cmLink p = T.concat ["[", K.pageTitle p, "](<page:", Url.pageUIDLink p, ">)"]
 
 
 -- | Links to the documentation, in new tabs, out of the navigation context,
 -- except the archive mode of the metadata
 footer :: K.Locales -> K.Context -> Html ()
 footer loc ctx = footer_ [class_ "site-footer"] $
-  forM_ [ (K.loc_Metadata loc, U.inContext metaCtx "/metadata"), ("README", "/readme")
+  forM_ [ (K.loc_Metadata loc, Url.inContext metaCtx "/metadata"), ("README", "/readme")
         , ("CommonMark", "/commonmark") ] $ \(label, target) ->
     a_ [href_ target, target_ "_blank", rel_ "noopener"] $ toHtml label
   where metaCtx = ctx { K.contextSources = S.empty }
@@ -233,7 +238,7 @@ searchForm loc ctx focus =
     input_ [ name_ "query", type_ "search"
            , placeholder_ (K.loc_Search loc)
            , if focus then autofocus_ else mempty ]
-    forM_ (U.contextParams ctx) $ \(n, v) -> input_ [type_ "hidden", name_ n, value_ v]
+    forM_ (Url.contextParams ctx) $ \(n, v) -> input_ [type_ "hidden", name_ n, value_ v]
 
 
 -- | Table of contents of the document headings (levels 1&2), with the
@@ -289,13 +294,14 @@ pageView loc ctx p doc backlinks = div_ [class_ "page-view"] $ do
       span_ [class_ "field"] $ toHtml $ K.cmdName cmd
       " – "
       sequence_ $ intersperse " "
-        [ link (U.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
+        [ link (Browse.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
         | k <- K.cmdKeys cmd ]
   h1_ [class_ "page-title"] $ toHtml $ K.pageTitle p
   div_ [class_ "document"] $ writeHtml5 $ linksInContext ctx doc
   linksList "pages-list backlinks" $ map (pageLink ctx) backlinks
   where
-    browseLink f k = U.browseUrl ctx $ U.addToReq (U.sourcesReq $ K.contextSources ctx) (f, k)
+    browseLink f k = Browse.browseUrl ctx $
+                     Browse.addToReq (Browse.sourcesReq $ K.contextSources ctx) (f, k)
 
 
 browseView :: K.Locales -> K.Context -> BrowseToggles -> Maybe T.Text -> BrowseMenu ->
@@ -430,7 +436,7 @@ link (label, target) = a_ [href_ target] $ toHtml label
 
 -- | Link to a page, in the navigation context
 pageLink :: K.Context -> K.Page -> (T.Text, T.Text)
-pageLink ctx page = (K.pageTitle page, U.inContext ctx $ U.pageUrl page)
+pageLink ctx page = (K.pageTitle page, Url.inContext ctx $ Url.pageUrl page)
 
 -- | Button handled by app.js
 iconButton :: T.Text -> T.Text -> [Attributes] -> T.Text -> Html ()

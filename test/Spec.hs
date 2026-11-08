@@ -18,15 +18,22 @@ import           Test.QuickCheck
 import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 
+import qualified Kiwi.Auth as Auth
+import qualified Kiwi.Browse as Browse
+import           Kiwi.Controller (BrowseAll (..), metaIndex, readableQuery)
 import           Kiwi.HtmlWriter (writeHtml5)
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.LangDetect (detectLang, resolveLang, stopWords)
+import qualified Kiwi.PagesDB as DB
 import           Kiwi.Pandoc (linksInContext, loadPage, pageDoc, pagePath, parseMetaData,
                               parseCustomMeta, sourceMeta, unknownMetaKeys,
                               invalidMetaValues)
 import           Kiwi.Search (initPageSearchEngine, searchPages, queryTerms)
+import qualified Kiwi.Tags as Tags
 import           Kiwi.Types
+import qualified Kiwi.Url as Url
 import qualified Kiwi.Utils as U
+import qualified Kiwi.View as V
 import qualified Utils.DocIndex as DI
 
 
@@ -34,9 +41,11 @@ main :: IO ()
 main = hspec $ do
   describe "Kiwi.Pandoc.loadPage" loadPageSpec
   describe "Kiwi.Pandoc metadata" metaDataSpec
-  describe "Kiwi.Utils tags" tagsSpec
-  describe "Kiwi.Utils browse requests" browseReqSpec
-  describe "Kiwi.Utils passwords" passwordSpec
+  describe "Kiwi.Tags" tagsSpec
+  describe "Kiwi.Browse" browseReqSpec
+  describe "Kiwi.Auth passwords" passwordSpec
+  describe "Kiwi.Controller.readableQuery" readableQuerySpec
+  describe "Kiwi.Controller.metaIndex" metaIndexSpec
   describe "Utils.DocIndex" docIndexSpec
   describe "Kiwi.LangDetect" langDetectSpec
   describe "Kiwi.Search" searchSpec
@@ -319,62 +328,62 @@ langDetectSpec = do
 
 
 --------------------------------------------------------------------------------
--- Utils
+-- Tags, browse requests, accounts
 
 tagsSpec :: Spec
 tagsSpec = do
   it "splits metadata on commas, with escaping" $
-    U.splitMeta "a, b\\, c, ,d" `shouldBe` ["a", "b, c", "d"]
+    Tags.splitMeta "a, b\\, c, ,d" `shouldBe` ["a", "b, c", "d"]
 
   it "splits on several escaped separators" $
-    U.splitMeta "a\\,b\\,c, d" `shouldBe` ["a,b,c", "d"]
+    Tags.splitMeta "a\\,b\\,c, d" `shouldBe` ["a,b,c", "d"]
 
   it "keeps other backslashes" $
-    U.splitMeta "a\\b, c\\" `shouldBe` ["a\\b", "c\\"]
+    Tags.splitMeta "a\\b, c\\" `shouldBe` ["a\\b", "c\\"]
 
   it "splits tags without groups as metadata" $
-    U.splitTags "a, b > c\\, d, ,e \\> f" `shouldBe` ["a", "b > c, d", "e \\> f"]
+    Tags.splitTags "a, b > c\\, d, ,e \\> f" `shouldBe` ["a", "b > c, d", "e \\> f"]
 
   it "expands groups of tags" $ do
-    U.splitTags "sport > {alpinisme, escalade,rando }"
+    Tags.splitTags "sport > {alpinisme, escalade,rando }"
       `shouldBe` ["sport > alpinisme", "sport > escalade", "sport > rando"]
-    U.splitTags "{sport, loisir} > montagne, a"
+    Tags.splitTags "{sport, loisir} > montagne, a"
       `shouldBe` ["sport > montagne", "loisir > montagne", "a"]
 
   it "expands nested groups" $
-    U.splitTags "sport > {montagne > {alpinisme, rando}, natation}"
+    Tags.splitTags "sport > {montagne > {alpinisme, rando}, natation}"
       `shouldBe` [ "sport > montagne > alpinisme", "sport > montagne > rando"
                  , "sport > natation" ]
 
   it "drops empty groups and blank tags of groups" $
-    U.splitTags "sport > {}, a > {b, }, c" `shouldBe` ["a > b", "c"]
+    Tags.splitTags "sport > {}, a > {b, }, c" `shouldBe` ["a > b", "c"]
 
   it "keeps escaped braces in tags" $
-    U.splitTags "a\\{b\\}, c > {d\\,e}" `shouldBe` ["a{b}", "c > d,e"]
+    Tags.splitTags "a\\{b\\}, c > {d\\,e}" `shouldBe` ["a{b}", "c > d,e"]
 
   it "takes unbalanced braces literally" $ do
-    U.splitTags "sport > {a, b" `shouldBe` ["sport > {a", "b"]
-    U.splitTags "a}, b" `shouldBe` ["a}", "b"]
+    Tags.splitTags "sport > {a, b" `shouldBe` ["sport > {a", "b"]
+    Tags.splitTags "a}, b" `shouldBe` ["a}", "b"]
 
   it "splits tags in segments" $
-    U.tagToSegments "loisir > sport>escalade" `shouldBe` ["loisir", "sport", "escalade"]
+    Tags.tagToSegments "loisir > sport>escalade" `shouldBe` ["loisir", "sport", "escalade"]
 
   it "computes tag sub segments" $
-    U.tagSubSegments "loisir>sport>escalade"
+    Tags.tagSubSegments "loisir>sport>escalade"
       `shouldBe` [["loisir"], ["loisir", "sport"], ["loisir", "sport", "escalade"]]
 
   it "roundtrips segments with escaped >" $ do
-    U.segmentsToTag ["a>b", "c"] `shouldBe` "a\\>b>c"
-    U.tagToSegments (U.segmentsToTag ["a>b", "c"]) `shouldBe` ["a>b", "c"]
+    Tags.segmentsToTag ["a>b", "c"] `shouldBe` "a\\>b>c"
+    Tags.tagToSegments (Tags.segmentsToTag ["a>b", "c"]) `shouldBe` ["a>b", "c"]
 
   it "prefixes and normalizes tags" $
-    U.prefixNormalizeTag ["root"] "a > b" `shouldBe` "root>a>b"
+    Tags.prefixNormalizeTag ["root"] "a > b" `shouldBe` "root>a>b"
 
   it "pretty prints tags" $
-    U.prettyTag "a>b" `shouldBe` "a > b"
+    Tags.prettyTag "a>b" `shouldBe` "a > b"
 
   it "keeps only root tags" $
-    U.filterRootTags [["a"], ["a", "b"], ["c", "d"], ["c", "d", "e"]]
+    Tags.filterRootTags [["a"], ["a", "b"], ["c", "d"], ["c", "d", "e"]]
       `shouldBe` [["a"], ["c", "d"]]
 
 
@@ -385,7 +394,7 @@ browseReqSpec = do
              , CustomMetaConfig "date" CmtDate 1
              , CustomMetaConfig "done" CmtBool 1 ]
       -- decode the query string of an URL, as scotty does
-      decodeUrl url = U.decodeReq cmcs $ map (fmap $ fromMaybe "") $
+      decodeUrl url = Browse.decodeReq cmcs $ map (fmap $ fromMaybe "") $
                       URI.parseQueryText $ TE.encodeUtf8 $ T.dropWhile (/= '?') url
       req = M.fromList . map (fmap S.fromList)
 
@@ -398,20 +407,20 @@ browseReqSpec = do
                 , (FieldAccess, [KeyText "family"])
                 , (FieldLang, [KeyLang French])
                 , (FieldSource, [KeyText "my source"]) ]
-    decodeUrl (U.browseUrl noContext r) `shouldBe` Right r
-    U.browseUrl noContext (req [(FieldLang, [KeyLang French])])
+    decodeUrl (Browse.browseUrl noContext r) `shouldBe` Right r
+    Browse.browseUrl noContext (req [(FieldLang, [KeyLang French])])
       `shouldBe` "/browse?lang=french"
 
   it "builds readable URLs, in a stable order" $ do
-    U.browseUrl noContext M.empty `shouldBe` "/browse"
-    U.browseUrl noContext (req [ (FieldCustom "done", [KeyBool False])
+    Browse.browseUrl noContext M.empty `shouldBe` "/browse"
+    Browse.browseUrl noContext (req [ (FieldCustom "done", [KeyBool False])
                      , (FieldTag, [KeyText "maison>produits"])
                      , (FieldSource, [KeyText "a-p"])
                      , (FieldCustom "date", [KeyDay (Time.fromGregorian 2020 2 9)]) ])
       `shouldBe` "/browse?source=a-p&tag=maison%3Eproduits&m.date=2020-02-09&m.done=false"
 
   it "keeps the archive mode of the context in browse URLs, not its sources" $
-    U.browseUrl (Context (S.fromList ["x"]) True) (req [(FieldTag, [KeyText "t"])])
+    Browse.browseUrl (Context (S.fromList ["x"]) True) (req [(FieldTag, [KeyText "t"])])
       `shouldBe` "/browse?tag=t&archive=yes"
 
   it "refuses unknown parameters and invalid values" $ do
@@ -429,66 +438,173 @@ browseReqSpec = do
       `shouldBe` Right (req [(FieldTag, [KeyText "a>b>c", KeyText "ab", KeyText "b"])])
 
   it "adds keys to a request, without the parents of a tag" $ do
-    U.addToReq (U.createReq (FieldTag, KeyText "a")) (FieldTag, KeyText "b")
+    Browse.addToReq (Browse.createReq (FieldTag, KeyText "a")) (FieldTag, KeyText "b")
       `shouldBe` req [(FieldTag, [KeyText "a", KeyText "b"])]
-    U.addToReq (U.createReq (FieldTag, KeyText "a")) (FieldTag, KeyText "a>b")
+    Browse.addToReq (Browse.createReq (FieldTag, KeyText "a")) (FieldTag, KeyText "a>b")
       `shouldBe` req [(FieldTag, [KeyText "a>b"])]
-    U.addToReq (U.createReq (FieldTag, KeyText "a\\>b")) (FieldTag, KeyText "a>b")
+    Browse.addToReq (Browse.createReq (FieldTag, KeyText "a\\>b")) (FieldTag, KeyText "a>b")
       `shouldBe` req [(FieldTag, [KeyText "a\\>b", KeyText "a>b"])]
 
   it "combines sources with an union, the other fields with an intersection" $
-    U.reqToQuery (req [ (FieldSource, [KeyText "a", KeyText "b"])
+    Browse.reqToQuery (req [ (FieldSource, [KeyText "a", KeyText "b"])
                       , (FieldTag, [KeyText "x", KeyText "y"]) ])
       `shouldBe` DI.And [ DI.Any FieldSource (S.fromList [KeyText "a", KeyText "b"])
                         , DI.All FieldTag (S.fromList [KeyText "x", KeyText "y"]) ]
 
   it "adds the navigation context to URLs, before the fragment" $ do
     let ss = S.fromList ["b c", "a"]
-    U.inContext noContext "/page/s/p#h" `shouldBe` "/page/s/p#h"
-    U.inContext (Context ss False) "/page/s/p#h"
+    Url.inContext noContext "/page/s/p#h" `shouldBe` "/page/s/p#h"
+    Url.inContext (Context ss False) "/page/s/p#h"
       `shouldBe` "/page/s/p?source=a&source=b%20c#h"
-    U.inContext (Context ss True) "/page/s/p"
+    Url.inContext (Context ss True) "/page/s/p"
       `shouldBe` "/page/s/p?source=a&source=b%20c&archive=yes"
-    U.inContext (Context S.empty True) "/metadata" `shouldBe` "/metadata?archive=yes"
-    U.inContext (Context ss True) "/browse"
-      `shouldBe` U.browseUrl (Context ss True) (U.sourcesReq ss)
+    Url.inContext (Context S.empty True) "/metadata" `shouldBe` "/metadata?archive=yes"
+    Url.inContext (Context ss True) "/browse"
+      `shouldBe` Browse.browseUrl (Context ss True) (Browse.sourcesReq ss)
 
   it "removes keys from a request" $ do
     let r = req [(FieldTag, [KeyText "a", KeyText "b"]), (FieldSource, [KeyText "s"])]
-    U.removeFromReq r (FieldTag, KeyText "a")
+    Browse.removeFromReq r (FieldTag, KeyText "a")
       `shouldBe` req [(FieldTag, [KeyText "b"]), (FieldSource, [KeyText "s"])]
-    U.removeFromReq r (FieldSource, KeyText "s")
+    Browse.removeFromReq r (FieldSource, KeyText "s")
       `shouldBe` req [(FieldTag, [KeyText "a", KeyText "b"])]
 
 
 passwordSpec :: Spec
 passwordSpec = do
   let salt = "0123456789abcdef"
-      hash = fromMaybe (error "hashPassword failed") $ U.hashPassword salt "secret"
+      hash = fromMaybe (error "hashPassword failed") $ Auth.hashPassword salt "secret"
       accounts = [Account "paul" salt hash ["admin", "family"]]
 
   it "hashes passwords deterministically, as hex" $ do
-    U.hashPassword salt "secret" `shouldBe` Just hash
+    Auth.hashPassword salt "secret" `shouldBe` Just hash
     T.length hash `shouldBe` 64
-    U.hashPassword salt "other" `shouldNotBe` Just hash
-    U.hashPassword "fedcba9876543210" "secret" `shouldNotBe` Just hash
+    Auth.hashPassword salt "other" `shouldNotBe` Just hash
+    Auth.hashPassword "fedcba9876543210" "secret" `shouldNotBe` Just hash
 
   it "refuses salts shorter than 8 bytes" $
-    U.hashPassword "short" "secret" `shouldBe` Nothing
+    Auth.hashPassword "short" "secret" `shouldBe` Nothing
 
   it "verifies logins" $ do
-    U.verifyLogin accounts "paul" "secret" `shouldBe` Just ("paul", ["admin", "family"])
-    U.verifyLogin accounts "paul" "wrong" `shouldBe` Nothing
-    U.verifyLogin accounts "nobody" "secret" `shouldBe` Nothing
+    Auth.verifyLogin accounts "paul" "secret" `shouldBe` Just ("paul", ["admin", "family"])
+    Auth.verifyLogin accounts "paul" "wrong" `shouldBe` Nothing
+    Auth.verifyLogin accounts "nobody" "secret" `shouldBe` Nothing
 
   it "generates random alphanumeric texts" $ do
-    t0 <- U.randomText 0
+    t0 <- Auth.randomText 0
     t0 `shouldBe` ""
-    t1 <- U.randomText 128
-    t2 <- U.randomText 128
+    t1 <- Auth.randomText 128
+    t2 <- Auth.randomText 128
     T.length t1 `shouldBe` 128
     T.all (\c -> isAscii c && isAlphaNum c) t1 `shouldBe` True
     t1 `shouldNotBe` t2
+
+
+--------------------------------------------------------------------------------
+-- Access control and browse page
+
+-- | A page of a source, with its tags, access groups, archive flag, and
+-- modification day (in january 2026)
+mkPage :: PageUID -> [TagId] -> [T.Text] -> Bool -> Int -> Page
+mkPage uid tags access archive day =
+  Page { pageUID = uid
+       , pageAbsoluteFSPath = "/dev/null"
+       , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 day) 0
+       , pageText = ""
+       , pageTitle = snd uid
+       , pageTags = tags
+       , pageLang = English
+       , pageAccess = access
+       , pageLinks = []
+       , pageArchive = archive
+       , pageCustomMeta = []
+       }
+
+-- | Database of these pages, indexed as by 'DB.updatePagesDB'
+mkPagesDB :: [Page] -> PagesDB
+mkPagesDB pages = let db = DB.emptyPagesDB defMeta [] []
+                  in db { pagesIndex = DI.insertMany (pagesIndex db) pages }
+
+readableQuerySpec :: Spec
+readableQuerySpec = do
+  let pages = [ mkPage ("s", "public") [] ["public"] False 1
+              , mkPage ("s", "family") [] ["family"] False 1
+              , mkPage ("s", "admin") [] ["admin"] False 1
+              , mkPage ("s", "both") [] ["family", "friends"] False 1
+              , mkPage ("s", "old-public") [] ["public"] True 1
+              , mkPage ("s", "old-family") [] ["family"] True 1
+              , mkPage ("s", "old-admin") [] ["admin"] True 1 ]
+      idx = pagesIndex $ mkPagesDB pages
+      t0 = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
+      user groups = Just ("user", groups, t0)
+      readable loginM archive =
+        sort $ map snd $ S.toList $ DI.queryIdSet idx $ readableQuery loginM archive
+
+  it "gives anonymous users the public pages only" $ do
+    readable Nothing False `shouldBe` ["public"]
+    readable Nothing True `shouldBe` ["old-public"]
+
+  it "gives logged in users the public pages and those of their groups" $ do
+    readable (user ["family"]) False `shouldBe` ["both", "family", "public"]
+    readable (user ["friends"]) False `shouldBe` ["both", "public"]
+    readable (user []) False `shouldBe` ["public"]
+    readable (user ["family"]) True `shouldBe` ["old-family", "old-public"]
+
+  it "gives admins every page" $ do
+    readable (user ["admin"]) False `shouldBe` ["admin", "both", "family", "public"]
+    readable (user ["family", "admin"]) True
+      `shouldBe` ["old-admin", "old-family", "old-public"]
+
+  it "separates the archives from the other pages" $
+    mapM_ (\loginM -> do
+              readable loginM False `shouldSatisfy` all (not . T.isPrefixOf "old-")
+              readable loginM True `shouldSatisfy` all (T.isPrefixOf "old-"))
+      [Nothing, user ["family"], user ["admin"]]
+
+
+metaIndexSpec :: Spec
+metaIndexSpec = do
+  let db = mkPagesDB [ mkPage ("s1", "a") ["sport>ski"] ["public"] False 1
+                     , mkPage ("s1", "b") ["sport>escalade", "maison"] ["public"] False 2
+                     , mkPage ("s2", "c") ["maison"] ["public"] False 3 ]
+      tag t = (FieldTag, KeyText t)
+      source s = (FieldSource, KeyText s)
+      uids = map pageUID . baPages
+
+  it "lists the latest pages, and the root tags, without request" $ do
+    let ba = metaIndex db noContext M.empty
+    baToggles ba `shouldBe`
+      [ (FieldSource, [ V.Toggle "s1" "/browse?source=s1" False
+                      , V.Toggle "s2" "/browse?source=s2" False ]) ]
+    baNextStep ba `shouldBe`
+      [(FieldTag, [("maison", "/browse?tag=maison"), ("sport", "/browse?tag=sport")])]
+    baActive ba `shouldBe` []
+    baListing ba `shouldBe` V.RecentPages
+    uids ba `shouldBe` [("s2", "c"), ("s1", "b"), ("s1", "a")]
+
+  it "narrows the request with the next tags, and lists all the matching pages" $ do
+    let ba = metaIndex db noContext (Browse.createReq $ tag "sport")
+    baToggles ba `shouldBe`
+      [ (FieldSource, [ V.Toggle "s1" "/browse?source=s1&tag=sport" False
+                      , V.Toggle "s2" "/browse?source=s2&tag=sport" False ]) ]
+    baNextStep ba `shouldBe`
+      [(FieldTag, [ ("maison", "/browse?tag=maison&tag=sport")
+                  , ("> escalade", "/browse?tag=sport%3Eescalade")
+                  , ("> ski", "/browse?tag=sport%3Eski") ])]
+    baActive ba `shouldBe` [(FieldTag, "sport", "/browse")]
+    baListing ba `shouldBe` V.AllPages
+    uids ba `shouldBe` [("s1", "b"), ("s1", "a")]
+
+  it "toggles the sources, and keeps the archive mode in the links" $ do
+    let ctx = Context S.empty True
+        ba = metaIndex db ctx (Browse.createReq $ source "s2")
+    baToggles ba `shouldBe`
+      [ (FieldSource, [ V.Toggle "s1" "/browse?source=s1&source=s2&archive=yes" False
+                      , V.Toggle "s2" "/browse?archive=yes" True ]) ]
+    baNextStep ba `shouldBe`
+      [(FieldTag, [("maison", "/browse?source=s2&tag=maison&archive=yes")])]
+    baListing ba `shouldBe` V.RecentPages
+    uids ba `shouldBe` [("s2", "c")]
 
 
 --------------------------------------------------------------------------------

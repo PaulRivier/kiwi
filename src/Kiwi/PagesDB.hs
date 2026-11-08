@@ -22,8 +22,8 @@ import qualified Kiwi.Log as L
 import           Kiwi.Search
 import           Kiwi.Types
 import           Kiwi.Pandoc (loadPageIO, pagePath, unknownMetaKeys, invalidMetaValues)
-import           Kiwi.Utils (traverseDir, tagSubSegments, segmentsToTag,
-                             nodup, isDotFile, isValidMdFilename)
+import           Kiwi.Tags (tagSubSegments, segmentsToTag)
+import           Kiwi.Utils (traverseDir, nodup, isDotFile, isValidMdFilename)
 import qualified Utils.DocIndex as DI
 
 updatePagesDB :: L.Logger -> FP.FilePath ->  FP.FilePath -> PagesDB ->  IO PagesDB
@@ -32,26 +32,26 @@ updatePagesDB logger' contentDir' pagesDir db =
       lu = lastUpdate db
   in do
     sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
-    dbOK <- getCondition
+    -- dbOK <- getCondition
     currentTime <- C.getCurrentTime
     let pagesDirs = map (\s -> FP.joinPath [contentDir', s, pagesDir]) sources
-    case dbOK  of
-      True -> return db   -- nothing to do
-      False -> do         -- some work to do
-         -- pas de dossier caché
-        fsPathsRaw <- concat <$> mapM (\d -> traverseDir d (not . isDotFile)) pagesDirs
-        let fsPaths = filter (isValidMdFilename . FP.takeFileName) fsPathsRaw
-        newOrMod <- getNewOrMod contentDir' lu fsPaths
-        let removedUIDs = getRemovedUIDs dbPages fsPaths
-        let pagesIndexClean = DI.removeMany (pagesIndex db) removedUIDs
-        let newPagesIndex = DI.insertMany pagesIndexClean $ map fst newOrMod
-        let updSearchEngine = getUpdSearchEngine (searchEngine db) newOrMod removedUIDs
-        return $ db { lastUpdate = currentTime
-                    , pagesIndex = newPagesIndex
-                    , searchEngine = updSearchEngine }
+    -- case dbOK  of
+    --   True -> return db   -- nothing to do
+    --   False -> do         -- some work to do
+    -- pas de dossier caché
+    fsPathsRaw <- concat <$> mapM (\d -> traverseDir d (not . isDotFile)) pagesDirs
+    let fsPaths = filter (isValidMdFilename . FP.takeFileName) fsPathsRaw
+    newOrMod <- getNewOrMod contentDir' lu fsPaths
+    let removedUIDs = getRemovedUIDs dbPages fsPaths
+    let pagesIndexClean = DI.removeMany (pagesIndex db) removedUIDs
+    let newPagesIndex = DI.insertMany pagesIndexClean $ map fst newOrMod
+    let updSearchEngine = getUpdSearchEngine (searchEngine db) newOrMod removedUIDs
+    return $ db { lastUpdate = currentTime
+                , pagesIndex = newPagesIndex
+                , searchEngine = updSearchEngine }
   where
     -- TODO : gérer des conditions de rechargement
-    getCondition = return False
+    -- getCondition = return False
 
     -- pages that can not be loaded are ignored, with a warning
     getNewOrMod cd date fsPaths = do

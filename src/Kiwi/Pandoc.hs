@@ -23,6 +23,7 @@ import qualified Commonmark.Pandoc as CmP
 
 import qualified Data.ByteString as BS
 import           Data.Functor ((<&>))
+import           Data.Functor.Identity (Identity, runIdentity)
 import qualified Data.Map as M
 import           Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import qualified Data.Text as T
@@ -41,8 +42,9 @@ import           Text.Read (readMaybe)
 
 import           Kiwi.LangDetect (resolveLang)
 import           Kiwi.Types
-import           Kiwi.Utils (splitOnFirst, splitMeta, splitTags, pathToPageId,
-                             parseLangSetting)
+import           Kiwi.Tags (splitMeta, splitTags, prefixNormalizeTag)
+import qualified Kiwi.Url as Url
+import           Kiwi.Utils (splitOnFirst, pathToPageId, parseLangSetting)
 import qualified Kiwi.Utils as U
 
 
@@ -124,10 +126,8 @@ loadDoc path source dir docMeta content =
                      CmEx.autoIdentifiersSpec
 
 
-    in case (Cm.commonmarkWith syntaxSpec path content
-             :: Maybe (Either Cm.ParseError (CmP.Cm () PB.Blocks))) of
-      Nothing -> Left $ "Unknown error"
-      Just x -> case x of
+    in case runIdentity (Cm.commonmarkWith syntaxSpec path content
+                         :: Identity (Either Cm.ParseError (CmP.Cm () PB.Blocks))) of
          Left e -> Left $ show e
          Right cmBlocks->
            let doc' = PB.doc (CmP.unCm cmBlocks)
@@ -183,7 +183,7 @@ linksInContext :: Context -> PD.Pandoc -> PD.Pandoc
 linksInContext ctx = PW.walk inContext
   where
     inContext (PD.Link attr@(_, classes, _) txt (url, lName))
-      | pageLinkClass `elem` classes = PD.Link attr txt (U.inContext ctx url, lName)
+      | pageLinkClass `elem` classes = PD.Link attr txt (Url.inContext ctx url, lName)
     inContext x = x
 
 
@@ -297,7 +297,7 @@ loadPageIO fullPath relPath source md cmc scM = do
                                   , pageMTime = mt
                                   , pageText = c
                                   , pageTitle = metaTitle meta
-                                  , pageTags =  map (U.prefixNormalizeTag rootTag) $
+                                  , pageTags =  map (prefixNormalizeTag rootTag) $
                                                 metaTags meta
                                   , pageAccess =  metaAccess meta
                                   , pageLang = resolveLang (metaLang meta) (metaTitle meta)
