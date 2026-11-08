@@ -6,9 +6,11 @@ import Paths_kiwi (version)
 import Data.Version (showVersion)
 
 import Data.Char (toLower)
+import qualified Data.Text as T
 import Options.Applicative
 import qualified System.FilePath as FP
 
+import Kiwi.Auth (validateLogin)
 import qualified Kiwi.Log as L
 
 data Config = Server ServerConfig
@@ -28,8 +30,10 @@ data AccessConfig =
   AccessConfig { accessCfp :: FP.FilePath
                , accessOp  :: AccessOp }
 
-data AccessOp = AccessCreate String
-              | AccessRemove String
+-- | Operation on the account of a login (validated by 'validateLogin')
+data AccessOp = AccessCreate T.Text
+              | AccessUpdate T.Text
+              | AccessRemove T.Text
 
 data UpdateConfig =
   UpdateConfig { updateCheck :: Bool }
@@ -55,6 +59,10 @@ parser = hsubparser
         ( ( AccessCreate <$> option readLogin ( long "create"
                                                 <> metavar "LOGIN"
                                                 <> help "create new account with login" ) ) <|>
+          ( AccessUpdate <$> option readLogin ( long "update"
+                                                <> metavar "LOGIN"
+                                                <> help "change the password or the groups \
+                                                        \of an account" ) ) <|>
           ( AccessRemove <$> option readLogin ( long "remove"
                                                 <> metavar "LOGIN"
                                                 <> help "remove account with login" ) ) )
@@ -89,11 +97,7 @@ parser = hsubparser
       "debug" -> Just L.Debug
       _       -> Nothing
 
-    readLogin = maybeReader $
-      \l -> case all (flip elem alphanum) l of
-              True -> Just l
-              False -> Nothing
-      where alphanum = ['A'..'Z'] ++ ['a'..'z'] ++ ['0'..'9'] ++ "-_"
+    readLogin = eitherReader (validateLogin . T.pack)
 
 
 spec :: ParserInfo Config

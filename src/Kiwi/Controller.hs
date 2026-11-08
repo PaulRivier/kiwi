@@ -13,7 +13,6 @@ module Kiwi.Controller
   , withLogin
   , withContext
   , ifAdmin
-  , readableQuery     -- exported for tests
   , BrowseAll (..)    -- exported for tests
   , metaIndex         -- exported for tests
   ) where
@@ -23,6 +22,7 @@ import           Control.Exception (IOException, try)
 import           Control.Monad (forM_)
 import           Control.Monad.Reader
 import qualified Data.ByteString as BS
+import           Data.IORef (readIORef)
 import           Data.List (isPrefixOf, sortOn)
 import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe, isJust, mapMaybe)
@@ -38,7 +38,8 @@ import           System.Exit (ExitCode (..))
 import qualified System.FilePath as FP
 import qualified System.Process as Proc
 import qualified Text.Pandoc.Definition as PD
-import           Web.Scotty.Trans (formParam, queryParams, redirect, status, html)
+import qualified Network.Wai as Wai
+import           Web.Scotty.Trans (formParam, queryParams, redirect, request, status, html)
 
 import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
@@ -325,19 +326,25 @@ logUserIn :: ActM ()
 logUserIn = do
   name <- formParam "username"
   pass <- formParam "password"
-  accounts <- asksK K.accounts
-  case Auth.verifyLogin accounts name pass of
+  addr <- Auth.clientAddress . show . Wai.remoteHost <$> request
+  -- the accounts file is read again: a new account can log in at once
+  Auth.reloadAccounts
+  accounts <- liftIO . readIORef =<< asksK K.accounts
+  sem <- asksK K.loginSem
+  accountM <- liftIO $ Auth.checkLogin sem accounts name pass
+  case accountM of
     Nothing -> do
-      logMsg L.Warn $ "login failed: " <> name
+      logMsg L.Warn $ "login failed from " <> addr <> ": " <> Auth.sanitizeLogText name
       r <- V.renderLoginForm True
       status Net.status401
       html r
-    Just (user, groups) -> do
-      key <- liftIO $ Auth.randomText 128
+    Just account -> do
+      let user = K.accountId account
+      token <- liftIO Auth.newSessionToken
       now <- liftIO $ Time.getCurrentTime
-      Auth.modifySessions $ M.insert key (user, groups, now)
-      Auth.setKiwiCookie key
-      logMsg L.Info $ "login: " <> user
+      Auth.modifySessions $ M.insert (Auth.hashToken token) (Auth.newSession account now)
+      Auth.setKiwiCookie token
+      logMsg L.Info $ "login from " <> addr <> ": " <> user
       redirect "/"
 
 
@@ -347,10 +354,11 @@ logUserOut = do
   authM <- Auth.getKiwiCookie
   case authM of
     Nothing -> redirect "/"
-    Just auth -> do
+    Just token -> do
+      let key = Auth.hashToken token
       sessions <- Auth.getSessions
-      Auth.modifySessions $ M.delete auth
-      forM_ (M.lookup auth sessions) $ \(user, _, _) -> logMsg L.Info $ "logout: " <> user
+      Auth.modifySessions $ M.delete key
+      forM_ (M.lookup key sessions) $ \s -> logMsg L.Info $ "logout: " <> K.sessionUser s
       redirect "/"
 
 
@@ -374,10 +382,13 @@ serveBadRequest err = do
   html r
 
 
+-- | 403 for a logged in user without the right, 401 for an anonymous one,
+-- who may have it once logged in
 serveForbidden :: ActM ()
 serveForbidden = do
+  loginM <- asksK K.login
   r <- V.renderForbidden
-  status Net.status401
+  status $ if isJust loginM then Net.status403 else Net.status401
   html r
 
 
@@ -385,16 +396,11 @@ findPage :: K.PagesDB -> K.PageUID -> Maybe K.Page
 findPage db pgId = DI.findDoc (K.pagesIndex db) pgId 
 
 
--- | Set login from session cookie, if the session exists and has not expired
+-- | Set login from session cookie, if the session exists, has not expired,
+-- and its account still exists (with the current groups of the account)
 withLogin :: ActM a -> ActM a
 withLogin run = do
-  authM <- Auth.getKiwiCookie
-  sess <- Auth.getSessions
-  now <- liftIO $ Time.getCurrentTime
-  let login' = case authM of
-        Nothing -> Nothing
-        Just auth -> M.lookup auth sess >>= \l ->
-          if Auth.isSessionValid now l then Just l else Nothing
+  login' <- Auth.requestLogin
   local (setLogin login') run
   where
     setLogin l ss = ss { K.login = l }
@@ -428,24 +434,12 @@ getRestrictedDB = do
   db <- getDB
   loginM <- asksK K.login
   archive <- asksK (K.contextArchive . K.context)
-  return db { K.pagesIndex = DI.narrow (K.pagesIndex db) (readableQuery loginM archive) }
+  return db { K.pagesIndex = DI.narrow (K.pagesIndex db) (Auth.readableQuery loginM archive) }
 
 -- | Whether the user can read archived pages
 hasArchives :: ActM Bool
 hasArchives = do
   db <- getDB
   loginM <- asksK K.login
-  return $ not $ S.null $ DI.queryIdSet (K.pagesIndex db) (readableQuery loginM True)
-
--- | The pages the user can read, archived or not: "public" ones for anonymous
--- users, those of their groups too once logged in, all of them for admins
-readableQuery :: Maybe K.Login -> Bool -> DI.Query K.MetaField K.DocIndexKey
-readableQuery loginM archive
-  | Auth.loginIsAdmin loginM = world
-  | otherwise = case loginM of
-      Nothing        -> readable []
-      Just (_, g, _) -> readable g
-  where
-    world = U.qOnly K.FieldArchive archive
-    readable groups = DI.And [U.qAny K.FieldAccess ("public" : groups :: [T.Text]), world]
+  return $ not $ S.null $ DI.queryIdSet (K.pagesIndex db) (Auth.readableQuery loginM True)
 

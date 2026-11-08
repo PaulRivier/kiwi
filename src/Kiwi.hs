@@ -1,19 +1,21 @@
 module Kiwi (runKiwiRun) where
 
 import           Control.Concurrent.Async (mapConcurrently)
-import           Control.Exception (bracket_)
-import           Control.Monad (forM_)
+import           Control.Exception (bracket_, try)
+import           Control.Monad (forM_, unless, when)
 import qualified Data.ByteString as BS
 import qualified Data.List as L
+import           Data.Maybe (isJust)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           Data.Version (showVersion)
 import qualified Network.Wai.Middleware.Static as Static
 import qualified System.Directory as D
 import           System.Environment (getExecutablePath)
-import           System.Exit (exitWith)
+import           System.Exit (exitFailure, exitWith)
 import qualified System.FilePath as FP
 import           System.IO
+import           System.IO.Error (isEOFError)
 import           System.Process (rawSystem)
 import           GHC.IO.Encoding (setLocaleEncoding, setFileSystemEncoding)
 
@@ -100,30 +102,91 @@ initKiwiDir d = do
       
 
 
+-- | Create, update or remove an account. The accounts file is replaced at
+-- once (see 'Auth.dumpAccounts'), and running servers read it again at each
+-- login and reload, so there is no need to restart them. A new salt is made
+-- with each new password, which closes the sessions opened with the former
+-- one. Any error exits with a failure code.
 runAccess :: AccessConfig -> IO ()
 runAccess c = do
   let cfp = accessCfp c
-  let op = accessOp c
-  let accountsFilePath = FP.combine (FP.takeDirectory cfp) "_accounts"
+      accountsFilePath = FP.combine (FP.takeDirectory cfp) "_accounts"
+  cfgExists <- D.doesFileExist cfp
+  unless cfgExists $ accessError $ "config file " ++ cfp ++ " does not exist"
   accounts' <- Auth.loadAccounts accountsFilePath
-  case op of
+  let findAccount l = L.find (\a -> accountId a == l) accounts'
+      save accs l what = do
+        warningM <- Auth.dumpAccounts accs accountsFilePath
+        mapM_ (hPutStrLn stderr) warningM
+        putStrLn $ concat [ "Account ", T.unpack l, " ", what, ". Running kiwi servers apply "
+                          , "the change at the next login or reload (admin reload button)." ]
+  case accessOp c of
     AccessCreate l -> do
-      putStrLn "Password:"
-      pass <- noEcho TIO.getLine
-      putStrLn "Groups (comma separated):"
-      groups <- TIO.getLine
+      when (isJust $ findAccount l) $
+        accessError $ "account " ++ T.unpack l ++ " already exists, use --update to change it"
+      passM <- askPassword False
+      pass <- maybe (accessError "the password can not be empty") return passM
+      groups <- askGroups Nothing
+      acc <- newAccount l pass groups
+      save (accounts' ++ [acc]) l "created"
+    AccessUpdate l -> case findAccount l of
+      Nothing -> accessError $ "account " ++ T.unpack l ++ " does not exist, use --create to create it"
+      Just old -> do
+        passM <- askPassword True
+        groups <- askGroups (Just $ accountGroups old)
+        acc <- case passM of
+          Nothing -> return old { accountGroups = groups }
+          Just pass -> newAccount l pass groups
+        save (map (\a -> if accountId a == l then acc else a) accounts') l "updated"
+    AccessRemove l -> case findAccount l of
+      Nothing -> accessError $ "account " ++ T.unpack l ++ " does not exist"
+      Just _ -> save (filter (\a -> accountId a /= l) accounts') l "removed"
+  where
+    newAccount l pass groups = do
       salt <- Auth.randomText 16
       case Auth.hashPassword salt pass of
-        Nothing -> putStrLn "Error: unable to hash password"
-        Just hash -> do
-          let acc = Account (T.pack l) salt hash (map T.strip $ T.splitOn "," groups)
-          let newAccounts = L.nubBy (\a b -> accountId a == accountId b) (acc:accounts')
-          Auth.dumpAccounts newAccounts accountsFilePath
-          putStrLn "Access created"
-    AccessRemove l -> do
-      let newAccounts = filter (\a -> accountId a /= (T.pack l)) accounts'
-      Auth.dumpAccounts newAccounts accountsFilePath
-      putStrLn "Access removed"
+        Nothing -> accessError "unable to hash the password"
+        Just hash -> return $ Account l salt hash groups
+
+-- | The new password, asked twice. Nothing when it is left empty, which
+-- keeps the current one if allowed.
+askPassword :: Bool -> IO (Maybe T.Text)
+askPassword canKeep = do
+  p1 <- askLine True $ if canKeep then "Password (empty to keep it): " else "Password: "
+  if T.null p1 then return Nothing
+  else do
+    p2 <- askLine True "Password again: "
+    if p1 /= p2 then accessError "the passwords do not match"
+    else return (Just p1)
+
+-- | Groups of the account. With the current groups, an empty answer keeps
+-- them.
+askGroups :: Maybe [T.Text] -> IO [T.Text]
+askGroups currentM = do
+  t <- askLine False $ case currentM of
+    Nothing -> "Groups (comma separated): "
+    Just gs -> "Groups [" ++ T.unpack (T.intercalate "," gs) ++ "]: "
+  case currentM of
+    Just gs | T.null (T.strip t) -> return gs
+    _ -> either accessError return $ Auth.parseGroups t
+
+-- | Ask a line on the terminal, hidden or not
+askLine :: Bool -> String -> IO T.Text
+askLine hidden question = do
+  putStr question
+  hFlush stdout
+  r <- try $ if hidden then noEcho TIO.getLine else TIO.getLine
+  -- the newline typed after a hidden input is not displayed
+  when hidden $ putStrLn ""
+  case r of
+    Right l -> return l
+    Left e | isEOFError e -> accessError "unexpected end of input"
+           | otherwise -> ioError e
+
+accessError :: String -> IO a
+accessError msg = do
+  hPutStrLn stderr $ "error: " ++ msg
+  exitFailure
 
 -- | The update is done by scripts/update-kiwi-linux.sh, downloaded from the
 -- latest release, so that it always matches the format of the release. It

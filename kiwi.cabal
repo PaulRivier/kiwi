@@ -68,6 +68,7 @@ library
     , text
     , time
     , unicode-transforms
+    , unix
     , unliftio-core
     , wai
     , wai-extra

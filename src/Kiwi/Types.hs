@@ -7,6 +7,7 @@ module Kiwi.Types
   , noContext
   , Account(..)
   , Login
+  , Session(..)
   , Sessions
   , ServerM(..)
   , WebM
@@ -40,6 +41,7 @@ module Kiwi.Types
   ) where
 
 import           Control.Concurrent.MVar (MVar)
+import           Control.Concurrent.QSem (QSem)
 import           Control.Monad.IO.Unlift (MonadUnliftIO)
 import           Control.Monad.Reader
 import           Data.Char (toLower, isSpace)
@@ -66,7 +68,11 @@ data ServerState =
               , kiwiDir       :: FP.FilePath
               , editorCommand :: Maybe (FP.FilePath, [String])
               , uiLang        :: UI_Lang
-              , accounts      :: [Account]
+              , kiwiPort      :: Int
+              , accounts      :: IORef [Account]  -- ^ read again from the file
+                                                  -- at each login and reload
+              , accountsLock  :: MVar ()  -- ^ serializes accounts reloads
+              , loginSem      :: QSem  -- ^ limits concurrent password hashes
               , sessions      :: MVar Sessions
               , login         :: Maybe Login
               , context       :: Context
@@ -98,10 +104,26 @@ data Account =
           , accountHash :: T.Text
           , accountGroups :: [T.Text]
           }
+  deriving (Eq)
 
-type Login = (T.Text, [T.Text], Time.UTCTime)  -- ^ (user id, groups, login time)
+-- | The salt and the hash are not shown
+instance Show Account where
+  show a = concat [ "Account ", show (accountId a), " <salt> <hash> "
+                  , show (accountGroups a) ]
 
-type Sessions = M.Map T.Text Login -- ^ Map Session-Key Login
+-- | User of a request: (user id, current groups of the account, login time)
+type Login = (T.Text, [T.Text], Time.UTCTime)
+
+data Session =
+  Session { sessionUser   :: T.Text
+          , sessionSaltFp :: T.Text  -- ^ fingerprint of the salt of the account
+                                     -- (see 'Kiwi.Auth.saltFingerprint')
+          , sessionTime   :: Time.UTCTime  -- ^ login time
+          }
+  deriving (Eq, Show)
+
+-- | Sessions, by the hash of their token (see 'Kiwi.Auth.hashToken')
+type Sessions = M.Map T.Text Session
 
 newtype ServerM a = ServerM { runServerM :: ReaderT ServerState IO a }
   deriving (Applicative, Functor, Monad, MonadIO, MonadReader ServerState, MonadUnliftIO)

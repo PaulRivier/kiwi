@@ -4,8 +4,9 @@ module Kiwi.Server
 
 
 import           Control.Concurrent (forkIO)
+import           Control.Concurrent.QSem (newQSem)
 import           Control.Concurrent.MVar (newMVar, withMVar)
-import           Control.Exception (evaluate)
+import           Control.Exception (IOException, evaluate, try)
 import           Control.Monad (when, forM_, void)
 import           Control.Monad.Reader
 import           Data.IORef (newIORef, readIORef, atomicWriteIORef)
@@ -22,11 +23,12 @@ import           Network.Wai.Middleware.RequestLogger (DetailedSettings (..), Ou
 import qualified Network.Wai.Middleware.Static as Static
 import           Network.Wai.Middleware.Static ((>->), (<|>))
 import qualified System.Directory as D
+import           System.Exit (exitFailure)
 import qualified System.FilePath as FP
 import           Text.Printf (printf)
 import           Web.Scotty.Trans
 
-import           Kiwi.Auth (loadAccounts, loadSessions)
+import           Kiwi.Auth (loadAccounts, loadSessions, reloadAccounts)
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.Controller
 import qualified Kiwi.Log as L
@@ -87,6 +89,7 @@ kiwiRoute ss cache = do
   get "/readme" $ withLogin serveReadme
   get "/commonmark" $ withLogin serveCommonMark
   post "/reload" $ ifAdmin $ do
+    reloadAccounts
     updateDB
     html ""
   post "/edit-page" $ ifAdmin $ do
@@ -144,7 +147,17 @@ initServerState cfp conf logger' = do
   kiwiDir' <- D.makeAbsolute (FP.takeDirectory cfp)
   let contentDir' = FP.combine kiwiDir' (Conf.contentDir conf)
   sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
-  accounts' <- loadAccounts $ FP.combine kiwiDir' "_accounts"
+  let accountsFile = FP.combine kiwiDir' "_accounts"
+  accountsE <- try $ loadAccounts accountsFile
+  accounts' <- case accountsE of
+    Right accs -> return accs
+    Left e -> do
+      logger' L.Error $ T.pack $ concat
+        [ "unable to read the accounts file ", accountsFile, ": ", show (e :: IOException) ]
+      exitFailure
+  accR <- newIORef accounts'
+  accLock <- newMVar ()
+  sem <- newQSem 3
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"
   sessM <- newMVar sess
   db <- DB.updatePagesDB logger' contentDir' pagesFSDir
@@ -161,7 +174,10 @@ initServerState cfp conf logger' = do
     , kiwiDir    = kiwiDir'
     , editorCommand = Conf.editor conf
     , uiLang       = findInterfaceLang (Conf.uiLang conf)
-    , accounts     = accounts'
+    , kiwiPort     = Conf.port conf
+    , accounts     = accR
+    , accountsLock = accLock
+    , loginSem     = sem
     , sessions     = sessM
     , login        = Nothing
     , context      = noContext
