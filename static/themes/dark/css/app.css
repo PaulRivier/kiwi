@@ -112,6 +112,15 @@ form.search {
   opacity: 1;
 }
 
+/* admin action waiting for the server (app.js) */
+button.icon:disabled {
+  cursor: wait;
+}
+
+button.icon:disabled img {
+  opacity: 0.2;
+}
+
 /* a text glyph instead of an image */
 .icon .glyph {
   display: block;

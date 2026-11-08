@@ -106,11 +106,7 @@ searchLang defLang configs allSources ctxSources =
 
 -- | ISO 639-1 codes of the langs
 langCodes :: [(T.Text, Lang)]
-langCodes = [ ("da", K.Danish), ("nl", K.Dutch), ("en", K.English)
-            , ("fi", K.Finnish), ("fr", K.French), ("de", K.German)
-            , ("hu", K.Hungarian), ("it", K.Italian), ("no", K.Norwegian)
-            , ("pt", K.Portuguese), ("ro", K.Romanian), ("ru", K.Russian)
-            , ("es", K.Spanish), ("sv", K.Swedish), ("tr", K.Turkish) ]
+langCodes = [ (K.langCode l, l) | l <- [minBound .. maxBound] ]
 
 -- pageContent :: P.Pandoc -> T.Text
 -- pageContent doc = case (P.runPure $ P.writePlain P.def doc) of

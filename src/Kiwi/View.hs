@@ -11,6 +11,8 @@ module Kiwi.View
   , renderNotFound
   , renderBadRequest
   , renderForbidden
+  , cmLink     -- exported for tests
+  , pageView   -- exported for tests
   ) where
 
 import           Control.Monad (forM_, unless, when)
@@ -210,7 +212,7 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
         -- without editor, the edition is disabled
         when (ctxCanEdit ctx) $
           iconButton "edit-page" (K.loc_EditPage loc)
-            [data_ "page-source" source, data_ "page-id" pId] "edit"
+            ([data_ "page-source" source, data_ "page-id" pId] <> alerts) "edit"
         copyButton (K.loc_CopyLink loc) (cmLink p)
         reload
       ReloadAction -> reload
@@ -218,9 +220,19 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
     searchForm loc (ctxContext ctx) (ctxQuery ctx) False
   where
     loc = ctxLocales ctx
-    reload = iconButton "reload" (K.loc_Reload loc) [] "reload"
-    -- commonmark link to the page, to paste in another page
-    cmLink p = T.concat ["[", K.pageTitle p, "](<page:", Url.pageUIDLink p, ">)"]
+    reload = iconButton "reload" (K.loc_Reload loc) alerts "reload"
+    -- texts of the alerts shown by app.js when the action fails
+    alerts = [ data_ "error-session" (K.loc_ActionSession loc)
+             , data_ "error-forbidden" (K.loc_ActionForbidden loc)
+             , data_ "error-failed" (K.loc_ActionFailed loc) ]
+
+-- | CommonMark link to the page, to paste in another page. The brackets of the
+-- title are escaped (and the backslashes, which would escape them).
+cmLink :: K.Page -> T.Text
+cmLink p = T.concat ["[", escape (K.pageTitle p), "](<page:", Url.pageUIDLink p, ">)"]
+  where
+    escape = T.concatMap $ \c -> if c `elem` ['[', ']', '\\'] then T.pack ['\\', c]
+                                 else T.singleton c
 
 
 -- | Links to the documentation, in new tabs, out of the navigation context,
@@ -313,10 +325,13 @@ pageView loc ctx pageExists p doc backlinks = div_ [class_ "page-view"] $ do
       sequence_ $ intersperse " "
         [ link (Browse.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
         | k <- K.cmdKeys cmd ]
-  h1_ [class_ "page-title"] $ toHtml $ K.pageTitle p
-  div_ [class_ "document"] $ writeHtml5 pageExists $ linksInContext ctx doc
+  h1_ [class_ "page-title", pageLang] $ toHtml $ K.pageTitle p
+  div_ [class_ "document", pageLang] $ writeHtml5 pageExists $ linksInContext ctx doc
   linksList "pages-list backlinks" $ map (pageLink ctx) backlinks
   where
+    -- the title and the document are in the lang of the page, the rest in
+    -- the lang of the interface
+    pageLang = lang_ $ K.langCode $ K.pageLang p
     browseLink f k = Browse.browseUrl ctx $
                      Browse.addToReq (Browse.sourcesReq $ K.contextSources ctx) (f, k)
 
@@ -482,5 +497,6 @@ copyTextButton label txt =
   button_ [type_ "button", class_ "icon copy", title_ label, data_ "copy" txt] $
     span_ [class_ "glyph"] "\x29C9"
 
+-- | Image of an icon link or button, described by the title of its parent
 icon :: T.Text -> Html ()
-icon name = img_ [src_ ("/static/images/" <> name <> ".svg"), alt_ name]
+icon name = img_ [src_ ("/static/images/" <> name <> ".svg"), alt_ ""]

@@ -37,6 +37,7 @@ module Kiwi.Types
   , parseTocSetting
   , Lang(..)
   , parseLang
+  , langCode
   , LangSetting(..)
   , baseLang
   , UI_Lang(..)
@@ -377,6 +378,25 @@ parseLang :: T.Text -> Either String Lang
 parseLang = parseChoice "lang"
   [ (T.toLower $ T.pack $ show l, l) | l <- [minBound .. maxBound] ]
 
+-- | ISO 639-1 code of a lang (html lang attribute, query prefix "fr:"...)
+langCode :: Lang -> T.Text
+langCode l = case l of
+  Danish     -> "da"
+  Dutch      -> "nl"
+  English    -> "en"
+  Finnish    -> "fi"
+  French     -> "fr"
+  German     -> "de"
+  Hungarian  -> "hu"
+  Italian    -> "it"
+  Norwegian  -> "no"
+  Portuguese -> "pt"
+  Romanian   -> "ro"
+  Russian    -> "ru"
+  Spanish    -> "es"
+  Swedish    -> "sv"
+  Turkish    -> "tr"
+
 data UI_Lang = UI_French
              | UI_English
   deriving (Eq, Show)
@@ -417,6 +437,11 @@ data Locales = Locales
   , loc_EditPage :: T.Text
   , loc_CopyLink :: T.Text
   , loc_Reload :: T.Text
+  -- | alerts of the admin actions (app.js): session expired (401), no right
+  -- (403), other failure (followed by the HTTP status, if any)
+  , loc_ActionSession :: T.Text
+  , loc_ActionForbidden :: T.Text
+  , loc_ActionFailed :: T.Text
   , loc_Metadata :: T.Text
   , loc_Lang :: T.Text
   , loc_Access :: T.Text

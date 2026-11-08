@@ -125,6 +125,8 @@ test-suite kiwi-test
     , QuickCheck
     , text
     , time
+    , wai
+    , wai-extra
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   hs-source-dirs: test

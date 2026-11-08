@@ -1,10 +1,11 @@
 {-# LANGUAGE TemplateHaskell #-}
 
--- | The theme static files (css, js, images) are embedded in the binary.
+-- | The theme static files (css, js, images) are embedded in the binary, and
+-- served with an ETag and "no-cache": the browser checks them at each use.
 --
 -- For theme development, when the environment variable KIWI_THEME_DIR is set
 -- (to a theme folder, such as static/themes/dark), the files are read from
--- this folder at each request instead, and are not cached by the browser: a
+-- this folder at each request instead, without ETag (always sent again): a
 -- page reload shows the changes, without building again.
 module Kiwi.Theme (serveTheme) where
 
@@ -62,5 +63,7 @@ serveTheme app req respond = case W.pathInfo req of
               [ (Net.hContentType, mimeType path), (Net.hCacheControl, "no-cache") ]
               (BL.fromStrict content)
     mimeType = defaultMimeLookup . T.intercalate "/"
-    cacheHeaders etag = [ (Net.hCacheControl, "public, max-age=3600")
+    -- the browser checks the ETag at each use (a 304 most of the time): the
+    -- new theme files are used at once after an update of kiwi
+    cacheHeaders etag = [ (Net.hCacheControl, "no-cache")
                         , ("ETag", etag) ]

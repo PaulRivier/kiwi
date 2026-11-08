@@ -1,5 +1,6 @@
 module Kiwi.Server
     ( kiwiServer
+    , securityHeaders  -- exported for tests
     ) where
 
 
@@ -14,7 +15,9 @@ import           Data.List (stripPrefix, isInfixOf)
 import qualified Data.Map.Strict as M
 import qualified Data.SearchEngine as SE
 import qualified Data.Text as T
+import qualified Network.Wai as Wai
 import           Network.Wai.Handler.Warp (setPort)
+import           Network.Wai.Middleware.AddHeaders (addHeaders)
 import           Network.Wai.Middleware.RequestLogger (DetailedSettings (..), OutputFormat (..),
                                                        RequestLoggerSettings (..),
                                                        defaultDetailedSettings,
@@ -74,6 +77,8 @@ kiwiServer cfp c logLevel cache = do
 
 kiwiRoute :: ServerState -> Static.CacheContainer -> WebM ()
 kiwiRoute ss cache = do
+  -- the first middleware is the outer one: all the responses have the headers
+  middleware securityHeaders
   get "/" $ redirect "/browse"
   get "/page/:source/:pId" $ do
     source <- pathParam "source"
@@ -99,7 +104,7 @@ kiwiRoute ss cache = do
       source <- formParam "page-source"
       pId <- formParam "page-id"
       serveEditPage ed (source, pId)
-  get  "/login" $ serveLogin
+  get  "/login" $ withLogin serveLogin
   post "/login" $ logUserIn
   post "/logout" $ logUserOut
 
@@ -108,7 +113,7 @@ kiwiRoute ss cache = do
   forM_ (contentSources ss) $ \src ->
     serveStatic cache $ filesParts (contentDir ss) src
 
-  notFound serveNotFound
+  notFound $ withLogin serveNotFound
 
   where
     filesParts cd src = [ ( concat ["image/", src, "/"]
@@ -116,6 +121,17 @@ kiwiRoute ss cache = do
                         , ( concat ["file/", src, "/"]
                           , FP.joinPath [cd, src, filesFSDir]) ]
     
+
+
+-- | Security headers of all the responses (pages, theme, images and files of
+-- the sources, errors): only the scripts of kiwi run (not those of the raw
+-- HTML of the pages, nor those of the HTML files of the sources), no plugin,
+-- no other base URL, no framing by other sites, no MIME type sniffing
+securityHeaders :: Wai.Middleware
+securityHeaders = addHeaders
+  [ ( "Content-Security-Policy"
+    , "script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" )
+  , ("X-Content-Type-Options", "nosniff") ]
 
 
 -- | Reloads are serialized by pagesDBLock, so that two concurrent reloads

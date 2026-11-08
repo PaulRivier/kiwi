@@ -7,13 +7,40 @@ const post = (url, params = {}) =>
   fetch(url, { method: "POST", body: new URLSearchParams(params) });
 
 
-// Admin actions
+// Admin actions: the button is disabled until the server answers, then the
+// page is reloaded, or an alert explains the failure (with the texts of the
+// data-error-* attributes of the button)
 
-$(".top-nav .reload")?.addEventListener("click", () => post("/reload"));
+async function adminAction(button, url, params) {
+  const { errorSession, errorForbidden, errorFailed } = button.dataset;
+  button.disabled = true;
+  let response;
+  try {
+    response = await post(url, params);
+  } catch {
+    // network failure
+    button.disabled = false;
+    alert(errorFailed);
+    return;
+  }
+  if (response.ok) {
+    location.reload();
+    return;
+  }
+  button.disabled = false;
+  if (response.status === 401) alert(errorSession);
+  else if (response.status === 403) alert(errorForbidden);
+  else alert(`${errorFailed} (HTTP ${response.status})`);
+}
 
+$(".top-nav .reload")?.addEventListener("click", (e) =>
+  adminAction(e.currentTarget, "/reload"));
+
+// absent without editor
 $(".top-nav .edit-page")?.addEventListener("click", (e) => {
   const { pageSource, pageId } = e.currentTarget.dataset;
-  post("/edit-page", { "page-source": pageSource, "page-id": pageId });
+  adminAction(e.currentTarget, "/edit-page",
+              { "page-source": pageSource, "page-id": pageId });
 });
 
 
