@@ -37,7 +37,7 @@ configParser = do
   meta <- section "metadata-default" $ do
     defTitle <- fieldDefOf "title" string "untitled"
     defTags  <- fieldDefOf "tags" string "untagged"
-    defAccess <- fieldDefOf "access" string "private"
+    defAccess <- fieldDefOf "access" string "admin"
     defLang  <- fieldDefOf "lang" U.parseLangSetting (K.LangFixed K.English)
     return K.MetaData { K.metaId = Nothing
                       , K.metaTitle = T.strip defTitle
@@ -53,9 +53,10 @@ configParser = do
     name'  <- fieldDefOf "name" string "kiwi"
     contentDir' <- fieldOf "content-directory" string
     port' <- fieldOf "port" number
+    -- without editor, the edition of pages is disabled
     editor'  <- fieldDefOf "editor" parseEditor Nothing
-    lang'  <- fieldOf "ui-lang" readable
-    toc' <- fieldDefOf "toc" readable K.TocOn
+    lang'  <- fieldDefOf "ui-lang" K.parseUILang K.UI_English
+    toc' <- fieldDefOf "toc" K.parseTocSetting K.TocOn
     secureCookie' <- fieldFlagDef "secure-cookie" False
     return KiwiConfig
       { name = name'
@@ -73,7 +74,7 @@ configParser = do
 
 customMetaParser :: T.Text -> SectionParser K.CustomMetaConfig
 customMetaParser name' = do
-  cmcType <- fieldOf "type" readable
+  cmcType <- fieldOf "type" K.parseCustomMetaType
   cmcThreshold <- fieldDefOf "threshold" number 1.0
   return K.CustomMetaConfig { K.cmcName = name'
                             , K.cmcType = cmcType

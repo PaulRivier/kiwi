@@ -41,7 +41,6 @@ import qualified System.Directory as D
 import qualified System.FilePath as FP
 import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
-import           Text.Read (readMaybe)
 
 import           Kiwi.Types
 import qualified Utils.DocIndex as DI
@@ -71,12 +70,10 @@ fastListDiff l1 l2 = S.toList $ S.difference (S.fromList l1) (S.fromList l2)
 parseLangSetting :: T.Text -> Either String LangSetting
 parseLangSetting t = case map T.strip $ T.splitOn "/" $ T.toLower t of
   ["auto"]    -> Right $ LangAuto English
-  ["auto", l] -> LangAuto <$> readLang l
-  [l]         -> LangFixed <$> readLang l
-  _           -> Left $ "invalid lang : " ++ T.unpack t
-  where
-    readLang l = maybe (Left $ "unknown lang : " ++ T.unpack l) Right $
-                 readMaybe (T.unpack l)
+  ["auto", l] -> LangAuto <$> parseLang l
+  [l]         -> LangFixed <$> parseLang l
+  _           -> Left $ "invalid lang \"" ++ T.unpack (T.strip t)
+                        ++ "\", expected LANG, auto or auto/LANG"
 
 -- | Text of the page content, for indexing
 pageContent :: PD.Pandoc -> T.Text

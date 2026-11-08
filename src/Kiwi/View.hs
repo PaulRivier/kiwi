@@ -41,6 +41,7 @@ import           Kiwi.Pandoc (linksInContext)
 data ViewCtx = ViewCtx { ctxLocales :: K.Locales
                        , ctxLogin   :: Maybe T.Text   -- ^ user id
                        , ctxIsAdmin :: Bool
+                       , ctxCanEdit :: Bool           -- ^ an editor is set
                        , ctxToc     :: K.TocSetting
                        , ctxContext :: K.Context      -- ^ navigation context
                        , ctxQuery   :: T.Text         -- ^ in the search field
@@ -50,6 +51,7 @@ getViewCtx :: ActM ViewCtx
 getViewCtx = ViewCtx <$> getLocales
                      <*> (fmap fst3 <$> asksK K.login)
                      <*> Auth.isAdmin
+                     <*> (isJust <$> asksK K.editorCommand)
                      <*> asksK K.tocSetting
                      <*> asksK K.context
                      <*> pure T.empty
@@ -58,7 +60,8 @@ getLocales :: ActM K.Locales
 getLocales = Loc.locales <$> asksK K.uiLang
 
 -- | Admin actions of the navigation bar
-data Actions = PageActions K.Page  -- ^ edit and copy a link to the page, reload
+data Actions = PageActions K.Page  -- ^ edit (with an editor) and copy a link to
+                                   -- the page, reload
              | ReloadAction
              | NoActions           -- ^ documentation views
 
@@ -204,8 +207,10 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
     when (ctxIsAdmin ctx) $ case actions of
       PageActions p -> do
         let (source, pId) = K.pageUID p
-        iconButton "edit-page" (K.loc_EditPage loc)
-          [data_ "page-source" source, data_ "page-id" pId] "edit"
+        -- without editor, the edition is disabled
+        when (ctxCanEdit ctx) $
+          iconButton "edit-page" (K.loc_EditPage loc)
+            [data_ "page-source" source, data_ "page-id" pId] "edit"
         copyButton (K.loc_CopyLink loc) (cmLink p)
         reload
       ReloadAction -> reload

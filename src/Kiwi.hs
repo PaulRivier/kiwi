@@ -1,6 +1,6 @@
 module Kiwi (runKiwiRun) where
 
-import           Control.Concurrent.Async (mapConcurrently)
+import           Control.Concurrent.Async (mapConcurrently_)
 import           Control.Exception (bracket_, try)
 import           Control.Monad (forM_, unless, when)
 import qualified Data.ByteString as BS
@@ -9,7 +9,6 @@ import           Data.Maybe (isJust)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           Data.Version (showVersion)
-import qualified Network.Wai.Middleware.Static as Static
 import qualified System.Directory as D
 import           System.Environment (getExecutablePath)
 import           System.Exit (exitFailure, exitWith)
@@ -44,20 +43,39 @@ runKiwiRun = do
   hSetBuffering stdout LineBuffering
   cli <- CLI.parseCLI
   case cli of
-    Server c -> do
-      cache <- U.initWAICaching
-      _ <- mapConcurrently (runServer cache (CLI.serverLogLevel c)) (CLI.serverCfps c)
-      return ()
+    Server c -> runServers (CLI.serverLogLevel c) (CLI.serverCfps c)
     Init c -> initKiwiDir (CLI.initDirectory c)
     Access action -> runAccess action
     Update c -> runUpdate c
 
 
-runServer :: Static.CacheContainer -> L.LogLevel -> FP.FilePath -> IO ()
-runServer cache logLevel cfp = do
+-- | Every config is read and checked before any server starts, so that
+-- one error stops them all with a failure code. Once started, a server that
+-- stops on an error (a port in use, an unreadable accounts file ...) stops
+-- the others, and its exception (or exit code) ends the program.
+runServers :: L.LogLevel -> [FP.FilePath] -> IO ()
+runServers logLevel cfps = do
+  confsM <- mapM (loadServerConfig logLevel) cfps
+  confs <- maybe exitFailure return $ sequence confsM
+  let ports = map (Conf.port . snd) confs
+      dupPorts = U.nodup $ ports L.\\ U.nodup ports
+  unless (null dupPorts) $ do
+    L.mkLogger logLevel "?" L.Error $ T.pack $
+      "several kiwis use the same port: " ++ L.intercalate ", " (map show dupPorts)
+    exitFailure
+  cache <- U.initWAICaching
+  mapConcurrently_ (\(cfp, conf) -> kiwiServer cfp conf logLevel cache) confs
+
+
+-- | The config of a kiwi, if it can be read and its content directory
+-- exists. Errors are logged.
+loadServerConfig :: L.LogLevel -> FP.FilePath -> IO (Maybe (FP.FilePath, Conf.KiwiConfig))
+loadServerConfig logLevel cfp = do
   cfgTextM <- U.getFileContent cfp
   case cfgTextM of
-    Nothing -> logError $ "config file " ++ cfp ++ " does not exist"
+    Nothing -> do
+      logError $ "config file " ++ cfp ++ " does not exist"
+      return Nothing
     Just cfgText -> do
       case Conf.parseConfig cfgText of
         Left e -> do
@@ -66,7 +84,16 @@ runServer cache logLevel cfp = do
           logError $ "a clean config is written to "
                      ++ FP.combine kd "kiwi.ini.default" ++ " to help you fix it"
           BS.writeFile (FP.combine kd "kiwi.ini.default") Conf.defaultConfigFileContent
-        Right conf -> kiwiServer cfp conf logLevel cache
+          return Nothing
+        Right conf -> do
+          -- relative to the folder of the config file, as in the server
+          let cd = FP.combine (FP.takeDirectory cfp) (Conf.contentDir conf)
+          cdExists <- D.doesDirectoryExist cd
+          if cdExists then return $ Just (cfp, conf)
+          else do
+            L.mkLogger logLevel (Conf.name conf) L.Error $ T.pack $
+              "content directory " ++ cd ++ " (config file " ++ cfp ++ ") does not exist"
+            return Nothing
   where
     -- the kiwi name is unknown until the config file is read
     logError = L.mkLogger logLevel "?" L.Error . T.pack
@@ -76,15 +103,16 @@ initKiwiDir :: FP.FilePath -> IO ()
 initKiwiDir d = do
   exists <- D.doesDirectoryExist d
   case exists of
-    False -> putStrLn "Directory does not exist, check your path"
+    False -> exitError "Directory does not exist, check your path"
     True -> do
       clean  <-  filter (not . U.isDotFile) <$> D.listDirectory d
-      case null clean of 
+      case null clean of
         False -> do
-          putStrLn $ unlines ["Directory must be empty for initialisation",
-                              "In case you want to update your kiwi.ini file, ",
-                              "kiwi will copy current kiwi.ini file format to kiwi.ini.default"]
           BS.writeFile (FP.combine d "kiwi.ini.default") Conf.defaultConfigFileContent
+          exitError $ L.intercalate "\n"
+            ["Directory must be empty for initialisation",
+             "In case you want to update your kiwi.ini file, ",
+             "kiwi copied current kiwi.ini file format to kiwi.ini.default"]
         True -> createKiwi d
   where
     createKiwi r = do
@@ -112,7 +140,7 @@ runAccess c = do
   let cfp = accessCfp c
       accountsFilePath = FP.combine (FP.takeDirectory cfp) "_accounts"
   cfgExists <- D.doesFileExist cfp
-  unless cfgExists $ accessError $ "config file " ++ cfp ++ " does not exist"
+  unless cfgExists $ exitError $ "config file " ++ cfp ++ " does not exist"
   accounts' <- Auth.loadAccounts accountsFilePath
   let findAccount l = L.find (\a -> accountId a == l) accounts'
       save accs l what = do
@@ -123,14 +151,14 @@ runAccess c = do
   case accessOp c of
     AccessCreate l -> do
       when (isJust $ findAccount l) $
-        accessError $ "account " ++ T.unpack l ++ " already exists, use --update to change it"
+        exitError $ "account " ++ T.unpack l ++ " already exists, use --update to change it"
       passM <- askPassword False
-      pass <- maybe (accessError "the password can not be empty") return passM
+      pass <- maybe (exitError "the password can not be empty") return passM
       groups <- askGroups Nothing
       acc <- newAccount l pass groups
       save (accounts' ++ [acc]) l "created"
     AccessUpdate l -> case findAccount l of
-      Nothing -> accessError $ "account " ++ T.unpack l ++ " does not exist, use --create to create it"
+      Nothing -> exitError $ "account " ++ T.unpack l ++ " does not exist, use --create to create it"
       Just old -> do
         passM <- askPassword True
         groups <- askGroups (Just $ accountGroups old)
@@ -139,13 +167,13 @@ runAccess c = do
           Just pass -> newAccount l pass groups
         save (map (\a -> if accountId a == l then acc else a) accounts') l "updated"
     AccessRemove l -> case findAccount l of
-      Nothing -> accessError $ "account " ++ T.unpack l ++ " does not exist"
+      Nothing -> exitError $ "account " ++ T.unpack l ++ " does not exist"
       Just _ -> save (filter (\a -> accountId a /= l) accounts') l "removed"
   where
     newAccount l pass groups = do
       salt <- Auth.randomText 16
       case Auth.hashPassword salt pass of
-        Nothing -> accessError "unable to hash the password"
+        Nothing -> exitError "unable to hash the password"
         Just hash -> return $ Account l salt hash groups
 
 -- | The new password, asked twice. Nothing when it is left empty, which
@@ -156,7 +184,7 @@ askPassword canKeep = do
   if T.null p1 then return Nothing
   else do
     p2 <- askLine True "Password again: "
-    if p1 /= p2 then accessError "the passwords do not match"
+    if p1 /= p2 then exitError "the passwords do not match"
     else return (Just p1)
 
 -- | Groups of the account. With the current groups, an empty answer keeps
@@ -168,7 +196,7 @@ askGroups currentM = do
     Just gs -> "Groups [" ++ T.unpack (T.intercalate "," gs) ++ "]: "
   case currentM of
     Just gs | T.null (T.strip t) -> return gs
-    _ -> either accessError return $ Auth.parseGroups t
+    _ -> either exitError return $ Auth.parseGroups t
 
 -- | Ask a line on the terminal, hidden or not
 askLine :: Bool -> String -> IO T.Text
@@ -180,11 +208,12 @@ askLine hidden question = do
   when hidden $ putStrLn ""
   case r of
     Right l -> return l
-    Left e | isEOFError e -> accessError "unexpected end of input"
+    Left e | isEOFError e -> exitError "unexpected end of input"
            | otherwise -> ioError e
 
-accessError :: String -> IO a
-accessError msg = do
+-- | Error of kiwi init or kiwi access: message on stderr, failure code
+exitError :: String -> IO a
+exitError msg = do
   hPutStrLn stderr $ "error: " ++ msg
   exitFailure
 

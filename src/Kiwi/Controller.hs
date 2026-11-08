@@ -294,26 +294,25 @@ serveSearch query = do
                       html r
 
 
-serveEditPage :: Maybe (FP.FilePath, [String]) -> K.PageUID -> ActM ()
-serveEditPage editorM pgId =
-  case editorM of
+-- | Runs the editor of the config (command and arguments) on the file of the
+-- page. Without editor, the route answers 404 (see 'Kiwi.Server').
+serveEditPage :: (FP.FilePath, [String]) -> K.PageUID -> ActM ()
+serveEditPage (cmd, args) pgId = do
+  db <- getDB
+  case findPage db pgId of
     Nothing -> serveNotFound
-    Just (cmd, args) -> do
-      db <- getDB
-      case findPage db pgId of
-        Nothing -> serveNotFound
-        Just p -> do
-          logger <- asksK K.logger
-          let editorFailed msg = logger L.Warn $ T.pack $ "editor failed: " ++ msg
-          -- the editor may outlive the request: wait for it in a thread,
-          -- so that it does not stay a zombie, and log its failures
-          _ <- liftIO $ forkIO $ do
-            r <- try $ Proc.spawnProcess cmd (args ++ [K.pageAbsoluteFSPath p]) >>= Proc.waitForProcess
-            case r of
-              Left e -> editorFailed $ show (e :: IOException)
-              Right (ExitFailure c) -> editorFailed $ cmd ++ " : exit code " ++ show c
-              Right ExitSuccess -> pure ()
-          html "ok"
+    Just p -> do
+      logger <- asksK K.logger
+      let editorFailed msg = logger L.Warn $ T.pack $ "editor failed: " ++ msg
+      -- the editor may outlive the request: wait for it in a thread,
+      -- so that it does not stay a zombie, and log its failures
+      _ <- liftIO $ forkIO $ do
+        r <- try $ Proc.spawnProcess cmd (args ++ [K.pageAbsoluteFSPath p]) >>= Proc.waitForProcess
+        case r of
+          Left e -> editorFailed $ show (e :: IOException)
+          Right (ExitFailure c) -> editorFailed $ cmd ++ " : exit code " ++ show c
+          Right ExitSuccess -> pure ()
+      html "ok"
       
 
 serveLogin :: ActM ()

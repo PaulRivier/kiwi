@@ -92,10 +92,13 @@ kiwiRoute ss cache = do
     reloadAccounts
     updateDB
     html ""
-  post "/edit-page" $ ifAdmin $ do
-    source <- formParam "page-source"
-    pId <- formParam "page-id"
-    serveEditPage (editorCommand ss) (source, pId)
+  -- without editor, the edition is disabled: the route does not exist
+  post "/edit-page" $ case editorCommand ss of
+    Nothing -> serveNotFound
+    Just ed -> ifAdmin $ do
+      source <- formParam "page-source"
+      pId <- formParam "page-id"
+      serveEditPage ed (source, pId)
   get  "/login" $ serveLogin
   post "/login" $ logUserIn
   post "/logout" $ logUserOut

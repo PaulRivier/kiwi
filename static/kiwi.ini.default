@@ -4,9 +4,10 @@ name: My Kiwi
 # Path to your content, either absolute or relative to this file folder  
 content-directory: content
 # Your favorite text editor command. File path will be added as last argument.
-# Leave empty or remove to disable.
+# Without editor (commented out or empty), page edition is disabled: there is no
+# edit button.
 # examples :  emacsclient -n -s kiwi   ///   gedit   ///   gvim
-editor: gedit
+# editor: gedit
 # Server port
 port: 3456
 # Default language for UI and fulltext search

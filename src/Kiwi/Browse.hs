@@ -113,7 +113,7 @@ decodeReq cmcs = foldM addParam M.empty
     fieldReader "source" = Just (FieldSource, readText)
     fieldReader "tag" = Just (FieldTag, readText . segmentsToTag . tagToSegments)
     fieldReader "access" = Just (FieldAccess, readText)
-    fieldReader "lang" = Just (FieldLang, fmap KeyLang . readMaybe . T.unpack)
+    fieldReader "lang" = Just (FieldLang, either (const Nothing) (Just . KeyLang) . parseLang)
     fieldReader n = do
       name <- T.stripPrefix "m." n
       cmc <- L.find ((== name) . cmcName) cmcs

@@ -26,6 +26,7 @@ module Kiwi.Types
   , CustomMetaConfig(..)
   , SourceConfig(..)
   , CustomMetaType(..)
+  , parseCustomMetaType
   , DocIndexKey(..)
   , FieldKey(..)
     -- * Search engine
@@ -33,10 +34,13 @@ module Kiwi.Types
   , PageField(..)
     -- * Config, locales
   , TocSetting(..)
+  , parseTocSetting
   , Lang(..)
+  , parseLang
   , LangSetting(..)
   , baseLang
   , UI_Lang(..)
+  , parseUILang
   , Locales(..)
   ) where
 
@@ -44,7 +48,6 @@ import           Control.Concurrent.MVar (MVar)
 import           Control.Concurrent.QSem (QSem)
 import           Control.Monad.IO.Unlift (MonadUnliftIO)
 import           Control.Monad.Reader
-import           Data.Char (toLower, isSpace)
 import           Data.IORef
 import           Data.Ix (Ix)
 import qualified Data.Map.Strict as M
@@ -223,13 +226,18 @@ data SourceConfig =
 data CustomMetaType = CmtText | CmtInt | CmtDate | CmtBool
   deriving (Eq, Show)
 
-instance Read CustomMetaType where
-  readsPrec _ s = case (trimStr $ map toLower s) of
-    "text"   -> [(CmtText, "")]
-    "int"    -> [(CmtInt, "")]
-    "date"   -> [(CmtDate, "")]
-    "bool"   -> [(CmtBool, "")]
-    _        -> []
+-- instance Read CustomMetaType where
+--   readsPrec _ s = case (trimStr $ map toLower s) of
+--     "text"   -> [(CmtText, "")]
+--     "int"    -> [(CmtInt, "")]
+--     "date"   -> [(CmtDate, "")]
+--     "bool"   -> [(CmtBool, "")]
+--     _        -> []
+
+-- | Type of a custom metadata in the config: text, int, date or bool
+parseCustomMetaType :: T.Text -> Either String CustomMetaType
+parseCustomMetaType = parseChoice "metadata type"
+  [("text", CmtText), ("int", CmtInt), ("date", CmtDate), ("bool", CmtBool)]
 
 
 data DocIndexKey = KeyText T.Text
@@ -238,7 +246,8 @@ data DocIndexKey = KeyText T.Text
                  | KeyBool Bool
                  | KeyLang Lang
                  | KeyPairText (T.Text, T.Text)
-  deriving (Eq, Ord, Show, Read)
+  -- Read is not derived any more: Lang has no Read instance
+  deriving (Eq, Ord, Show)
 
 
 class Ord k => FieldKey k where
@@ -302,12 +311,17 @@ data TocSetting = TocOn | TocOff | TocAuto
 -- tocSettingValue TocOff = "off"
 -- tocSettingValue TocAuto = "auto"
 
-instance Read TocSetting where
-  readsPrec _ s = case (trimStr $ map toLower s) of
-    "on" -> [(TocOn, "")]
-    "off" -> [(TocOff, "")]
-    "auto" -> [(TocAuto, "")]
-    _         -> []
+-- instance Read TocSetting where
+--   readsPrec _ s = case (trimStr $ map toLower s) of
+--     "on" -> [(TocOn, "")]
+--     "off" -> [(TocOff, "")]
+--     "auto" -> [(TocAuto, "")]
+--     _         -> []
+
+-- | toc setting of the config: on, off or auto
+parseTocSetting :: T.Text -> Either String TocSetting
+parseTocSetting = parseChoice "toc setting"
+  [("on", TocOn), ("off", TocOff), ("auto", TocAuto)]
 
 data Lang
     = Danish
@@ -325,7 +339,7 @@ data Lang
     | Spanish
     | Swedish
     | Turkish
-    deriving (Show, Eq, Ord)
+    deriving (Show, Eq, Ord, Enum, Bounded)
 
 -- | Lang of a page, as set in the metadata: fixed, or detected from the
 -- content, with a fallback when the detection fails ("auto/english")
@@ -339,34 +353,43 @@ baseLang (LangFixed l) = l
 baseLang (LangAuto l)  = l
 
 
-instance Read Lang where
-  readsPrec _ s = case (trimStr $ map toLower s) of
-    "danish" -> [(Danish, "")]
-    "dutch" -> [(Dutch, "")]
-    "english" -> [(English, "")]
-    "finnish" -> [(Finnish, "")]
-    "french" -> [(French, "")]
-    "german" -> [(German, "")]
-    "hungarian" -> [(Hungarian, "")]
-    "italian" -> [(Italian, "")]
-    "norwegian" -> [(Norwegian, "")]
-    "portuguese" -> [(Portuguese, "")]
-    "romanian" -> [(Romanian, "")]
-    "russian" -> [(Russian, "")]
-    "spanish" -> [(Spanish, "")]
-    "swedish" -> [(Swedish, "")]
-    "turkish" -> [(Turkish, "")]
-    _         -> []
+-- instance Read Lang where
+--   readsPrec _ s = case (trimStr $ map toLower s) of
+--     "danish" -> [(Danish, "")]
+--     "dutch" -> [(Dutch, "")]
+--     "english" -> [(English, "")]
+--     "finnish" -> [(Finnish, "")]
+--     "french" -> [(French, "")]
+--     "german" -> [(German, "")]
+--     "hungarian" -> [(Hungarian, "")]
+--     "italian" -> [(Italian, "")]
+--     "norwegian" -> [(Norwegian, "")]
+--     "portuguese" -> [(Portuguese, "")]
+--     "romanian" -> [(Romanian, "")]
+--     "russian" -> [(Russian, "")]
+--     "spanish" -> [(Spanish, "")]
+--     "swedish" -> [(Swedish, "")]
+--     "turkish" -> [(Turkish, "")]
+--     _         -> []
+
+-- | Lang name, in lower case (danish … turkish)
+parseLang :: T.Text -> Either String Lang
+parseLang = parseChoice "lang"
+  [ (T.toLower $ T.pack $ show l, l) | l <- [minBound .. maxBound] ]
 
 data UI_Lang = UI_French
              | UI_English
-  deriving (Show)
+  deriving (Eq, Show)
 
-instance Read UI_Lang where
-  readsPrec _ s = case (trimStr $ map toLower s) of
-    "french" -> [(UI_French, "")]
-    "english" -> [(UI_English, "")]
-    _         -> []
+-- instance Read UI_Lang where
+--   readsPrec _ s = case (trimStr $ map toLower s) of
+--     "french" -> [(UI_French, "")]
+--     "english" -> [(UI_English, "")]
+--     _         -> []
+
+-- | ui-lang setting of the config: english or french
+parseUILang :: T.Text -> Either String UI_Lang
+parseUILang = parseChoice "ui-lang" [("english", UI_English), ("french", UI_French)]
 
 
 
@@ -404,6 +427,16 @@ data Locales = Locales
   deriving (Show)
 
 
-trimStr :: String -> String
-trimStr = f . f
-  where f = reverse . dropWhile isSpace
+-- trimStr :: String -> String
+-- trimStr = f . f
+--   where f = reverse . dropWhile isSpace
+
+-- | One of the given names, ignoring case and the spaces around. The error
+-- message gives the allowed names.
+parseChoice :: String -> [(T.Text, a)] -> T.Text -> Either String a
+parseChoice what choices t =
+  maybe (Left err) Right $ lookup (T.toLower v) choices
+  where
+    v = T.strip t
+    err = concat [ "invalid ", what, " \"", T.unpack v, "\", allowed values: "
+                 , T.unpack $ T.intercalate ", " $ map fst choices ]
