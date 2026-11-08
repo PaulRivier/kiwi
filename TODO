@@ -1,9 +1,6 @@
 TODO
 ====
 
-SQLITE:
-- utiliser SQLITE pour les pages parsées et la recherche full-text
-- peut-être aussi pour remplacer DocIndex
 
 Recherche:
 - améliorer le paramétrage du moteur de recherche ?
@@ -21,9 +18,18 @@ Features:
   contient un fichier "salade.png". Proposer d'ajouter des chemins au
   PATH dans les metadata.
 
+- Édition du contenu directement depuis le navigateur
+
+- API de navigation et d'édition du contenu, notamment utilisable par
+  un LLM
+
 Code:
 
 Archi:
+
+- SQLITE:
+  - utiliser SQLITE pour les pages parsées et la recherche full-text
+  - peut-être aussi pour remplacer DocIndex
 
 
 
