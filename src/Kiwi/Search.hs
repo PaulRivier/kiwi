@@ -4,12 +4,16 @@ module Kiwi.Search (
     initPageSearchEngine
   , searchPages
   , queryTerms
+  , searchLang
   , normalizeText
   ) where
 
 -- import           Data.Text.ICU.Char
 -- import           Data.Text.ICU.Normalize2
-import Data.Char (generalCategory, GeneralCategory(NonSpacingMark))
+import Data.Char (generalCategory, GeneralCategory(NonSpacingMark),
+                  isPunctuation, isSpace, isSymbol)
+import Data.List (find, nub)
+import Data.Maybe (fromMaybe)
 import Data.Text.Normalize (normalize, NormalizationMode(NFC, NFD))
 
 import           Data.SearchEngine
@@ -39,14 +43,14 @@ pageSearchConfig =
     extractTokens :: (Page, T.Text) -> PageField -> [T.Text]
     extractTokens (p, _) TitleField = extractTerms (alg $ pageLang p) $
                                       pageTitle p
-    extractTokens (p, _) TagsField  = concat $
-                                      map (extractTagTokens (alg $ pageLang p)) $
+    extractTokens (p, _) TagsField  = concatMap (extractTerms (alg $ pageLang p)) $
                                       pageTags p
     extractTokens (p, content) ContentField = extractTerms (alg $ pageLang p) content
 
+    -- the tags are indexed word by word, without the term "[tag]" of before:
     -- dans le cas des tags, on indexe le tag sous sa forme canonique
     -- [tag] ainsi que les termes qui le composent
-    extractTagTokens lg' t = (T.concat ["[", T.toLower t, "]"]) : extractTerms lg' t
+    -- extractTagTokens lg' t = (T.concat ["[", T.toLower t, "]"]) : extractTerms lg' t
 
 
 -- | Visible pages matching the query terms, best first, without the pages
@@ -71,16 +75,34 @@ relevanceThreshold = 0.4
 
 
 -- | Terms of a query, stemmed in the given lang, unless the query starts with
--- the code of another lang ("fr:", "es: "...)
+-- the code of another lang ("fr:", "es: "...). The words are split after this
+-- prefix, as those of the pages (see 'extractTerms').
 queryTerms :: Lang -> T.Text -> [T.Text]
 queryTerms lg q = case T.breakOn ":" (T.stripStart q) of
   (code, rest) | Just lg' <- lookup (T.toLower code) langCodes, not (T.null rest)
-                 -> normaliseQuery lg' (T.drop 1 rest)
-  _ -> normaliseQuery lg q
+                 -> extractTerms (alg lg') (T.drop 1 rest)
+  _ -> extractTerms (alg lg) q
+
+-- | Lang of a query without lang prefix, from the sources of the navigation
+-- context, or from all the sources if it is empty: the lang of the
+-- @[source …]@ section of each source, or else the default one (from
+-- @[metadata-default]@). The query is too short to detect its lang, so
+-- @auto/X@ counts as X. When the sources do not share a lang, the default
+-- one.
+searchLang :: LangSetting     -- ^ default lang
+           -> [SourceConfig]
+           -> [T.Text]        -- ^ all the sources
+           -> S.Set T.Text    -- ^ sources of the context
+           -> Lang
+searchLang defLang configs allSources ctxSources =
+  case nub (map sourceLang sources) of
+    [l] -> l
+    _   -> baseLang defLang
   where
-    -- same steps as extractTerms: lower case and NFC, stem, remove accents
-    normaliseQuery l = map (normalizeText . stem (alg l) . normalize NFC . T.toLower) .
-                       T.words
+    sources | S.null ctxSources = allSources
+            | otherwise         = S.toList ctxSources
+    sourceLang s = baseLang $ fromMaybe defLang $
+                   find ((== s) . scSourceName) configs >>= scLang
 
 -- | ISO 639-1 codes of the langs
 langCodes :: [(T.Text, Lang)]
@@ -95,20 +117,30 @@ langCodes = [ ("da", K.Danish), ("nl", K.Dutch), ("en", K.English)
 --                     Right r ->  r
 --                     Left _ -> T.empty
 
--- | Words are stemmed with their accents (in NFC, as Snowball expects), and the
--- accents are removed from the stems
+-- | Terms of the pages and of the queries. Words are stemmed with their
+-- accents (in NFC, as Snowball expects), and the accents are removed from the
+-- stems
 extractTerms :: Algorithm -> T.Text -> [T.Text]
 extractTerms lg = map normalizeText .
                   stems lg .
-                  map (normalize NFC) .
-                  tokenizeText breakSet
+                  tokenize
 
-tokenizeText :: S.Set Char -> T.Text -> [T.Text]
-tokenizeText brk = filter (not . T.null) .
-                     T.split isBreak .
-                     T.toLower
+-- | Words of a text, in lower case and NFC, split on spaces (non-breaking
+-- ones too), punctuation (apostrophes, quotes, dashes, "…"...) and symbols
+tokenize :: T.Text -> [T.Text]
+tokenize = filter (not . T.null) .
+           T.split isBreak .
+           normalize NFC .
+           T.toLower
   where
-    isBreak c = S.member c brk
+    isBreak c = isSpace c || isPunctuation c || isSymbol c
+
+-- tokenizeText :: S.Set Char -> T.Text -> [T.Text]
+-- tokenizeText brk = filter (not . T.null) .
+--                      T.split isBreak .
+--                      T.toLower
+--   where
+--     isBreak c = S.member c brk
 
 
 
@@ -121,8 +153,8 @@ normalizeText = T.filter ((/= NonSpacingMark) . generalCategory) .
 -- normalizeText = T.filter (not . property Diacritic) .
 --                 normalize NFD
 
-breakSet :: S.Set Char
-breakSet = S.fromList " \n&~\"#'{([-|`\\_^@)]=}+%*<>,?;.:/!§$€«» ’‘"
+-- breakSet :: S.Set Char
+-- breakSet = S.fromList " \n&~\"#'{([-|`\\_^@)]=}+%*<>,?;.:/!§$€«» ’‘"
 
 
 

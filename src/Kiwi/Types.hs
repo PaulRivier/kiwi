@@ -355,8 +355,9 @@ data Locales = Locales
   , loc_PagesList :: T.Text
   , loc_RecentPages :: T.Text
   , loc_Search :: T.Text
-  , loc_SearchResults :: T.Text
+  , loc_SearchResults :: T.Text  -- ^ after the number of results
   , loc_SearchNothing :: T.Text
+  , loc_SearchQuery :: T.Text    -- ^ before the query
   , loc_NotFound :: T.Text
   , loc_BadRequest :: T.Text
   , loc_Forbidden :: T.Text

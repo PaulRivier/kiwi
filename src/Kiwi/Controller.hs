@@ -44,7 +44,7 @@ import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
 import qualified Kiwi.DefaultPages as DP
 import           Kiwi.Pandoc (pageDoc, embeddedDoc)
-import           Kiwi.Search (searchPages, queryTerms, normalizeText)
+import           Kiwi.Search (searchPages, queryTerms, searchLang, normalizeText)
 import qualified Kiwi.Types as K
 import qualified Kiwi.View as V
 import qualified Kiwi.Auth as Auth
@@ -269,13 +269,18 @@ metaIndex db ctx req =
 
 
 -- | Full text search, in the pages of the navigation context. The query is
--- stemmed in the default lang, unless it starts with a lang code ("fr:")
+-- stemmed in the lang of the sources of the context (see 'searchLang'), unless
+-- it starts with a lang code ("fr:")
 serveSearch :: T.Text -> ActM ()
 serveSearch query = do
   db <- getRestrictedDB
+  allDB <- getDB
   ctx <- asksK K.context
   let sources = K.contextSources ctx
-      lang = K.baseLang $ K.metaLang $ K.defaultMeta db
+      -- all the sources, as those the context can have (see 'withContext')
+      allSources = [ s | K.KeyText s <- DI.getFieldKeys (K.pagesIndex allDB) K.FieldSource ]
+      lang = searchLang (K.metaLang $ K.defaultMeta allDB) (K.sourcesConfig allDB)
+                        allSources sources
       -- in the restricted index, and in the sources context
       visible uid = isJust (findPage db uid) &&
                     (S.null sources || S.member (fst uid) sources)
@@ -284,7 +289,7 @@ serveSearch query = do
     in case pages of
          -- un seul résultat, on y va
          (p:[]) -> redirect $ TL.fromStrict $ Url.inContext ctx $ Url.pageUrl p
-         _      -> do r <- V.renderSearchResults pages
+         _      -> do r <- V.renderSearchResults query pages
                       html r
 
 

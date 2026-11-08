@@ -43,6 +43,7 @@ data ViewCtx = ViewCtx { ctxLocales :: K.Locales
                        , ctxIsAdmin :: Bool
                        , ctxToc     :: K.TocSetting
                        , ctxContext :: K.Context      -- ^ navigation context
+                       , ctxQuery   :: T.Text         -- ^ in the search field
                        }
 
 getViewCtx :: ActM ViewCtx
@@ -51,6 +52,7 @@ getViewCtx = ViewCtx <$> getLocales
                      <*> Auth.isAdmin
                      <*> asksK K.tocSetting
                      <*> asksK K.context
+                     <*> pure T.empty
 
 getLocales :: ActM K.Locales
 getLocales = Loc.locales <$> asksK K.uiLang
@@ -119,11 +121,14 @@ renderBrowseAll toggles switch menu filters listing pages = do
   renderView (K.loc_Tags loc) ReloadAction Nothing $
     browseView loc ctx toggles switch menu filters listing pages
 
-renderSearchResults :: [K.Page] -> ActM TL.Text
-renderSearchResults pages = do
-  loc <- getLocales
-  ctx <- asksK K.context
-  renderView (K.loc_Search loc) ReloadAction Nothing $ searchView loc ctx pages
+-- | Results of the query, also in the search field
+renderSearchResults :: T.Text -> [K.Page] -> ActM TL.Text
+renderSearchResults query pages = do
+  vctx <- getViewCtx
+  let loc = ctxLocales vctx
+  return $ renderText $
+    layout vctx { ctxQuery = query } (K.loc_Search loc) ReloadAction Nothing $
+      searchView loc (ctxContext vctx) query pages
 
 -- | A key of a field on the metadata page
 data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ as displayed
@@ -205,7 +210,7 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
         reload
       ReloadAction -> reload
       NoActions -> mempty
-    searchForm loc (ctxContext ctx) False
+    searchForm loc (ctxContext ctx) (ctxQuery ctx) False
   where
     loc = ctxLocales ctx
     reload = iconButton "reload" (K.loc_Reload loc) [] "reload"
@@ -235,11 +240,13 @@ loginBox ctx = div_ [class_ "layout-login"] $ case ctxLogin ctx of
     loc = ctxLocales ctx
 
 
--- | The search is done in the navigation context
-searchForm :: K.Locales -> K.Context -> Bool -> Html ()
-searchForm loc ctx focus =
+-- | The search is done in the navigation context. The field has the given
+-- query.
+searchForm :: K.Locales -> K.Context -> T.Text -> Bool -> Html ()
+searchForm loc ctx query focus =
   form_ [action_ "/search", method_ "get", class_ "search"] $ do
     input_ [ name_ "query", type_ "search"
+           , if T.null query then mempty else value_ query
            , placeholder_ (K.loc_Search loc)
            , if focus then autofocus_ else mempty ]
     forM_ (Url.contextParams ctx) $ \(n, v) -> input_ [type_ "hidden", name_ n, value_ v]
@@ -359,16 +366,26 @@ browseView loc ctx toggles switch menu filters listing pages = div_ [class_ "tag
       content
 
 
-searchView :: K.Locales -> K.Context -> [K.Page] -> Html ()
-searchView loc ctx pages = div_ [class_ "search-results-page"] $ do
+-- | The results of the query, with their number (a single result is
+-- displayed directly, see 'Kiwi.Controller.serveSearch')
+searchView :: K.Locales -> K.Context -> T.Text -> [K.Page] -> Html ()
+searchView loc ctx query pages = div_ [class_ "search-results-page"] $ do
   contextBar loc (S.toList $ K.contextSources ctx) mempty (K.contextArchive ctx)
   case pages of
     [] -> do
       h1_ $ toHtml $ K.loc_SearchNothing loc
-      searchForm loc ctx True
+      searched
+      searchForm loc ctx query True
     _ -> do
-      h1_ $ toHtml $ K.loc_SearchResults loc
+      h1_ $ toHtml $ T.concat [T.pack (show $ length pages), " ", K.loc_SearchResults loc]
+      searched
       linksList "results" $ map (pageLink ctx) pages
+  where
+    searched = unless (T.null $ T.strip query) $
+      p_ [class_ "search-query"] $ do
+        toHtml $ K.loc_SearchQuery loc
+        " "
+        strong_ $ toHtml query
 
 
 -- | Bar of the navigation context, at the top of a page or of search results:

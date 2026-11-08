@@ -35,7 +35,7 @@ import qualified Kiwi.PagesDB as DB
 import           Kiwi.Pandoc (linksInContext, loadPage, pageDoc, pagePath, parseMetaData,
                               parseCustomMeta, sourceMeta, unknownMetaKeys,
                               invalidMetaValues)
-import           Kiwi.Search (initPageSearchEngine, searchPages, queryTerms)
+import           Kiwi.Search (initPageSearchEngine, searchPages, queryTerms, searchLang)
 import qualified Kiwi.Tags as Tags
 import           Kiwi.Types
 import qualified Kiwi.Url as Url
@@ -891,12 +891,77 @@ searchSpec = do
   it "compares the scores of the visible pages only" $
     searchVisible (/= "e") "chat soleil jardin" `shouldBe` [("src", "f"), ("src", "g")]
 
-  it "keeps unknown prefixes, and prefixes after the start, in the query" $ do
+  it "splits unknown prefixes, and prefixes after the start, as other words" $ do
     queryTerms French "fr:chevaux" `shouldBe` queryTerms French "chevaux"
     queryTerms French "es:canciones" `shouldBe` queryTerms Spanish "canciones"
-    queryTerms French "xx:chevaux" `shouldBe` ["xx:cheval"]
+    queryTerms French "xx:chevaux" `shouldBe` ["xx", "cheval"]
     queryTerms French "es:" `shouldBe` []
-    queryTerms French "chevaux es:x" `shouldBe` queryTerms French "chevaux" ++ ["es:x"]
+    queryTerms French "chevaux es:x" `shouldBe` queryTerms French "chevaux es x"
+
+  it "splits the query on punctuation, symbols and all the spaces" $ do
+    let same q q' = queryTerms French q `shouldBe` queryTerms French q'
+    same "chocolat-banane" "chocolat banane"
+    same "\"fondant chocolat\"" "fondant chocolat"
+    same "«\x00A0\&fondant chocolat\x00A0»" "fondant chocolat"
+    same "“fondant” ‘chocolat’" "fondant chocolat"
+    same "(chocolat)" "chocolat"
+    same "chocolat," "chocolat"
+    same "moelleux/amandes" "moelleux amandes"
+    same "l’eau" "l'eau"
+    same "l'eau" "l eau"
+    same "recette\x00A0:\x202Ftarte" "recette tarte"
+    same "1914–1918" "1914 1918"
+    same "été—hiver" "été hiver"
+    same "etc…" "etc"
+    same "a+b=c 5€ #x [y]" "a b c 5 x y"
+    queryTerms French " ,;… " `shouldBe` []
+
+  it "finds the words of the pages, split as those of the query" $ do
+    let withMeta (p, c) title tags = (p { pageTitle = title, pageTags = tags }, c)
+        se' = SE.insertDocs
+                [ page "h" "Un gâteau chocolat-banane"
+                , page "i" "Verser l’eau (froide)"
+                , page "j" "Pendant la guerre 1914–1918, etc…"
+                , withMeta (page "k" "") "Recette\x00A0: tarte" ["dessert > fruits"]
+                , page "m" "Rien à voir" ]
+                initPageSearchEngine
+        search' q = sort $ map snd $ SE.query se' (queryTerms French q)
+    search' "chocolat-banane" `shouldBe` ["h"]
+    search' "\"banane\"" `shouldBe` ["h"]
+    search' "l’eau" `shouldBe` ["i"]
+    search' "l'eau" `shouldBe` ["i"]
+    search' "eau" `shouldBe` ["i"]
+    search' "(froide)" `shouldBe` ["i"]
+    search' "1918" `shouldBe` ["j"]
+    search' "etc" `shouldBe` ["j"]
+    search' "recette" `shouldBe` ["k"]
+    search' "fruits" `shouldBe` ["k"]
+    -- no "[tag]" term for the tags
+    SE.query se' ["[dessert > fruits]"] `shouldBe` []
+
+  describe "searchLang" $ do
+    let configs = [ SourceConfig "en" [] Nothing (Just (LangFixed English))
+                  , SourceConfig "en-auto" [] Nothing (Just (LangAuto English))
+                  , SourceConfig "es" [] Nothing (Just (LangAuto Spanish))
+                  , SourceConfig "none" [] Nothing Nothing ]
+        allSources = ["en", "en-auto", "es", "none", "unconfigured"]
+        lang def ctx = searchLang def configs allSources (S.fromList ctx)
+    it "takes the lang of the sources of the context" $ do
+      lang (LangFixed French) ["en"] `shouldBe` English
+      lang (LangFixed French) ["es"] `shouldBe` Spanish
+    it "counts auto/X as X" $
+      lang (LangFixed French) ["en", "en-auto"] `shouldBe` English
+    it "takes the default lang for the sources without lang" $ do
+      lang (LangFixed French) ["none", "unconfigured"] `shouldBe` French
+      lang (LangAuto German) ["none"] `shouldBe` German
+      lang (LangFixed English) ["en", "none"] `shouldBe` English
+    it "takes the default lang when the sources do not agree" $ do
+      lang (LangFixed French) ["en", "es"] `shouldBe` French
+      lang (LangFixed French) ["en", "none"] `shouldBe` French
+    it "takes all the sources when the context is empty" $ do
+      lang (LangFixed French) [] `shouldBe` French
+      searchLang (LangFixed French) configs ["en", "en-auto"] S.empty `shouldBe` English
+      searchLang (LangFixed French) configs [] S.empty `shouldBe` French
 
 
 --------------------------------------------------------------------------------
