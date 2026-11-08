@@ -7,9 +7,9 @@ module Kiwi.PagesDB
 
 import           Control.Exception (IOException, try)
 import           Control.Monad (forM_, unless, when)
-import           Data.List (find, partition)
+import           Data.List (find, partition, sortOn)
 import qualified Data.Map.Strict as M
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, isNothing)
 import           Data.SearchEngine (insertDocs, deleteDoc)
 import qualified Data.Set as S
 import qualified Data.Text as T
@@ -31,7 +31,8 @@ import qualified Utils.DocIndex as DI
 -- file is reloaded when its modification time differs from the one of its
 -- loaded page, so that renamed files, and files with an old date (copied,
 -- synchronized), are loaded. The index and the search engine get the same
--- removals and insertions.
+-- removals and insertions. The links to missing pages of all the pages are
+-- then reported.
 updatePagesDB :: L.Logger -> FP.FilePath ->  FP.FilePath -> PagesDB ->  IO PagesDB
 updatePagesDB logger' contentDir' pagesDir db = do
     sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
@@ -61,7 +62,13 @@ updatePagesDB logger' contentDir' pagesDir db = do
     forM_ duplicates $ \((src, pId), ignored, kept) -> logger' L.Warn $ T.concat
       [ "duplicate page id ", src, ":", pId, ", ", T.pack ignored, " ignored, "
       , T.pack kept, " used" ]
-    return $ db { pagesIndex = DI.insertMany pagesIndexClean $ map fst inserted
+    let newIndex = DI.insertMany pagesIndexClean $ map fst inserted
+    -- links of all the pages, loaded now or before, to pages that do not
+    -- exist (whatever the access of the pages)
+    forM_ (brokenLinks newIndex) $ \(pg, (src, pId)) -> logger' L.Warn $ T.concat
+      [ "link to a missing page, ", T.pack (pageAbsoluteFSPath pg), " : "
+      , src, ":", pId ]
+    return $ db { pagesIndex = newIndex
                 , searchEngine = insertDocs inserted searchEngineClean }
   where
     -- TODO : gérer des conditions de rechargement
@@ -88,7 +95,7 @@ updatePagesDB logger' contentDir' pagesDir db = do
         let unknown = unknownMetaKeys (customMetaConfig db) (pageText pg)
         unless (null unknown) $ logger' L.Warn $ T.concat
           [ "unknown metadata, ", T.pack p, " : ", T.intercalate ", " unknown ]
-        forM_ (invalidMetaValues $ pageText pg) $ \(k, v) ->
+        forM_ (invalidMetaValues (customMetaConfig db) $ pageText pg) $ \(k, v) ->
           logger' L.Warn $ T.concat [ "invalid metadata value, ", T.pack p, " : "
                                     , k, ": ", v ]
         -- ids made from the path have no '/': this one is from the "id" field
@@ -135,6 +142,15 @@ resolveDuplicates idx loaded =
          , [ (uid, p, used) | p <- ignored ] )
 
 
+
+
+-- | The links to pages that are not in the index, with the page of each one,
+-- by file path of the page then target
+brokenLinks :: DI.DocIndex Page PageUID MetaField DocIndexKey -> [(Page, PageUID)]
+brokenLinks idx =
+  [ (pg, uid) | pg <- sortOn pageAbsoluteFSPath $ DI.documentsList idx
+              , uid <- nodup $ pageLinks pg
+              , isNothing $ DI.findDoc idx uid ]
 
 
 emptyPagesDB :: MetaData -> [CustomMetaConfig] -> [SourceConfig] -> PagesDB

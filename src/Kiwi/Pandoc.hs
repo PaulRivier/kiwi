@@ -41,6 +41,7 @@ import qualified Text.Pandoc.Walk as PW
 -- import qualified Text.Pandoc.Shared as PS
 import           Text.Read (readMaybe)
 
+import           Kiwi.HtmlWriter (pageTargetAttrs)
 import           Kiwi.LangDetect (resolveLang)
 import           Kiwi.Types
 import           Kiwi.Tags (splitMeta, splitTags, prefixNormalizeTag)
@@ -89,13 +90,21 @@ unknownMetaKeys cmc c = filter (`notElem` known) $ M.keys $ fst $ splitPage c
             , "files-dir" ] ++ map cmcName cmc
 
 
--- | Built-in metadata of the header of a page text whose value can not be
--- read, with this value: the page has the default value instead. Only
--- "archive" is checked.
-invalidMetaValues :: T.Text -> [(T.Text, T.Text)]
-invalidMetaValues c = case M.lookup "archive" (fst $ splitPage c) of
-  Just vs | v <- last vs, isNothing (parseBool v) -> [("archive", v)]
-  _ -> []
+-- | Metadata of the header of a page text whose value can not be read, with
+-- this value. For "archive" and "lang" (built-in), the page has the default
+-- value instead; for the custom metadata of type int, date or bool, the
+-- value is ignored.
+invalidMetaValues :: [CustomMetaConfig] -> T.Text -> [(T.Text, T.Text)]
+invalidMetaValues cmc c =
+  let docMeta = fst $ splitPage c
+      lastValue k = last <$> M.lookup k docMeta
+  in [ ("archive", v) | Just v <- [lastValue "archive"], isNothing (parseBool v) ]
+     ++ [ ("lang", v) | Just v <- [lastValue "lang"]
+                      , either (const True) (const False) (parseLangSetting v) ]
+     ++ [ (cmcName cfg, v) | cfg <- cmc
+                           , v <- maybe [] (concatMap splitMeta) $
+                                  M.lookup (cmcName cfg) docMeta
+                           , isNothing (readCustomValue (cmcType cfg) v) ]
 
 
 -- | yes, true, 1 or no, false, 0, ignoring case
@@ -106,14 +115,18 @@ parseBool b = case T.toLower (T.strip b) of
     | otherwise -> Nothing
 
 
--- | Metadata and content of a page. Windows line endings are normalized,
--- and a file without blank line is considered as metadata only, with empty
--- content
+-- | Metadata and content of a page (see 'normalizeText'). A file without
+-- blank line is considered as metadata only, with empty content.
 splitPage :: T.Text -> (M.Map T.Text [T.Text], T.Text)
 splitPage c =
-  let normC = T.replace "\r\n" "\n" c
+  let normC = normalizeText c
       (metaC, content) = fromMaybe (normC, T.empty) $ splitOnFirst "\n\n" normC
   in (parseMetaData metaC, content)
+
+-- | The text of a file without its initial byte order mark (U+FEFF, added by
+-- some Windows editors) if any, and with Unix line endings
+normalizeText :: T.Text -> T.Text
+normalizeText c = T.replace "\r\n" "\n" $ fromMaybe c $ T.stripPrefix "\xFEFF" c
 
 
 -- | Document of a page, with its links fixed, and the links to other pages
@@ -155,7 +168,7 @@ pageDoc contentDir' p =
 embeddedDoc :: FP.FilePath -> Bool -> T.Text -> Either String (Maybe T.Text, PD.Pandoc)
 embeddedDoc name withHeader c =
   let (docMeta, content) = if withHeader then splitPage c
-                           else (M.empty, T.replace "\r\n" "\n" c)
+                           else (M.empty, normalizeText c)
       title = T.intercalate " " <$> M.lookup "title" docMeta
   in (\(doc, _) -> (title, doc)) <$> loadDoc name "" "" docMeta content
 
@@ -209,8 +222,11 @@ walkDoc source pageDir imagesDir filesDir doc =
       -- chemin des pages, fichiers, liens externes
       fixInlines (PD.Link attr txt (rawLink, lName)) =
         case parseLink rawLink of
-          PageLink l   -> PD.Link (addClass pageLinkClass attr) txt
-                                  (pathToPage pageDir l, lName)
+          PageLink l   -> let (pId, fragment) = pageTarget pageDir l
+                              uid = (source, pId)
+                          in PD.Link (addKVs (pageTargetAttrs uid) $
+                                      addClass pageLinkClass attr) txt
+                                     (Url.pageUIDUrl uid <> fragment, lName)
           AnchorLink l -> PD.Link (addClass "kiwi-link-anchor" attr) txt
                                   (l, lName)
           ImageLink l  -> PD.Link (addClass "kiwi-link-image" attr) txt
@@ -224,7 +240,7 @@ walkDoc source pageDir imagesDir filesDir doc =
 
       collect :: PD.Inline -> [CollectedFromDoc]
       collect (PD.Link _ _ (rawLink, _)) = case parseLink rawLink of
-        PageLink l -> [CollectedPageLink $ absolutePageId pageDir l]
+        PageLink l -> [CollectedPageLink $ fst $ pageTarget pageDir l]
         _          -> []
       collect _ = []
 
@@ -237,6 +253,9 @@ walkDoc source pageDir imagesDir filesDir doc =
 
       addClass :: T.Text -> PD.Attr -> PD.Attr
       addClass c (idAttr, classAttr, kvs) = (idAttr, c:classAttr, kvs)
+
+      addKVs :: [(T.Text, T.Text)] -> PD.Attr -> PD.Attr
+      addKVs kvs' (idAttr, classAttr, kvs) = (idAttr, classAttr, kvs ++ kvs')
 
       -- opens the link in a new tab
       newTab :: PD.Attr -> PD.Attr
@@ -251,20 +270,45 @@ walkDoc source pageDir imagesDir filesDir doc =
 
       pathToImage d r = pathToR "/image" d r
       pathToFile d r = pathToR "/file" d r
+      -- the target may be percent-encoded, and have a fragment
+      -- ("doc.pdf#page=2"); each segment is encoded, with the source
       pathToR n d r =
-          case T.uncons r of
-            -- absolute link
-            Just ('/', l) -> U.joinPathT [n, source, l]
-            -- relative link
-            _       -> U.joinPathT [n, source, d, r]
-      pathToPage d r = U.joinPathT ["/page", source, absolutePageId d r]
+        let (path, fragment) = T.breakOn "#" r
+            segments = absoluteSegments d $ Url.urlDecodeText path
+        in T.intercalate "/" (n : map Url.urlEncodeText (source : segments))
+           <> fragment
 
-      absolutePageId d r =
-          case T.uncons r of
-            -- absolute link
-            Just ('/', l) -> U.normalizePageId l
-            -- relative link
-            _             -> U.normalizePageId $ U.joinPathT [d, r]
+
+
+-- | Id of the page targeted by a "page:" link written in a page of the
+-- given folder, and the fragment of the link ("#anchor"), if any. The target
+-- may be percent-encoded, and may end with the extension of the page file
+-- (.md or .markdown), which is removed. See 'absoluteSegments' for the
+-- resolution of relative targets.
+pageTarget :: T.Text -> T.Text -> (T.Text, T.Text)
+pageTarget pageDir l =
+  let (path, fragment) = T.breakOn "#" l
+      noExt p = fromMaybe p $ T.stripSuffix ".md" p <|> T.stripSuffix ".markdown" p
+      pId = T.intercalate ":" $ absoluteSegments pageDir $ noExt $ Url.urlDecodeText path
+  in (pId, fragment)
+
+-- | Segments of a path written in a page of the given folder: an absolute
+-- path ("/a/b") starts at the top of the folder of the source, a relative
+-- one from the folder. The "." and ".." segments of the path are resolved,
+-- and its empty segments removed. A ".." at the top of the source folder is
+-- ignored (as by browsers at the root of a site), so that a link never
+-- leaves its source.
+absoluteSegments :: T.Text -> T.Text -> [T.Text]
+absoluteSegments dir path =
+  let full = case T.uncons path of
+        Just ('/', l) -> l
+        _             -> T.concat [dir, "/", path]
+  in reverse $ foldl resolve [] $ T.splitOn "/" full
+  where
+    resolve acc ""   = acc
+    resolve acc "."  = acc
+    resolve acc ".." = drop 1 acc
+    resolve acc s    = s : acc
 
 
 
@@ -314,25 +358,26 @@ loadPageIO fullPath relPath source md cmc scM = do
         in Right (page, content)
 
 
+-- | Custom metadata of a page header. The values that can not be read for
+-- their type are ignored (see 'invalidMetaValues').
 parseCustomMeta :: M.Map T.Text [T.Text] -> [CustomMetaConfig] -> [CustomMetaData]
 parseCustomMeta m = mapMaybe $
   \cmc -> case M.lookup (cmcName cmc) m of
     Nothing -> Nothing
-    Just v  -> let cmdKs = doRead (cmcType cmc) $ concatMap (splitMeta) v
+    Just v  -> let cmdKs = mapMaybe (readCustomValue (cmcType cmc)) $
+                           concatMap (splitMeta) v
                in Just $ CustomMetaData (cmcName cmc) cmdKs
-  where
-    doRead CmtText = map KeyText
-    doRead CmtInt  = map KeyInt . mapMaybe (readMaybe . T.unpack)
-    doRead CmtDate = map KeyDay . mapMaybe readDateMaybe
-    doRead CmtBool = map KeyBool . map readBool
 
-    readDateMaybe :: T.Text -> Maybe Time.Day
-    readDateMaybe d = Time.parseTimeM True Time.defaultTimeLocale "%Y-%-m-%-d" (T.unpack d)
+-- | Value of a custom metadata, if it can be read for its type
+readCustomValue :: CustomMetaType -> T.Text -> Maybe DocIndexKey
+readCustomValue t v = case t of
+  CmtText -> Just $ KeyText v
+  CmtInt  -> KeyInt <$> readMaybe (T.unpack v)
+  CmtDate -> KeyDay <$> Time.parseTimeM True Time.defaultTimeLocale "%Y-%-m-%-d"
+                                        (T.unpack v)
+  CmtBool -> KeyBool <$> parseBool v
 
-    readBool :: T.Text -> Bool
-    readBool b = if elem (T.toLower b) ["yes", "true", "1"] then True else False
-          
-  
+
 
 
 parseMetaData :: T.Text -> M.Map T.Text [T.Text]

@@ -652,6 +652,13 @@ h1.page-title {
   text-decoration: underline dotted;
 }
 
+/* link to a page that does not exist, or that the user can not read */
+.document a.kiwi-link-broken,
+.document a.kiwi-link-broken:hover {
+  color: rgba(var(--kiwi-error), 0.8);
+  text-decoration: underline dashed;
+}
+
 .document h1 { font-size: 1.8em; }
 .document h2 { font-size: 1.5em; }
 .document h3 { font-size: 1.2em; }

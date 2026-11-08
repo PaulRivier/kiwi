@@ -4,9 +4,17 @@
 -- the content of each footnote inline, where it is referenced, so the writer
 -- numbers each 'PD.Note' it meets and renders its content at the end of the
 -- document.
-module Kiwi.HtmlWriter (writeHtml5) where
+--
+-- The links to other pages carry their target in key/value attributes (see
+-- 'pageTargetAttrs'): the writer removes them, and marks the link as broken
+-- when the target page does not exist (for the user).
+module Kiwi.HtmlWriter
+  ( writeHtml5
+  , pageTargetAttrs
+  ) where
 
 import           Control.Monad (forM_, unless)
+import           Control.Monad.Reader (ReaderT, asks, runReaderT)
 import           Control.Monad.State.Strict (State, evalState, gets, modify)
 import qualified Data.List as List
 import qualified Data.Map.Strict as M
@@ -17,17 +25,48 @@ import           Lucid.Base (commuteHtmlT2, makeAttributes)
 import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 
+import           Kiwi.Types (PageUID)
+
 
 -- | Footnotes met so far, by number (from 1)
 type Notes = M.Map Int [PD.Block]
-type W = HtmlT (State Notes)
+-- | The rendering reads whether a page exists, and collects the footnotes
+type W = HtmlT (ReaderT (PageUID -> Bool) (State Notes))
 
 
 
-writeHtml5 :: PD.Pandoc -> Html ()
-writeHtml5 (PD.Pandoc _meta blocks) =
-  evalState (commuteHtmlT2 render) M.empty
+-- | The document, with the links to the pages that do not exist (according
+-- to the given predicate) marked as broken
+writeHtml5 :: (PageUID -> Bool) -> PD.Pandoc -> Html ()
+writeHtml5 pageExists (PD.Pandoc _meta blocks) =
+  evalState (runReaderT (commuteHtmlT2 render) pageExists) M.empty
   where render = blocksToHtml blocks >> footnotesToHtml
+
+
+-- | Keys of the attributes of a link to a page that hold its target
+pageSourceKey, pageIdKey :: T.Text
+pageSourceKey = "kiwi-page-source"
+pageIdKey = "kiwi-page-id"
+
+-- | Key/value attributes of a link to a page, for its target: they are not
+-- rendered
+pageTargetAttrs :: PageUID -> [(T.Text, T.Text)]
+pageTargetAttrs (s, i) = [(pageSourceKey, s), (pageIdKey, i)]
+
+-- | Class of the links to pages that do not exist
+brokenLinkClass :: T.Text
+brokenLinkClass = "kiwi-link-broken"
+
+-- | The attributes of a link without those of its target page, with the
+-- class of broken links when it targets a page that does not exist
+linkAttr :: PD.Attr -> W PD.Attr
+linkAttr attr@(ident, classes, kvs) =
+  case (lookup pageSourceKey kvs, lookup pageIdKey kvs) of
+    (Just s, Just i) -> do
+      exists <- asks ($ (s, i))
+      let kvs' = filter ((`notElem` [pageSourceKey, pageIdKey]) . fst) kvs
+      return (ident, classes ++ [brokenLinkClass | not exists], kvs')
+    _ -> return attr
 
 
 -- Turns a Pandoc 'PD.Attr' (id, classes, arbitrary key/value pairs) into Lucid
@@ -203,8 +242,9 @@ inlineToHtml il = case il of
   PD.LineBreak -> br_ []
   PD.Math _ str -> toHtml str -- plug in texmath yourself if you need real math rendering
   PD.RawInline fmt raw -> rawToHtml fmt raw
-  PD.Link attr ils (url, title) ->
-    a_ ([href_ url] ++ titleAttr title ++ attrs attr) (inlinesToHtml ils)
+  PD.Link attr ils (url, title) -> do
+    attr' <- linkAttr attr
+    a_ ([href_ url] ++ titleAttr title ++ attrs attr') (inlinesToHtml ils)
   PD.Image attr ils target -> imageToHtml attr (inlinesToPlain ils) target
   PD.Note bs -> noteToHtml bs
   PD.Span attr ils -> span_ (attrs attr) (inlinesToHtml ils)

@@ -1,6 +1,9 @@
 -- | URLs of the pages, and the navigation context in their query string
 module Kiwi.Url
   ( pageUrl
+  , pageUIDUrl
+  , urlEncodeText
+  , urlDecodeText
   , pageUIDLink
   , contextParams
   , withoutContextParams
@@ -17,8 +20,11 @@ import           Kiwi.Types
 
 
 pageUrl :: Page -> T.Text
-pageUrl p = let (s,i) = pageUID p in
-  T.concat ["/page/", urlEncodeText s, "/", urlEncodeText i]
+pageUrl = pageUIDUrl . pageUID
+
+-- | URL of a page, from its source and id, each one encoded
+pageUIDUrl :: PageUID -> T.Text
+pageUIDUrl (s, i) = T.concat ["/page/", urlEncodeText s, "/", urlEncodeText i]
 
 -- | Query parameters of the navigation context: "source" for each source,
 -- as on the browse page, and "archive=yes" in the archives
@@ -46,8 +52,12 @@ pageUIDLink :: Page -> T.Text
 pageUIDLink p = let (_,i) = pageUID p in
   T.concat ["/", i]
 
+-- | Encodes a path segment: every character but the letters, digits, and
+-- "-_.~:@&=+$," ('/', '?', '#', '%' and spaces are encoded)
 urlEncodeText :: T.Text -> T.Text
 urlEncodeText = TE.decodeUtf8 . URI.urlEncode False . TE.encodeUtf8
 
--- urlDecodeText :: T.Text -> T.Text
--- urlDecodeText = TE.decodeUtf8 . URI.urlDecode False . TE.encodeUtf8
+-- | Decodes the percent-encoded characters ("%20"); a '%' that does not start
+-- one is kept as is ("100%")
+urlDecodeText :: T.Text -> T.Text
+urlDecodeText = TE.decodeUtf8Lenient . URI.urlDecode False . TE.encodeUtf8

@@ -153,6 +153,44 @@ loadPageSpec = do
     links p `shouldBe` [(["kiwi-link-page"], "/page/src/Other")]
     pandocPageLinks p `shouldBe` [("src", "Other")]
 
+  it "separates the anchor of a page link from the page id" $ do
+    let p = load "title: t\n\n[a](<page:Other#part 2>) [b](<page:/Top.md#x>)"
+    links p `shouldBe` [ (["kiwi-link-page"], "/page/src/sub:Other#part 2")
+                       , (["kiwi-link-page"], "/page/src/Top#x") ]
+    pandocPageLinks p `shouldBe` [("src", "sub:Other"), ("src", "Top")]
+
+  it "encodes the page id of a link, which may be percent-encoded" $ do
+    let p = load "title: t\n\n[a](<page:Chiffon Cake>) [b](<page:Pourquoi ?>) \
+                 \[c](<page:C%23>) [d](<page:100%>) [e](<page:100%25.md>) \
+                 \[f](page:a%20b)"
+    map snd (links p) `shouldBe` [ "/page/src/sub:Chiffon%20Cake"
+                                 , "/page/src/sub:Pourquoi%20%3F"
+                                 , "/page/src/sub:C%23"
+                                 , "/page/src/sub:100%25"
+                                 , "/page/src/sub:100%25"
+                                 , "/page/src/sub:a%20b" ]
+    pandocPageLinks p `shouldBe` [ ("src", "sub:Chiffon Cake"), ("src", "sub:Pourquoi ?")
+                                 , ("src", "sub:C#"), ("src", "sub:100%")
+                                 , ("src", "sub:100%"), ("src", "sub:a b") ]
+
+  it "removes the extension of a page link" $ do
+    let p = load "title: t\n\n[a](<page:a.md>) [b](<page:b.markdown>) [c](<page:c.txt>)"
+    pandocPageLinks p `shouldBe` [("src", "sub:a"), ("src", "sub:b"), ("src", "sub:c.txt")]
+
+  it "resolves the . and .. segments of page links, inside the source" $ do
+    let p = loadIn "a/b" "title: t\n\n[a](<page:../x>) [b](<page:./y>) \
+                         \[c](<page:../../../z>) [d](<page:/q/../r>) [e](<page:s//t/>)"
+    pandocPageLinks p `shouldBe` [ ("src", "a:x"), ("src", "a:b:y"), ("src", "z")
+                                 , ("src", "r"), ("src", "a:b:s:t") ]
+    map snd (links p) `shouldBe` [ "/page/src/a:x", "/page/src/a:b:y", "/page/src/z"
+                                 , "/page/src/r", "/page/src/a:b:s:t" ]
+
+  it "encodes image and file paths, keeping their fragment" $ do
+    let p = loadIn "a b" "title: t\n\n![i](<image:x y?.png>) [f](<file:../C%23.pdf#page=2>) \
+                         \[g](<file:/../100%.ods>)"
+    images p `shouldBe` ["/image/src/a%20b/x%20y%3F.png"]
+    map snd (links p) `shouldBe` ["/file/src/C%23.pdf#page=2", "/file/src/100%25.ods"]
+
   it "fixes image and file links" $ do
     let p = load "title: t\n\n[i](<image:a.png>) [j](<image:/b.png>) \
                  \[f](<file:c.ods>) [g](<file:/d.ods>)"
@@ -177,14 +215,37 @@ loadPageSpec = do
     take 1 (inCtx True)
       `shouldBe` [(["kiwi-link-page"], "/page/src/sub:Other?source=x&archive=yes#part")]
 
+  it "keeps the navigation context before the anchor of a page with a '#'" $ do
+    let p = load "title: t\n\n[a](<page:C%23#part>)"
+        inCtx = links p { pandocDoc = linksInContext
+                            (Context (S.fromList ["x"]) False) (pandocDoc p) }
+    inCtx `shouldBe` [(["kiwi-link-page"], "/page/src/sub:C%23?source=x#part")]
+
   it "reads the archive metadata" $ do
     let archived = metaArchive . pandocMeta . load
     archived "title: t\n\nx" `shouldBe` False
     archived "title: t\narchive: Yes\n\nx" `shouldBe` True
     archived "title: t\narchive: 0\n\nx" `shouldBe` False
     archived "title: t\narchive: oui\n\nx" `shouldBe` False
-    invalidMetaValues "title: t\narchive: oui\n\narchive: x" `shouldBe` [("archive", "oui")]
-    invalidMetaValues "title: t\narchive: true\n\narchive: x" `shouldBe` []
+    invalidMetaValues [] "title: t\narchive: oui\n\narchive: x" `shouldBe` [("archive", "oui")]
+    invalidMetaValues [] "title: t\narchive: true\n\narchive: x" `shouldBe` []
+
+  it "finds the invalid lang and typed custom metadata values" $ do
+    let cfg = [ CustomMetaConfig "date" CmtDate 1, CustomMetaConfig "count" CmtInt 1
+              , CustomMetaConfig "flag" CmtBool 1, CustomMetaConfig "authors" CmtText 1 ]
+    invalidMetaValues cfg "lang: fr\ndate: 2020-1-5, 2020-13-1\ncount: 3, x\n\
+                          \flag: yes, oui\nauthors: anything\n\nlang: x"
+      `shouldBe` [ ("lang", "fr"), ("date", "2020-13-1"), ("count", "x"), ("flag", "oui") ]
+    invalidMetaValues cfg "lang: auto/french\ndate: 2020-1-5\ncount: 3\nflag: No\n\n"
+      `shouldBe` []
+    -- the default lang is used
+    metaLang (pandocMeta $ load "title: t\nlang: fr\n\nx") `shouldBe` LangFixed English
+
+  it "removes a byte order mark at the start of the file" $ do
+    let p = load "\xFEFFtitle: T\r\ntags: x\r\n\r\nHello"
+    metaTitle (pandocMeta p) `shouldBe` "T"
+    blocks p `shouldBe` [PD.Para [PD.Str "Hello"]]
+    unknownMetaKeys [] "\xFEFFtitle: T\n\nHello" `shouldBe` []
 
   it "fixes images paths" $ do
     let p = load "title: t\n\n![x](<image:a.png>) ![y](<image:/b.png>) ![z](http://e.org/c.png)"
@@ -265,7 +326,8 @@ metaDataSpec = do
 
   it "reads booleans" $ do
     let cfg = [CustomMetaConfig "b" CmtBool 1]
-        m = parseMetaData "b: true, 1, yes, no, false, other"
+        m = parseMetaData "b: true, 1, Yes, no, false, 0, oui"
+    -- invalid values are ignored
     map cmdKeys (parseCustomMeta m cfg)
       `shouldBe` [map KeyBool [True, True, True, False, False, False]]
 
@@ -1012,6 +1074,32 @@ pagesDBSpec = do
       dbIds db `shouldReturn` ["x/y"]
       warnings msgs `shouldBe` [T.pack $ "page id with a '/', " ++ pageFile cd "a.md" ++ " : x/y"]
 
+  it "warns about the links to missing pages, after each reload" $
+    withContentDir $ \cd -> do
+      writeFileAt (pageFile cd "a.md") 0
+        "title: A\n\nkiwiword [b](<page:b.md#x>) [c](<page:c>) [c2](<page:c#y>)"
+      writeFileAt (pageFile cd "b.md") 0 "title: B\n\nkiwiword"
+      (db, msgs) <- loadDB cd
+      let missing = [T.pack $ "link to a missing page, " ++ pageFile cd "a.md" ++ " : s:c"]
+      warnings msgs `shouldBe` missing
+      -- a is not loaded again, its links are still checked
+      writeFileAt (pageFile cd "b.md") 1 "title: B\n\nkiwiword"
+      (db', msgs') <- reloadDB cd db
+      warnings msgs' `shouldBe` missing
+      writeFileAt (pageFile cd "c.md") 0 "title: C\n\nkiwiword"
+      (_, msgs'') <- reloadDB cd db'
+      warnings msgs'' `shouldBe` []
+
+  it "finds the backlinks of a page linked with an anchor" $
+    withContentDir $ \cd -> do
+      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword [b](<page:sub/b#x>)"
+      writeFileAt (pageFile cd "sub/b.md") 0 "title: B\n\nkiwiword [a](<page:../a.md>)"
+      (db, _) <- loadDB cd
+      let backlinks :: PageUID -> [PageUID]
+          backlinks uid = map pageUID $ DI.query (pagesIndex db) (U.qOnly FieldLink uid)
+      backlinks ("s", "sub:b") `shouldBe` [("s", "a")]
+      backlinks ("s", "a") `shouldBe` [("s", "sub:b")]
+
   it "ignores the files whose name is not the one of a page, in debug" $
     withContentDir $ \cd -> do
       writeFileAt (pageFile cd "_draft.md") 0 "title: A\n\nkiwiword"
@@ -1026,7 +1114,16 @@ pagesDBSpec = do
 
 htmlWriterSpec :: Spec
 htmlWriterSpec = do
-  let html = TL.toStrict . renderText . writeHtml5 . pandocDoc . load
+  let html = TL.toStrict . renderText . writeHtml5 (const True) . pandocDoc . load
+
+  it "marks the links to missing pages as broken, without their target attributes" $ do
+    let exists uid = uid == ("src", "sub:Here")
+        render = TL.toStrict . renderText . writeHtml5 exists . pandocDoc . load
+    render "t: t\n\n[a](<page:Here#x>) [b](<page:Gone>) [c](http://e.org)"
+      `shouldBe` T.concat
+        [ "<p><a href=\"/page/src/sub:Here#x\" class=\"kiwi-link-page\">a</a> "
+        , "<a href=\"/page/src/sub:Gone\" class=\"kiwi-link-page kiwi-link-broken\">b</a> "
+        , "<a href=\"http://e.org\" class=\"kiwi-link-external\" target=\"_blank\">c</a></p>" ]
 
   it "renders footnotes as numbered references and a list at the end" $
     html "t: t\n\nA[^x] and B[^y].\n\n[^x]: Note x.\n\n[^y]: Note y."

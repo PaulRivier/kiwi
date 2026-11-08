@@ -16,8 +16,6 @@ module Kiwi.Utils
   , isDotFile
   , isValidMdFilename
   , pathToPageId
-  , normalizePageId
-  , joinPathT
     -- * Caching
   , initWAICaching
     -- * IO
@@ -149,8 +147,9 @@ pathToPageId = normalizePageId . T.pack
 normalizePageId :: T.Text -> T.Text
 normalizePageId = T.replace "/" ":"
 
-joinPathT :: [T.Text] -> T.Text
-joinPathT = T.pack . FP.joinPath . map T.unpack
+-- links written in pages are resolved by Kiwi.Pandoc.absoluteSegments
+-- joinPathT :: [T.Text] -> T.Text
+-- joinPathT = T.pack . FP.joinPath . map T.unpack
 
 -- Caching helpers
 

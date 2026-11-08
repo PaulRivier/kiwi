@@ -64,7 +64,9 @@ servePage pgId = do
       -- the page was parsed when loaded, so this should not fail
       doc <- orRenderError (K.pageAbsoluteFSPath p) $ pageDoc cd p
       let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
-      r <- V.renderPage p doc backLinkPages
+          -- links to the pages the user can not read are shown as broken
+          pageExists = isJust . findPage db
+      r <- V.renderPage pageExists p doc backLinkPages
       html r
     Nothing -> serveNotFound
 

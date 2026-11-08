@@ -68,12 +68,15 @@ renderView title actions tocDoc content = do
   return $ renderText $ layout ctx title actions tocDoc content
 
 
--- | A page, its document and the pages linking to it
-renderPage :: K.Page -> PD.Pandoc -> [K.Page] -> ActM TL.Text
-renderPage p doc backlinks = do
+-- | A page, its document and the pages linking to it. The links of the
+-- document to the pages that do not exist (according to the predicate) are
+-- marked as broken.
+renderPage :: (K.PageUID -> Bool) -> K.Page -> PD.Pandoc -> [K.Page] -> ActM TL.Text
+renderPage pageExists p doc backlinks = do
   loc <- getLocales
   ctx <- asksK K.context
-  renderView (K.pageTitle p) (PageActions p) (Just doc) (pageView loc ctx p doc backlinks)
+  renderView (K.pageTitle p) (PageActions p) (Just doc)
+             (pageView loc ctx pageExists p doc backlinks)
 
 -- | A document embedded in kiwi (README...), with its title as heading if
 -- given
@@ -81,7 +84,8 @@ renderDoc :: T.Text -> Maybe T.Text -> PD.Pandoc -> ActM TL.Text
 renderDoc title headingM doc =
   renderView title NoActions (Just doc) $ div_ [class_ "page-view"] $ do
     forM_ headingM $ h1_ [class_ "page-title"] . toHtml
-    div_ [class_ "document"] $ writeHtml5 doc
+    -- links of embedded documents are not relative to any source
+    div_ [class_ "document"] $ writeHtml5 (const True) doc
 
 -- | Key of an union field, with a link to add it to the request, or to
 -- remove it when it is selected
@@ -283,8 +287,9 @@ plainText = PW.query txt
 
 -- * Views
 
-pageView :: K.Locales -> K.Context -> K.Page -> PD.Pandoc -> [K.Page] -> Html ()
-pageView loc ctx p doc backlinks = div_ [class_ "page-view"] $ do
+pageView :: K.Locales -> K.Context -> (K.PageUID -> Bool) -> K.Page -> PD.Pandoc ->
+            [K.Page] -> Html ()
+pageView loc ctx pageExists p doc backlinks = div_ [class_ "page-view"] $ do
   contextBar loc [fst $ K.pageUID p]
     (linksList "tags-list" [ (prettyTag t, browseLink K.FieldTag (K.KeyText t))
                            | t <- K.pageTags p ])
@@ -297,7 +302,7 @@ pageView loc ctx p doc backlinks = div_ [class_ "page-view"] $ do
         [ link (Browse.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
         | k <- K.cmdKeys cmd ]
   h1_ [class_ "page-title"] $ toHtml $ K.pageTitle p
-  div_ [class_ "document"] $ writeHtml5 $ linksInContext ctx doc
+  div_ [class_ "document"] $ writeHtml5 pageExists $ linksInContext ctx doc
   linksList "pages-list backlinks" $ map (pageLink ctx) backlinks
   where
     browseLink f k = Browse.browseUrl ctx $
