@@ -15,10 +15,15 @@ content :
 - automatic backlinks
 - access control
 - multi data sources
-- clear view/model separation, highly themable (html + CSS + JS)
+- a dark theme embedded in the binary, its CSS and JavaScript can be
+  changed (see [Development](#development))
 
 Kiwi uses [CommonMark](<https://commonmark.org/>) flavor of Markdown
-for contents.
+for contents, with these extensions: tables, footnotes, task lists,
+strikethrough, autolinks and heading anchors. The *CommonMark* link at
+the bottom of each page (`/commonmark`) shows the syntax. Raw HTML is
+allowed, but its scripts are blocked by the Content-Security-Policy of
+Kiwi (`script-src 'self'`): only the scripts of the theme run.
 
 Kiwi is beta software, use at your own risk. Some notes:
 - Since it does never write to content files, there is no risk of data
@@ -33,13 +38,14 @@ Static binaries are provided for GNU/Linux x64 systems, you can find
 them from https://github.com/PaulRivier/kiwi/releases . Follow the
 deployment instructions from there, then come back to this page.
 
-To update it later to the latest release, run `kiwi update` (or `kiwi
-update --check` to only check for a new release). It asks for a
-confirmation before replacing the binary; the previous one is kept as
-`kiwi.old`. Restart your kiwi servers afterwards.
+To update it later to the latest release, run `kiwi update` (or
+`kiwi update --check` to only check for a new release). It needs
+`bash`, `curl`, `tar` and `sha256sum`, and asks for a confirmation
+before replacing the binary; the previous one is kept as `kiwi.old`.
+Restart your kiwi servers afterwards.
 
-For more installation options, see "Other install methods" further
-down.
+To build Kiwi from source, see [Other install
+methods](#other-install-methods) further down.
 
 
 
@@ -68,12 +74,14 @@ important, type 'admin' when prompted for your groups) :
 
     kiwi access ~/Kiwi/kiwi.ini --create YOUR_NAME
 
-    # This should look like that
-    # Password: ********
-    # Groups (comma separated):
-    # admin
-    # Access created
+    # This should look like that (the password is not displayed)
+    # Password:
+    # Password again:
+    # Groups (comma separated): admin
+    # Account YOUR_NAME created. Running kiwi servers apply the change at
+    # the next login or reload (admin reload button).
 
+See [Accounts and access](#accounts-and-access) for more.
 
 You are now ready to start Kiwi :
 
@@ -87,6 +95,17 @@ Kiwi accepts command-line parameters that you can explore using the `--help` swi
     kiwi serve --help
     (...)
 
+`kiwi serve` accepts several config files, to run several kiwis at
+once (each one on its own port). It checks them all before starting:
+a missing or invalid config file, a missing content directory, or two
+kiwis on the same port stop it. When a config file is invalid, a clean
+*kiwi.ini.default* is written next to it to help you fix it. Once
+started, a server that stops on an error (port already in use for
+example) stops the others.
+
+On error, `kiwi serve`, `kiwi init` and `kiwi access` exit with code 1,
+`kiwi update` with the code of the update script.
+
 
 # Kiwi folder layout
 
@@ -94,6 +113,8 @@ In your kiwi folder you should have this layout.
 
 - Kiwi
   - kiwi.ini
+  - _accounts (created by `kiwi access`)
+  - _sessions (created at the first login)
   - content
     - my 
       - pages
@@ -113,7 +134,14 @@ Your pages should go in the *pages* folder, your images in the
 
 ## kiwi.ini config file
 
-This is the main configuration file and it is self documented.
+This is the main configuration file and it is self documented. It is
+read at startup: restart Kiwi after changing it.
+
+`ui-lang` (english or french) only sets the language of the web
+interface, see [Full-text search](#full-text-search) for the language
+of the pages. Without `editor`, pages can not be opened in an editor
+from the web interface (see [Edit file from
+browser](#edit-file-from-browser)).
 
 If Kiwi is served through HTTPS (behind a reverse proxy for example),
 set `secure-cookie: yes` in the `[kiwi]` section: the session cookie
@@ -121,6 +149,10 @@ will then only be sent over HTTPS connections. Keep it to `no` if you
 access Kiwi with plain HTTP, or login will not work.
 
 Sessions expire after one year, you then have to log in again.
+
+The session cookie is named after the `name` and the `port` of the
+kiwi (`kiwi-MyKiwi-3456`), so several kiwis can run on the same host
+without mixing their sessions.
 
 ### Sources settings
 
@@ -138,8 +170,9 @@ folder in *content* :
   separated groups. It replaces the access of the `[metadata-default]`
   section for these pages, and a page with its own *access* header
   keeps it.
-* **lang** : default language of the pages of this source, see
-  [Full-text search](#full-text-search). It replaces the lang of the
+* **lang** : default language of the pages of this source, also used
+  for the searches in this source, see [Full-text
+  search](#full-text-search). It replaces the lang of the
   `[metadata-default]` section.
 
 All these settings are optional.
@@ -151,9 +184,17 @@ or several. In each source, Kiwi will require the following layout.
 
 ### pages
 
-Add your Markdown documents to 'pages' to get started. Pages filename
-are used as identifiers, unless you set a custom identifier in the
-page.
+Add your Markdown documents to 'pages' to get started. Kiwi only reads
+the files whose name starts with a letter or a digit and ends with
+`.md` or `.markdown`: other files (`_draft.md`, `notes.txt`) are
+ignored, with a message in debug mode (`kiwi serve --log-level debug`),
+as well as hidden files and folders (`.name`). Pages must be UTF-8
+files.
+
+Pages filename are used as identifiers, unless you set a custom
+identifier in the page: the identifier is the file path from *pages*,
+without extension, with `:` between the folders (*recipe/cake.md* gives
+`recipe:cake`).
 
 Kiwi documents are composed of metadata and content. Metadata are
 fields in the form
@@ -217,12 +258,15 @@ Home.md for file format example.
 
 Some metadata keys are reserved by kiwi :
 
-* **title** : title of your page (required)
+* **title** : title of your page (optional, but a page without title
+  gets the default one, *untitled*)
 * **id** : your page identifier, this is optional, if you don't set it
   kiwi will use the name of the file. In should be unique within the
-  page source. It should not include "/" or ":".
+  page source. It should not include "/" or ":". When two pages of a
+  source have the same identifier, only one is used, with a warning.
 * **tags** : powerful tags, see below (optional)
-* **lang** : language of the content, for full-text search (optional)
+* **lang** : language of the content, for full-text search and for the
+  `lang` attribute of the page in HTML (optional)
 * **access** : access restriction, comma separated allowed groups (optional)
 * **archive** : `yes` to archive the page, see below (optional)
 * **images-dir** : if you want to include many images in your document
@@ -241,16 +285,25 @@ overridden by page headers. These fields are :
 * access
 * lang
 
-You are free to use any filename extension for your pages, as long as
-the format inside is metadata header + blank line + CommonMark
-Markdown.
+When pages are loaded, Kiwi logs a warning for the unknown metadata
+keys (a typo, or custom metadata not declared in *kiwi.ini*), and for
+the invalid values (`archive: maybe`, an unknown `lang`, a custom
+metadata value not matching its type), which are ignored.
 
 
 **Links format :**
 
 Link to a page, file-name is file path from *pages* without extension
+(a `.md` or `.markdown` extension is removed), or the custom
+identifier of the page
 
     [link to a page](<page:File-name>)
+
+Link to a heading of a page, headings get an anchor from their text
+(`## Baking time` gives `#baking-time`)
+
+    [link to a section](<page:File-name#baking-time>)
+    [link to a section of this page](#baking-time)
 
 Link to an image, file-name is file path from *images*
 
@@ -282,18 +335,45 @@ Links can target path relative to top directories if they start with
 
     [link to a file](<file:/spreadsheet.ods>)
 
+A custom page identifier does not depend on the folder of its page: from
+a subfolder, link to it with `page:/identifier`.
+
+In links, `.` and `..` work as usual (`page:../cake`); a `..` above the
+top of the *pages*, *images* or *files* folder is ignored, so a link never
+leaves its source. Targets may be percent-encoded, which is needed for
+the characters with a meaning in links: `page:C%23` links to the page
+*C#.md* (a `#` starts an anchor).
+
+When pages are loaded or reloaded, Kiwi logs a warning for each link
+to a missing page. Broken links get the `kiwi-link-broken` class, that
+the theme shows in red with a dashed underline. For a reader, a link to
+a page they can not read, or between an archived page and a non
+archived one (see [Archives](#archives)), is broken too.
+
 
 ### images and files
 
 You are free to write any type of images and files in dedicated
 folders, and to use subfolders if you want to.
 
+**Images and files are public** : they are served to anyone who knows
+or guesses their URL (`/image/SOURCE/…`, `/file/SOURCE/…`), logged in
+or not, whatever the access of the pages that link to them. Don't put
+private content there. Hidden files (`.name`) are not served.
+
+The images and files of a source added while Kiwi runs are served after
+a restart (its pages are loaded at the next reload).
+
 
 # Documents reload
 
-Documents are reloaded on demand. From the web interface, click on the
-reload button. This will reload the database, not your browser
-page. You may need to hit your browser reload button as well.
+Documents are reloaded on demand. Logged in as an admin, click on the
+reload button of the web interface: Kiwi reloads the new, modified,
+renamed and removed pages, reads the accounts file again, then your
+browser page is reloaded. If it fails (session expired, not an admin),
+a message tells why.
+
+Changes to *kiwi.ini* need a restart.
 
 # Tags
 
@@ -349,10 +429,10 @@ file, with an entry similar to the following.
     type: text
     threshold: 0.8
 
-    [metadata author]
+    [metadata authors]
     type: text
     threshold: 0.5
-    
+
 `threshold` defines when a custom filter for this metadata key will
 show in the browsing interface. At `0.8`, it will appear as soon as
 the number of pages having this metadata is more than 80% of the total
@@ -363,9 +443,11 @@ so :
 
     category: Places
     authors: John, Jack
-    
-Custom metadata type can be text, integer, date or bool. Date format
-is "YYYY-MM-DD".
+
+Custom metadata type can be `text`, `int`, `date` or `bool`. Values
+are comma separated. Date format is "YYYY-MM-DD", bool values are
+`yes`, `true`, `1`, `no`, `false` or `0`. A value that does not match
+the type is ignored, with a warning in the logs.
 
 
 # Archives
@@ -394,7 +476,7 @@ russian, spanish, swedish and turkish.
 
     title: French fries : les Frites
     tags: cooking > recipe, area > France
-	lang: french
+    lang: french
 
 Kiwi can also detect the language from the content of the pages, for
 French, English and Spanish. Set it in the `[metadata-default]`
@@ -406,10 +488,13 @@ mixed content, other language) :
 
 `auto` alone is the same as `auto/english`.
 
-The search terms are processed in the language of the
-`[metadata-default]` section (its fallback language with `auto`), so
-inflected forms work best for pages in that language. To search in
-another language, start your search with its code :
+The search terms are processed in the language of the searched
+sources (those selected in the navigation, or all of them): the `lang`
+of their `[source …]` section, or else the one of the
+`[metadata-default]` section, `auto/X` counting as X. When these
+sources don't share a language, the one of the `[metadata-default]`
+section is used. Inflected forms work best for pages in that language.
+To search in another language, start your search with its code :
 
     es: canciones
 
@@ -418,37 +503,67 @@ Codes are da (danish), nl (dutch), en (english), fi (finnish), fr
 pt (portuguese), ro (romanian), ru (russian), es (spanish), sv
 (swedish) and tr (turkish).
 
+Pages and queries are split into words the same way, on spaces,
+punctuation (apostrophes, hyphens, quotes…) and symbols: `chocolate-banana`
+searches the words *chocolate* and *banana*. Case and accents don't
+matter.
+
 
 # Edit file from browser
 
 If you have set your editor in kiwi.ini, you can click on the pen
-picture to open your document in your editor.
+picture to open your document in your editor. This button is only shown
+to admins, and only when `editor` is set.
+
+The editor is started by the Kiwi server, on the machine where it runs:
+this is meant for a Kiwi running on your own computer. The `editor`
+command is split on spaces, without any quoting, and the file path is
+added as last argument; use a wrapper script for a path with spaces.
+Your browser page is reloaded at once: click on the reload button once
+the file is saved to see the changes.
 
 # Copy link
 
 Clicking on the chain link will copy a link to current page to your
 clipboard, so that it is easier for you to link between your
-documents.
+documents. This button is only shown to admins, and the browser only
+allows it over HTTPS or on localhost.
+
+# Accounts and access
+
+Accounts are managed with `kiwi access`, and stored in the *_accounts*
+file next to *kiwi.ini* :
+
+    kiwi access ~/Kiwi/kiwi.ini --create LOGIN
+    kiwi access ~/Kiwi/kiwi.ini --update LOGIN   # new password or groups
+    kiwi access ~/Kiwi/kiwi.ini --remove LOGIN
+
+A login is made of letters, digits, `-` and `_`. With `--update`, an
+empty answer keeps the current password or groups. Running servers read
+the accounts again at each login and at each reload: there is no need
+to restart them. A new password, or a removed account, closes the
+sessions of the account once the servers have read the accounts again.
+
+Each page is readable by the groups of its *access* metadata. The
+`public` group means everyone, logged in or not, and members of the
+`admin` group read all the pages. The default access of the pages is
+set in the `[metadata-default]` section, or in the settings of their
+source; without it, it is `admin`.
 
 # Content versioning and backup
 
 Kiwi is unaware of your content history, however you are strongly
 encouraged to keep your content in a revision control system.
 
+Don't put *_accounts* and *_sessions* under version control: they hold
+the password hashes and the sessions. Kiwi writes them readable by
+their owner only.
+
 
 # Other install methods
 
-## From released binaries
-
-Static binaries are provided for GNU/Linux x64 systems, you can find
-them from https://github.com/PaulRivier/kiwi/releases . Follow the
-deployment instructions from there, then come back to this page.
-
-To update it later to the latest release, run `kiwi update` (or
-`kiwi update --check` to only check for a new release). It needs
-`bash`, `curl`, `tar` and `sha256sum`, and asks for a confirmation
-before replacing the binary; the previous one is kept as `kiwi.old`.
-Restart your kiwi servers afterwards.
+For released binaries, see [Install from released binaries
+(Linux)](#install-from-released-binaries-linux).
 
 ## From source
 
@@ -470,7 +585,11 @@ Get the source code, check GHC compiler version from head of file `cabal.project
 
 Then, from source directory, run as user :
 
-    cabal install --project-file=cabal.project.devel
+    cabal install
+
+It uses the `cabal.project` file (optimized build). The other project
+files are for development (`cabal.project.devel`, not optimized) and
+for static release builds (`cabal.project.musl`).
 
 You may need to install the following packages on your system :
 
@@ -481,7 +600,7 @@ You may need to install the following packages on your system :
 
 # Development
 
-The theme files (css, js, images) are embedded in the binary. To work on them without building again, set `KIWI_THEME_DIR` to the theme folder when running kiwi : the files are then read from this folder at each request, and a page reload shows the changes.
+The theme files (css, js, images) are embedded in the binary: a changed theme needs a new build. To work on them without building again, set `KIWI_THEME_DIR` to the theme folder when running kiwi : the files are then read from this folder at each request, and a page reload shows the changes.
 
     KIWI_THEME_DIR=static/themes/dark kiwi serve path/to/kiwi.ini
 

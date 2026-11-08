@@ -10,7 +10,8 @@ content-directory: content
 # editor: gedit
 # Server port
 port: 3456
-# Default language for UI and fulltext search
+# Language of the web interface: english (default) | french
+# (the language of the pages and of the search is the lang below)
 ui-lang: english
 # Do you want to display Toc : on | off | auto
 toc: on
@@ -33,6 +34,7 @@ lang: english
 
 # If you want more metadata. Threshold is the minimum ratio of relevance that must
 # be reached before the metadata is suggested in the metadata-browser.
+# Types: text | int | date (YYYY-MM-DD) | bool (yes, true, 1 | no, false, 0)
 
 # [metadata category]
 # type: text
@@ -48,7 +50,10 @@ lang: english
 #   under a parent tag to preserve your browsing experience
 # access: default access of the pages, instead of the one of [metadata-default]
 #   (the access set in a page header still takes precedence)
+# lang: default lang of the pages, instead of the one of [metadata-default]
+#   (french, auto/french...), also used for the searches in this source
 
 # [source dad-botanic]
 # root-tag: botanic
 # access: family
+# lang: english
