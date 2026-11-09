@@ -344,11 +344,12 @@ leaves its source. Targets may be percent-encoded, which is needed for
 the characters with a meaning in links: `page:C%23` links to the page
 *C#.md* (a `#` starts an anchor).
 
-When pages are loaded or reloaded, Kiwi logs a warning for each link
-to a missing page. Broken links get the `kiwi-link-broken` class, that
-the theme shows in red with a dashed underline. For a reader, a link to
-a page they can not read, or between an archived page and a non
-archived one (see [Archives](#archives)), is broken too.
+Broken links get the `kiwi-link-broken` class, that the theme shows in
+red with a dashed underline. For a reader, a link to a page they can
+not read, or between an archived page and a non archived one (see
+[Archives](#archives)), is broken too. The *Doctor* page (`/doctor`,
+linked at the bottom of every page) lists the pages with broken links,
+among those the reader can read, with these links.
 
 
 ### images and files
@@ -501,7 +502,8 @@ To search in another language, start your search with its code :
 Codes are da (danish), nl (dutch), en (english), fi (finnish), fr
 (french), de (german), hu (hungarian), it (italian), no (norwegian),
 pt (portuguese), ro (romanian), ru (russian), es (spanish), sv
-(swedish) and tr (turkish).
+(swedish) and tr (turkish). The results page shows the language used,
+as in "Query [spanish]: es: canciones".
 
 Pages and queries are split into words the same way, on spaces,
 punctuation (apostrophes, hyphens, quotes…) and symbols: `chocolate-banana`

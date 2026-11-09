@@ -3,6 +3,7 @@
 module Kiwi.PagesDB
   ( updatePagesDB
   , emptyPagesDB
+  , brokenLinks
   ) where
 
 import           Control.Exception (IOException, try)
@@ -31,8 +32,7 @@ import qualified Utils.DocIndex as DI
 -- file is reloaded when its modification time differs from the one of its
 -- loaded page, so that renamed files, and files with an old date (copied,
 -- synchronized), are loaded. The index and the search engine get the same
--- removals and insertions. The links to missing pages of all the pages are
--- then reported.
+-- removals and insertions.
 updatePagesDB :: L.Logger -> FP.FilePath ->  FP.FilePath -> PagesDB ->  IO PagesDB
 updatePagesDB logger' contentDir' pagesDir db = do
     sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
@@ -63,11 +63,8 @@ updatePagesDB logger' contentDir' pagesDir db = do
       [ "duplicate page id ", src, ":", pId, ", ", T.pack ignored, " ignored, "
       , T.pack kept, " used" ]
     let newIndex = DI.insertMany pagesIndexClean $ map fst inserted
-    -- links of all the pages, loaded now or before, to pages that do not
-    -- exist (whatever the access of the pages)
-    forM_ (brokenLinks newIndex) $ \(pg, (src, pId)) -> logger' L.Warn $ T.concat
-      [ "link to a missing page, ", T.pack (pageAbsoluteFSPath pg), " : "
-      , src, ":", pId ]
+    -- the links to missing pages are listed on the /doctor page, not logged:
+    -- they are an issue of the content, not of the server
     return $ db { pagesIndex = newIndex
                 , searchEngine = insertDocs inserted searchEngineClean }
   where
@@ -145,7 +142,8 @@ resolveDuplicates idx loaded =
 
 
 -- | The links to pages that are not in the index, with the page of each one,
--- by file path of the page then target
+-- by file path of the page then target. Given the index restricted to the
+-- pages a user can read, the links that are broken for this user.
 brokenLinks :: DI.DocIndex Page PageUID MetaField DocIndexKey -> [(Page, PageUID)]
 brokenLinks idx =
   [ (pg, uid) | pg <- sortOn pageAbsoluteFSPath $ DI.documentsList idx

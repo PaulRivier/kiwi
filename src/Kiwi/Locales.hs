@@ -21,7 +21,8 @@ loc_english = Locales
   , loc_Search = "Search"
   , loc_SearchResults = "results"
   , loc_SearchNothing = "No page match"
-  , loc_SearchQuery = "Query:"
+  , loc_SearchQuery = "Query"
+  , loc_Colon = ":"
   , loc_NotFound = "This page does not exists"
   , loc_BadRequest = "Invalid request"
   , loc_Forbidden = "Forbidden access"
@@ -44,6 +45,9 @@ loc_english = Locales
   , loc_Access = "Access"
   , loc_Copy = "Copy"
   , loc_Archives = "Archives"
+  , loc_Doctor = "Doctor"
+  , loc_BrokenLinks = "Broken links"
+  , loc_NoBrokenLink = "No broken link"
   -- , loc_TimeLocale = enTimeLocale
   }
 
@@ -56,7 +60,8 @@ loc_french = Locales
   , loc_Search = "Recherche"
   , loc_SearchResults = "résultats"
   , loc_SearchNothing = "Aucun résultat"
-  , loc_SearchQuery = "Requête\x00A0:"
+  , loc_SearchQuery = "Requête"
+  , loc_Colon = "\x00A0:"
   , loc_NotFound = "Cette page n'existe pas"
   , loc_BadRequest = "Requête invalide"
   , loc_Forbidden = "Accès interdit"
@@ -79,6 +84,9 @@ loc_french = Locales
   , loc_Access = "Accès"
   , loc_Copy = "Copier"
   , loc_Archives = "Archives"
+  , loc_Doctor = "Doctor"
+  , loc_BrokenLinks = "Liens cassés"
+  , loc_NoBrokenLink = "Aucun lien cassé"
   -- , loc_TimeLocale = frTimeLocale
   }
 

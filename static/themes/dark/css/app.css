@@ -334,6 +334,29 @@ ul.pages-list li a:hover,
 
 /* Browse page */
 
+
+/* Doctor page: the pages as the links of a document, the broken links
+   (page ids) as plain text */
+
+.doctor-page ul {
+  padding-left: 2em;
+  list-style-type: "\2013  ";
+}
+
+.doctor-page ul.broken-links > li {
+  margin-top: 0.6em;
+}
+
+.doctor-page ul.broken-links a {
+  color: rgba(var(--kiwi-page-link), 0.7);
+  text-decoration: none;
+}
+
+.doctor-page ul.broken-links a:hover {
+  color: rgb(var(--kiwi-page-link));
+  text-decoration: underline dotted;
+}
+
 fieldset.flex {
   margin: 0 0 20px 0;
   padding: 0 10px;

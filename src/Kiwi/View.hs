@@ -7,6 +7,7 @@ module Kiwi.View
   , renderDoc
   , MetaEntry (..)
   , renderMetadata
+  , renderDoctor
   , renderLoginForm
   , renderNotFound
   , renderBadRequest
@@ -126,14 +127,23 @@ renderBrowseAll toggles switch menu filters listing pages = do
   renderView (K.loc_Tags loc) ReloadAction Nothing $
     browseView loc ctx toggles switch menu filters listing pages
 
--- | Results of the query, also in the search field
-renderSearchResults :: T.Text -> [K.Page] -> ActM TL.Text
-renderSearchResults query pages = do
+-- | Results of the query, also in the search field, with the lang it was
+-- processed in
+renderSearchResults :: K.Lang -> T.Text -> [K.Page] -> ActM TL.Text
+renderSearchResults lang query pages = do
   vctx <- getViewCtx
   let loc = ctxLocales vctx
   return $ renderText $
     layout vctx { ctxQuery = query } (K.loc_Search loc) ReloadAction Nothing $
-      searchView loc (ctxContext vctx) query pages
+      searchView loc (ctxContext vctx) lang query pages
+
+-- | The pages with links to pages that the user can not read, with these
+-- links (page ids), source by source
+renderDoctor :: [(T.Text, [(K.Page, [T.Text])])] -> ActM TL.Text
+renderDoctor broken = do
+  loc <- getLocales
+  ctx <- asksK K.context
+  renderView (K.loc_Doctor loc) NoActions Nothing $ doctorView loc ctx broken
 
 -- | A key of a field on the metadata page
 data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ as displayed
@@ -236,11 +246,12 @@ cmLink p = T.concat ["[", escape (K.pageTitle p), "](<page:", Url.pageUIDLink p,
 
 
 -- | Links to the documentation, in new tabs, out of the navigation context,
--- except the archive mode of the metadata
+-- except the archive mode of the metadata and of the doctor
 footer :: K.Locales -> K.Context -> Html ()
 footer loc ctx = footer_ [class_ "site-footer"] $
-  forM_ [ (K.loc_Metadata loc, Url.inContext metaCtx "/metadata"), ("README", "/readme")
-        , ("CommonMark", "/commonmark") ] $ \(label, target) ->
+  forM_ [ (K.loc_Metadata loc, Url.inContext metaCtx "/metadata")
+        , (K.loc_Doctor loc, Url.inContext metaCtx "/doctor")
+        , ("README", "/readme"), ("CommonMark", "/commonmark") ] $ \(label, target) ->
     a_ [href_ target, target_ "_blank", rel_ "noopener"] $ toHtml label
   where metaCtx = ctx { K.contextSources = S.empty }
 
@@ -388,8 +399,8 @@ browseView loc ctx toggles switch menu filters listing pages = div_ [class_ "tag
 
 -- | The results of the query, with their number (a single result is
 -- displayed directly, see 'Kiwi.Controller.serveSearch')
-searchView :: K.Locales -> K.Context -> T.Text -> [K.Page] -> Html ()
-searchView loc ctx query pages = div_ [class_ "search-results-page"] $ do
+searchView :: K.Locales -> K.Context -> K.Lang -> T.Text -> [K.Page] -> Html ()
+searchView loc ctx lang query pages = div_ [class_ "search-results-page"] $ do
   contextBar loc (S.toList $ K.contextSources ctx) mempty (K.contextArchive ctx)
   case pages of
     [] -> do
@@ -403,8 +414,8 @@ searchView loc ctx query pages = div_ [class_ "search-results-page"] $ do
   where
     searched = unless (T.null $ T.strip query) $
       p_ [class_ "search-query"] $ do
-        toHtml $ K.loc_SearchQuery loc
-        " "
+        toHtml $ T.concat [ K.loc_SearchQuery loc, " [", K.langName lang, "]"
+                          , K.loc_Colon loc, " " ]
         strong_ $ toHtml query
 
 
@@ -423,6 +434,20 @@ contextBar loc sources content archive = div_ [class_ "sources-selection"] $ do
 
 -- | One section by source, one frame by field, one key by line, the sub-keys
 -- in a nested list
+-- | The pages with broken links, each one with the ids of its broken links,
+-- in a section by source
+doctorView :: K.Locales -> K.Context -> [(T.Text, [(K.Page, [T.Text])])] -> Html ()
+doctorView loc ctx broken = div_ [class_ "doctor-page"] $ do
+  h1_ [class_ "page-title"] $ toHtml $ K.loc_Doctor loc
+  h2_ $ toHtml $ K.loc_BrokenLinks loc
+  if null broken
+    then p_ $ toHtml $ K.loc_NoBrokenLink loc
+    else forM_ broken $ \(source, pages) -> section_ $ do
+      h3_ $ toHtml source
+      ul_ [class_ "broken-links"] $ forM_ pages $ \(pg, targets) -> li_ $ do
+        link $ pageLink ctx pg
+        ul_ $ forM_ targets $ li_ . toHtml
+
 metadataView :: K.Locales -> [(T.Text, [(K.MetaField, Forest MetaEntry)])] -> Html ()
 metadataView loc sources = div_ [class_ "metadata-page"] $ do
   h1_ [class_ "page-title"] $ toHtml $ K.loc_Metadata loc

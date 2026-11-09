@@ -90,6 +90,7 @@ kiwiRoute ss cache = do
     serveSearch query
   -- in the archive mode, but not in the sources context
   get "/metadata" $ withLogin $ withContext serveMetadata
+  get "/doctor" $ withLogin $ withContext serveDoctor
   -- documentation, out of the navigation context
   get "/readme" $ withLogin serveReadme
   get "/commonmark" $ withLogin serveCommonMark

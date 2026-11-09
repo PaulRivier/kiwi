@@ -4,6 +4,7 @@ module Kiwi.Search (
     initPageSearchEngine
   , searchPages
   , queryTerms
+  , queryLang
   , searchLang
   , normalizeText
   ) where
@@ -78,10 +79,15 @@ relevanceThreshold = 0.4
 -- the code of another lang ("fr:", "es: "...). The words are split after this
 -- prefix, as those of the pages (see 'extractTerms').
 queryTerms :: Lang -> T.Text -> [T.Text]
-queryTerms lg q = case T.breakOn ":" (T.stripStart q) of
+queryTerms lg q = let (lg', q') = queryLang lg q in extractTerms (alg lg') q'
+
+-- | Lang of the query, and the query without its lang prefix ("fr:") if any:
+-- the lang of the prefix, or else the given one
+queryLang :: Lang -> T.Text -> (Lang, T.Text)
+queryLang lg q = case T.breakOn ":" (T.stripStart q) of
   (code, rest) | Just lg' <- lookup (T.toLower code) langCodes, not (T.null rest)
-                 -> extractTerms (alg lg') (T.drop 1 rest)
-  _ -> extractTerms (alg lg) q
+                 -> (lg', T.drop 1 rest)
+  _ -> (lg, q)
 
 -- | Lang of a query without lang prefix, from the sources of the navigation
 -- context, or from all the sources if it is empty: the lang of the

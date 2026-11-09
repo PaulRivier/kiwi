@@ -42,7 +42,7 @@ import qualified Kiwi.PagesDB as DB
 import           Kiwi.Pandoc (linksInContext, loadPage, pageDoc, pagePath, parseMetaData,
                               parseCustomMeta, sourceMeta, unknownMetaKeys,
                               invalidMetaValues)
-import           Kiwi.Search (initPageSearchEngine, searchPages, queryTerms, searchLang)
+import           Kiwi.Search (initPageSearchEngine, searchPages, queryTerms, queryLang, searchLang)
 import           Kiwi.Server (securityHeaders)
 import qualified Kiwi.Tags as Tags
 import           Kiwi.Types
@@ -1101,6 +1101,12 @@ searchSpec = do
     queryTerms French "es:" `shouldBe` []
     queryTerms French "chevaux es:x" `shouldBe` queryTerms French "chevaux es x"
 
+  it "gives the lang of the query, from its prefix if any" $ do
+    queryLang French "es:canciones" `shouldBe` (Spanish, "canciones")
+    queryLang French " EN: horses" `shouldBe` (English, " horses")
+    queryLang French "xx:chevaux" `shouldBe` (French, "xx:chevaux")
+    queryLang French "chevaux" `shouldBe` (French, "chevaux")
+
   it "splits the query on punctuation, symbols and all the spaces" $ do
     let same q q' = queryTerms French q `shouldBe` queryTerms French q'
     same "chocolat-banane" "chocolat banane"
@@ -1342,21 +1348,29 @@ pagesDBSpec = do
       dbIds db `shouldReturn` ["x/y"]
       warnings msgs `shouldBe` [T.pack $ "page id with a '/', " ++ pageFile cd "a.md" ++ " : x/y"]
 
-  it "warns about the links to missing pages, after each reload" $
+  it "finds the links to missing pages, without warning" $
     withContentDir $ \cd -> do
       writeFileAt (pageFile cd "a.md") 0
         "title: A\n\nkiwiword [b](<page:b.md#x>) [c](<page:c>) [c2](<page:c#y>)"
       writeFileAt (pageFile cd "b.md") 0 "title: B\n\nkiwiword"
       (db, msgs) <- loadDB cd
-      let missing = [T.pack $ "link to a missing page, " ++ pageFile cd "a.md" ++ " : s:c"]
-      warnings msgs `shouldBe` missing
-      -- a is not loaded again, its links are still checked
-      writeFileAt (pageFile cd "b.md") 1 "title: B\n\nkiwiword"
-      (db', msgs') <- reloadDB cd db
-      warnings msgs' `shouldBe` missing
+      let broken = map (\(pg, uid) -> (pageUID pg, uid)) . DB.brokenLinks . pagesIndex
+      broken db `shouldBe` [(("s", "a"), ("s", "c"))]
+      warnings msgs `shouldBe` []
       writeFileAt (pageFile cd "c.md") 0 "title: C\n\nkiwiword"
-      (_, msgs'') <- reloadDB cd db'
-      warnings msgs'' `shouldBe` []
+      (db', _) <- reloadDB cd db
+      broken db' `shouldBe` []
+
+  it "finds the links to pages that the user can not read" $
+    withContentDir $ \cd -> do
+      writeFileAt (pageFile cd "a.md") 0 "title: A\naccess: public\n\nkiwiword [b](<page:b>)"
+      writeFileAt (pageFile cd "b.md") 0 "title: B\naccess: secret\n\nkiwiword"
+      (db, _) <- loadDB cd
+      let broken loginM = map (\(pg, uid) -> (pageUID pg, uid)) $ DB.brokenLinks $
+                          DI.narrow (pagesIndex db) (readableQuery loginM False)
+      broken Nothing `shouldBe` [(("s", "a"), ("s", "b"))]
+      broken (Just ("someone", ["secret"], Time.UTCTime (Time.fromGregorian 2026 1 1) 0))
+        `shouldBe` []
 
   it "finds the backlinks of a page linked with an anchor" $
     withContentDir $ \cd -> do

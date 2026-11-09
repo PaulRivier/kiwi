@@ -38,6 +38,7 @@ module Kiwi.Types
   , Lang(..)
   , parseLang
   , langCode
+  , langName
   , LangSetting(..)
   , baseLang
   , UI_Lang(..)
@@ -375,8 +376,11 @@ baseLang (LangAuto l)  = l
 
 -- | Lang name, in lower case (danish … turkish)
 parseLang :: T.Text -> Either String Lang
-parseLang = parseChoice "lang"
-  [ (T.toLower $ T.pack $ show l, l) | l <- [minBound .. maxBound] ]
+parseLang = parseChoice "lang" [ (langName l, l) | l <- [minBound .. maxBound] ]
+
+-- | Name of a lang, as in the config ("french")
+langName :: Lang -> T.Text
+langName = T.toLower . T.pack . show
 
 -- | ISO 639-1 code of a lang (html lang attribute, query prefix "fr:"...)
 langCode :: Lang -> T.Text
@@ -422,7 +426,8 @@ data Locales = Locales
   , loc_Search :: T.Text
   , loc_SearchResults :: T.Text  -- ^ after the number of results
   , loc_SearchNothing :: T.Text
-  , loc_SearchQuery :: T.Text    -- ^ before the query
+  , loc_SearchQuery :: T.Text    -- ^ before the lang of the query, then the query
+  , loc_Colon :: T.Text          -- ^ ":", with a space before it in French
   , loc_NotFound :: T.Text
   , loc_BadRequest :: T.Text
   , loc_Forbidden :: T.Text
@@ -447,6 +452,10 @@ data Locales = Locales
   , loc_Access :: T.Text
   , loc_Copy :: T.Text
   , loc_Archives :: T.Text
+  -- | the /doctor page: title, broken links, when there is none
+  , loc_Doctor :: T.Text
+  , loc_BrokenLinks :: T.Text
+  , loc_NoBrokenLink :: T.Text
   -- , loc_TimeLocale :: Time.TimeLocale
   }
   deriving (Show)
