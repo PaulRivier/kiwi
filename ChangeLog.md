@@ -30,3 +30,7 @@ TODO
 - New `bind` setting in the `[kiwi]` section: the address to listen on
   (`127.0.0.1` in a new *kiwi.ini*). Without it, all the interfaces, as
   before.
+- **The lines of the `_accounts` file start with a version number.** Add
+  `1:` at the start of each line of your `_accounts` files when updating
+  (`paul:salt:hash:admin` becomes `1:paul:salt:hash:admin`): the lines
+  without it are ignored, so nobody can log in until it is done.

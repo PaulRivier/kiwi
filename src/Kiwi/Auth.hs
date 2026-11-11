@@ -25,6 +25,7 @@ module Kiwi.Auth
   , readableQuery
   , randomText
   , loadAccounts
+  , refusedLinesWarning
   , reloadAccounts
   , dumpAccounts
   , parseAccounts        -- exported for tests
@@ -336,8 +337,19 @@ randomText l = go l T.empty
    alphaNum = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9']
 
 
-loadAccounts :: FP.FilePath -> IO [Account]
-loadAccounts p = maybe [] parseAccounts <$> getFileContent p
+-- | The accounts of the file, and the numbers of its lines that are refused
+-- (see 'parseAccounts'). No account without file.
+loadAccounts :: FP.FilePath -> IO ([Account], [Int])
+loadAccounts p = maybe ([], []) parseAccounts <$> getFileContent p
+
+-- | Message for the refused lines of the accounts file, if any. The lines
+-- are not shown: they may hold a password hash.
+refusedLinesWarning :: FP.FilePath -> [Int] -> Maybe String
+refusedLinesWarning _ [] = Nothing
+refusedLinesWarning p ns = Just $ concat
+  [ "accounts file ", p, ": line", if length ns > 1 then "s " else " "
+  , L.intercalate ", " (map show ns), " ignored, an account line is "
+  , "1:login:salt:hash:groups" ]
 
 -- | Read the accounts file again into the server state (at each login and
 -- reload). Reloads are serialized, so that an older read can not replace a
@@ -353,24 +365,41 @@ reloadAccounts = do
   liftIO $ withMVar lock $ \_ -> do
     r <- try $ loadAccounts p
     case r of
-      Right accs -> atomicWriteIORef accR accs
+      Right (accs, refused) -> do
+        atomicWriteIORef accR accs
+        mapM_ (logger' Log.Warn . T.pack) $ refusedLinesWarning p refused
       Left e -> logger' Log.Error $ T.pack $
                 "unable to read " ++ p ++ ", the accounts are kept as they were: "
                 ++ show (e :: IOException)
 
--- | One account per line: login:salt:hash:groups (comma separated).
--- Unreadable lines are ignored.
-parseAccounts :: T.Text -> [Account]
-parseAccounts = mapMaybe readAccount . T.lines
+-- | One account per line. A line starts with the version of its format,
+-- which gives the function reading the rest of the line: these functions
+-- are never modified, a new format is a new version with its own function.
+-- The other lines are refused, and their numbers (from 1) are returned;
+-- blank lines are ignored.
+parseAccounts :: T.Text -> ([Account], [Int])
+parseAccounts t =
+  let results = [ (n, readAccount l) | (n, l) <- zip [1 ..] (T.lines t)
+                                     , not (T.null $ T.strip l) ]
+  in ([ acc | (_, Just acc) <- results ], [ n | (n, Nothing) <- results ])
   where
     readAccount l = case T.splitOn ":" l of
-      [lg, salt, hash, grps] | not (T.null lg) -> Just $
-        Account lg salt hash (filter (not . T.null) $ T.splitOn "," grps)
+      "1" : fields -> decodeAccountV1 fields
       _ -> Nothing
 
+-- | Version 1 of an account line, after its version:
+-- login:salt:hash:groups (comma separated), with the password hashed by
+-- 'hashPassword'. NEVER MODIFY this function: add a version instead.
+decodeAccountV1 :: [T.Text] -> Maybe Account
+decodeAccountV1 fields = case fields of
+  [lg, salt, hash, grps] | not (T.null lg) -> Just $
+    Account lg salt hash (filter (not . T.null) $ T.splitOn "," grps)
+  _ -> Nothing
+
+-- | The accounts, as lines of the latest version (see 'parseAccounts')
 renderAccounts :: [Account] -> T.Text
 renderAccounts = T.unlines . map renderAccount
-  where renderAccount a = T.intercalate ":" [ accountId a, accountSalt a, accountHash a,
+  where renderAccount a = T.intercalate ":" [ "1", accountId a, accountSalt a, accountHash a,
                                               T.intercalate "," $ accountGroups a ]
 
 -- | Save accounts to file, with a warning if its owner had to change (see

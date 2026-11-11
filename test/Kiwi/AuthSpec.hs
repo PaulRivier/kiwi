@@ -71,11 +71,20 @@ accountsSpec = do
       acc2 = Account "zoé-x_1" "fedcba9876543210" (T.replicate 64 "b") ["friends"]
 
   it "reads the accounts it writes" $
-    Auth.parseAccounts (Auth.renderAccounts [acc1, acc2]) `shouldBe` [acc1, acc2]
+    Auth.parseAccounts (Auth.renderAccounts [acc1, acc2]) `shouldBe` ([acc1, acc2], [])
 
-  it "ignores unreadable account lines, and empty groups" $
-    Auth.parseAccounts "bad line\npaul:salt:hash:a,,b\n:salt:hash:a\nx:s:h:g:extra\n"
-      `shouldBe` [Account "paul" "salt" "hash" ["a", "b"]]
+  it "writes account lines of version 1" $
+    Auth.renderAccounts [acc1] `shouldBe`
+      "1:paul:0123456789abcdef:" <> T.replicate 64 "a" <> ":admin,family\n"
+
+  it "refuses the account lines without a known version, and gives their numbers" $ do
+    Auth.parseAccounts "bad line\n1:paul:salt:hash:a,,b\n\n1::salt:hash:a\n1:x:s:h:g:extra\n\
+                       \paul:salt:hash:a\n2:paul:salt:hash:a\n"
+      `shouldBe` ([Account "paul" "salt" "hash" ["a", "b"]], [1, 4, 5, 6, 7])
+    Auth.refusedLinesWarning "_accounts" [] `shouldBe` Nothing
+    Auth.refusedLinesWarning "_accounts" [1, 4] `shouldBe` Just
+      "accounts file _accounts: lines 1, 4 ignored, an account line is \
+      \1:login:salt:hash:groups"
 
   it "writes the accounts file, only readable by its owner" $
     withContentDir $ \cd -> do
@@ -83,7 +92,7 @@ accountsSpec = do
       Auth.dumpAccounts [acc1] p `shouldReturn` Nothing
       -- same owner: no warning
       Auth.dumpAccounts [acc1, acc2] p `shouldReturn` Nothing
-      Auth.loadAccounts p `shouldReturn` [acc1, acc2]
+      Auth.loadAccounts p `shouldReturn` ([acc1, acc2], [])
       -- no temporary file left
       D.listDirectory (FP.takeDirectory cd) >>= (`shouldMatchList` ["content", "_accounts"])
 

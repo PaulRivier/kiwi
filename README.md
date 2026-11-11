@@ -553,6 +553,11 @@ file next to *kiwi.ini* :
     kiwi access ~/Kiwi/kiwi.ini --update LOGIN   # new password or groups
     kiwi access ~/Kiwi/kiwi.ini --remove LOGIN
 
+Each line of *_accounts* starts with the version of its format, currently
+`1:login:salt:hash:groups`. A line without a known version is ignored, with
+a warning in the logs of the servers, and `kiwi access` refuses to change
+the file until it is fixed or removed.
+
 A login is made of letters, digits, `-` and `_`. With `--update`, an
 empty answer keeps the current password or groups. Running servers read
 the accounts again at each login and at each reload: there is no need

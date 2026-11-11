@@ -141,7 +141,10 @@ runAccess c = do
       accountsFilePath = FP.combine (FP.takeDirectory cfp) "_accounts"
   cfgExists <- D.doesFileExist cfp
   unless cfgExists $ exitError $ "config file " ++ cfp ++ " does not exist"
-  accounts' <- Auth.loadAccounts accountsFilePath
+  (accounts', refused) <- Auth.loadAccounts accountsFilePath
+  -- saving the accounts would remove the lines that are not read
+  forM_ (Auth.refusedLinesWarning accountsFilePath refused) $ \w ->
+    exitError $ w ++ ". Fix or remove these lines first."
   let findAccount l = L.find (\a -> accountId a == l) accounts'
       save accs l what = do
         warningM <- Auth.dumpAccounts accs accountsFilePath

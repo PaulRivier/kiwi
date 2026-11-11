@@ -36,7 +36,7 @@ import qualified System.FilePath as FP
 import           Text.Printf (printf)
 import           Web.Scotty.Trans
 
-import           Kiwi.Auth (loadAccounts, loadSessions, reloadAccounts)
+import           Kiwi.Auth (loadAccounts, loadSessions, refusedLinesWarning, reloadAccounts)
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.Controller
 import qualified Kiwi.Log as L
@@ -191,7 +191,9 @@ initServerState cfp conf logger' = do
   let accountsFile = FP.combine kiwiDir' "_accounts"
   accountsE <- try $ loadAccounts accountsFile
   accounts' <- case accountsE of
-    Right accs -> return accs
+    Right (accs, refused) -> do
+      mapM_ (logger' L.Warn . T.pack) $ refusedLinesWarning accountsFile refused
+      return accs
     Left e -> do
       logger' L.Error $ T.pack $ concat
         [ "unable to read the accounts file ", accountsFile, ": ", show (e :: IOException) ]
