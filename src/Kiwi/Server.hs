@@ -21,6 +21,7 @@ import qualified Data.Text as T
 import qualified Network.Wai as Wai
 import           Network.Wai.Handler.Warp (setPort)
 import           Network.Wai.Middleware.AddHeaders (addHeaders)
+import           Network.Wai.Middleware.Gzip (gzip, defaultGzipSettings)
 import           Network.Wai.Middleware.RequestLogger (DetailedSettings (..), OutputFormat (..),
                                                        RequestLoggerSettings (..),
                                                        defaultDetailedSettings,
@@ -90,21 +91,24 @@ kiwiRoute :: ServerState -> Static.CacheContainer -> WebM ()
 kiwiRoute ss cache = do
   -- the first middleware is the outer one: all the responses have the headers
   middleware securityHeaders
+  -- compressed responses, for the clients that accept them: text types, and
+  -- not the files of the sources
+  middleware $ gzip defaultGzipSettings
   -- exceptions of the actions (redirections are not exceptions for it)
   defaultHandler $ Handler $ withLogin . serveError
   get "/" $ redirect "/browse"
   get "/page/:source/:pId" $ do
     source <- pathParam "source"
     pId <- pathParam "pId"
-    withLogin $ withContext $ servePage (source, pId)
-  get "/browse" $ withLogin $ withContext $ queryParams >>= serveBrowseAll
-  get "/search" $ withLogin $ withContext $ do
+    withLogin $ withContext $ withETag $ servePage (source, pId)
+  get "/browse" $ withLogin $ withContext $ withETag $ queryParams >>= serveBrowseAll
+  get "/search" $ withLogin $ withContext $ withETag $ do
     -- without query, the search form is displayed
     query <- queryParamMaybe "query"
     serveSearch $ fromMaybe "" query
   -- in the archive mode, but not in the sources context
-  get "/metadata" $ withLogin $ withContext serveMetadata
-  get "/doctor" $ withLogin $ withContext serveDoctor
+  get "/metadata" $ withLogin $ withContext $ withETag serveMetadata
+  get "/doctor" $ withLogin $ withContext $ withETag serveDoctor
   -- documentation, out of the navigation context
   get "/readme" $ withLogin serveReadme
   get "/commonmark" $ withLogin serveCommonMark
@@ -201,6 +205,7 @@ initServerState cfp conf logger' = do
   warmUpSearchEngine (searchEngine db)
   dbR <- newIORef db
   dbLock <- newMVar ()
+  etags' <- newMVar M.empty
   return $ ServerState {
       kiwiName   = Conf.name conf
     , contentDir = contentDir'
@@ -217,6 +222,7 @@ initServerState cfp conf logger' = do
     , context      = noContext
     , pagesDB      = dbR
     , pagesDBLock  = dbLock
+    , etags        = etags'
     , tocSetting   = Conf.toc conf
     , secureCookie = Conf.secureCookie conf
     , logger       = logger'

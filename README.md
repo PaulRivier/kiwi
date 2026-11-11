@@ -546,6 +546,12 @@ the accounts again at each login and at each reload: there is no need
 to restart them. A new password, or a removed account, closes the
 sessions of the account once the servers have read the accounts again.
 
+Kiwi does not limit the login attempts itself. A refused login is a
+`POST /login` answered with the status 401 (a successful one is a
+redirection, 302): use it to limit them in your reverse proxy, or with
+fail2ban on the access logs of the proxy. Behind a proxy, the logs of Kiwi
+(`login failed from ADDRESS`) only show the address of the proxy.
+
 Each page is readable by the groups of its *access* metadata. The
 `public` group means everyone, logged in or not, and members of the
 `admin` group read all the pages. The default access of the pages is

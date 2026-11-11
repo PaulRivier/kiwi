@@ -9,6 +9,7 @@ module Kiwi.Types
   , Login
   , Session(..)
   , Sessions
+  , ETags
   , ServerM(..)
   , WebM
   , ActM
@@ -50,6 +51,7 @@ import           Control.Concurrent.MVar (MVar)
 import           Control.Concurrent.QSem (QSem)
 import           Control.Monad.IO.Unlift (MonadUnliftIO)
 import           Control.Monad.Reader
+import qualified Data.ByteString as BS
 import           Data.IORef
 import           Data.Ix (Ix)
 import qualified Data.Map.Strict as M
@@ -83,6 +85,7 @@ data ServerState =
               , context       :: Context
               , pagesDB       :: IORef PagesDB
               , pagesDBLock   :: MVar ()  -- ^ serializes pagesDB updates
+              , etags         :: MVar ETags
               , tocSetting    :: TocSetting
               , secureCookie  :: Bool
               , logger        :: Logger
@@ -130,6 +133,12 @@ data Session =
 -- | Sessions, by the hash of their token (see 'Kiwi.Auth.hashToken')
 type Sessions = M.Map T.Text Session
 
+-- | ETags of the HTML pages sent, with the generation of the pages they were
+-- rendered from (see 'Kiwi.Controller.withETag'). A page depends on its URL
+-- (with the navigation context) and on its reader: the user name is
+-- displayed, and the groups give the visible pages.
+type ETags = M.Map (Maybe (T.Text, [T.Text]), BS.ByteString) (Int, BS.ByteString)
+
 newtype ServerM a = ServerM { runServerM :: ReaderT ServerState IO a }
   deriving (Applicative, Functor, Monad, MonadIO, MonadReader ServerState, MonadUnliftIO)
 
@@ -143,6 +152,7 @@ data PagesDB =
   PagesDB { defaultMeta   :: MetaData
           , customMetaConfig :: [CustomMetaConfig]
           , sourcesConfig :: [SourceConfig]
+          , dbGeneration :: Int  -- ^ number of loads (see 'Kiwi.PagesDB.updatePagesDB')
           -- , lastUpdate :: Time.UTCTime
           , pagesIndex :: DI.DocIndex Page PageUID MetaField DocIndexKey
           , searchEngine :: PageSearchEngine }

@@ -106,13 +106,16 @@ executable kiwi
   build-depends: base >=4.7 && <5, kiwi
   main-is: Main.hs
   hs-source-dirs: app
-  ghc-options:  -threaded
+  -- all the cores (page loading, password hashes that do not stop the other
+  -- requests), with the sequential garbage collector
+  ghc-options:  -threaded -rtsopts "-with-rtsopts=-N -qg"
 
 
 test-suite kiwi-test
   import:  ghc-opts
   build-depends:
       base >=4.7 && <5
+    , bytestring
     , containers
     , directory
     , filepath

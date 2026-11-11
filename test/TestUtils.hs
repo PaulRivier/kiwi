@@ -1,4 +1,5 @@
-module TestUtils (defMeta, load, loadIn, mkPage, mkPagesDB, withContentDir, withKiwiApp) where
+module TestUtils (defMeta, load, loadIn, mkPage, mkPagesDB, withContentDir, withKiwiApp,
+                  withKiwiAccounts) where
 
 import           Control.Exception (bracket, try)
 import           Control.Monad (forM_)
@@ -7,8 +8,10 @@ import qualified Data.Time as Time
 import qualified Network.Wai as Wai
 import qualified System.Directory as D
 import qualified System.FilePath as FP
+import           System.IO (hPutStrLn, stderr)
 import           System.IO.Error (isAlreadyExistsError)
 
+import qualified Kiwi.Auth as Auth
 import qualified Kiwi.ConfigFile as Conf
 import qualified Kiwi.PagesDB as DB
 import           Kiwi.Pandoc (loadPage)
@@ -81,11 +84,22 @@ withContentDir test = do
 -- files (name, content) as the pages of its source "s". The default access
 -- of the pages is "public".
 withKiwiApp :: [(FilePath, String)] -> (Wai.Application -> IO a) -> IO a
-withKiwiApp files test = withContentDir $ \cd -> do
+withKiwiApp = withKiwiAccounts []
+
+-- | 'withKiwiApp', with accounts: (login, password, groups)
+withKiwiAccounts :: [(T.Text, T.Text, [T.Text])] -> [(FilePath, String)] ->
+                    (Wai.Application -> IO a) -> IO a
+withKiwiAccounts accounts' files test = withContentDir $ \cd -> do
+  let kiwiDir' = FP.takeDirectory cd
+      account (l, pass, groups) = case Auth.hashPassword "kiwi-test-salt00" pass of
+        Just hash -> return $ Account l "kiwi-test-salt00" hash groups
+        Nothing -> fail "unable to hash the password"
   forM_ files $ \(name, c) -> writeFile (cd FP.</> "s" FP.</> "pages" FP.</> name) c
+  accs <- mapM account accounts'
+  mapM_ (hPutStrLn stderr) =<< Auth.dumpAccounts accs (kiwiDir' FP.</> "_accounts")
   conf <- either fail return $ Conf.parseConfig $ T.unlines
     [ "[kiwi]", "content-directory: content", "port: 3456"
     , "[metadata-default]", "access: public" ]
-  ss <- initServerState (FP.takeDirectory cd FP.</> "kiwi.ini") conf (\_ _ -> return ())
+  ss <- initServerState (kiwiDir' FP.</> "kiwi.ini") conf (\_ _ -> return ())
   cache <- U.initWAICaching
   kiwiApp ss cache >>= test

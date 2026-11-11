@@ -14,15 +14,18 @@ module Kiwi.Controller
   , serveError
   , withLogin
   , withContext
+  , withETag
   , ifAdmin
   , BrowseAll (..)    -- exported for tests
   , metaIndex         -- exported for tests
   ) where
 
 import           Control.Concurrent (forkIO)
+import           Control.Concurrent.MVar (modifyMVar_, readMVar)
 import           Control.Exception (IOException, SomeException, fromException, try)
 import           Control.Monad (forM_)
 import           Control.Monad.Reader
+import           Crypto.Hash (SHA1, hashlazy)
 import qualified Data.ByteString as BS
 import           Data.IORef (readIORef)
 import           Data.Function (on)
@@ -34,16 +37,17 @@ import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TLE
 import qualified Data.Time as Time
 import qualified Data.Tree as Tree
-import qualified Network.HTTP.Types.Status as Net
+import qualified Network.HTTP.Types as Net
 import           System.Exit (ExitCode (..))
 import qualified System.FilePath as FP
 import qualified System.Process as Proc
 import qualified Text.Pandoc.Definition as PD
 import qualified Network.Wai as Wai
 import           Web.Scotty.Trans (ScottyException (..), formParam, queryParams, redirect,
-                                   request, status, html)
+                                   request, setHeader, status, html)
 
 import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
@@ -73,7 +77,7 @@ servePage pgId = do
           -- links to the pages the user can not read are shown as broken
           pageExists = isJust . findPage db
       r <- V.renderPage pageExists p doc backLinkPages
-      html r
+      htmlETag db r
     Nothing -> serveNotFound
 
 -- | The document, or a document telling that it can not be rendered
@@ -99,7 +103,7 @@ serveDoctor = do
       bySource = [ (fst $ K.pageUID pg, pages)
                  | pages@((pg, _) : _) <- groupBy ((==) `on` (fst . K.pageUID . fst)) byPage ]
   r <- V.renderDoctor $ sortOn (textOrder . fst) bySource
-  html r
+  htmlETag db r
 
 
 -- | README of kiwi, embedded in the binary
@@ -145,7 +149,7 @@ serveMetadata = do
         , V.metaCopy  = keyCopy f k
         , V.metaLink  = Browse.browseUrl ctx $ Browse.addToReq (Browse.sourcesReq $ S.singleton s) (f, k)
         , V.metaCount = S.size $ DI.lookupIndex sub f k }
-  V.renderMetadata (map section sources) >>= html
+  V.renderMetadata (map section sources) >>= htmlETag db
   where
     -- a sub-tag shows its last segment, below its parent
     keyLabel K.FieldTag (K.KeyText t) = case reverse (Tags.tagToSegments t) of
@@ -210,7 +214,7 @@ serveBrowseAll params = do
                    then Just $ Browse.browseUrl switchCtx req' else Nothing
           ba = metaIndex db ctx req'
       in V.renderBrowseAll (baToggles ba) switch (baNextStep ba) (baActive ba)
-                           (baListing ba) (baPages ba) >>= html
+                           (baListing ba) (baPages ba) >>= htmlETag db
 
 -- | Contents of the browse page (see 'serveBrowseAll'), except the link to
 -- switch between the archives and the other pages
@@ -341,7 +345,7 @@ serveSearch query = do
          -- un seul résultat, on y va
          (p:[]) -> redirect $ TL.fromStrict $ Url.inContext ctx $ Url.pageUrl p
          _      -> do r <- V.renderSearchResults lang query pages
-                      html r
+                      htmlETag db r
 
 
 -- | Runs the editor of the config (command and arguments) on the file of the
@@ -486,6 +490,56 @@ withContext run = do
     vs | all (== "yes") vs ->
            local (\ss -> ss { K.context = K.Context sources (not $ null vs) }) run
     _ -> serveBadRequest "invalid value for archive"
+
+
+-- | Maximum number of ETags kept: beyond it, they are all forgotten
+maxETags :: Int
+maxETags = 10000
+
+-- | Key of the ETag of the request: its reader, and its URL
+etagKey :: ActM (Maybe (T.Text, [T.Text]), BS.ByteString)
+etagKey = do
+  req <- request
+  loginM <- asksK K.login
+  return ( (\(user, groups, _) -> (user, groups)) <$> loginM
+         , Wai.rawPathInfo req <> Wai.rawQueryString req )
+
+-- | Runs the action, unless the browser already has its page: when the
+-- request has the ETag kept for it by 'htmlETag', and the pages have not
+-- been loaded again since, the answer is 304 without rendering anything. A
+-- reload makes every ETag obsolete, since a page also depends on the other
+-- ones (backlinks, broken links, lists). Must be run inside 'withLogin'.
+withETag :: ActM () -> ActM ()
+withETag run = do
+  key <- etagKey
+  sent <- lookup Net.hIfNoneMatch . Wai.requestHeaders <$> request
+  known <- liftIO . fmap (M.lookup key) . readMVar =<< asksK K.etags
+  gen <- K.dbGeneration <$> getDB
+  case (sent, known) of
+    (Just t, Just (g, etag)) | g == gen && t == etag -> do
+      etagHeaders etag
+      status Net.status304
+    _ -> run
+
+-- | Sends the page, rendered from the given pages, with an ETag that is kept
+-- for 'withETag'
+htmlETag :: K.PagesDB -> TL.Text -> ActM ()
+htmlETag db r = do
+  key <- etagKey
+  let etag = BS.concat [ "W/\"", TE.encodeUtf8 $ T.pack $ show $
+                                 hashlazy @SHA1 (TLE.encodeUtf8 r), "\"" ]
+      keep m = M.insert key (K.dbGeneration db, etag) $
+               if M.size m >= maxETags then M.empty else m
+  ref <- asksK K.etags
+  liftIO $ modifyMVar_ ref $ \m -> return $! keep m
+  etagHeaders etag
+  html r
+
+-- | The browser keeps the page, and checks its ETag at each use
+etagHeaders :: BS.ByteString -> ActM ()
+etagHeaders etag = do
+  setHeader "ETag" $ TL.fromStrict $ TE.decodeUtf8 etag
+  setHeader "Cache-Control" "private, no-cache"
 
 
 ifAdmin :: ActM () -> ActM ()

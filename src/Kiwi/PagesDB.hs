@@ -6,6 +6,8 @@ module Kiwi.PagesDB
   , brokenLinks
   ) where
 
+import           Control.Concurrent (getNumCapabilities)
+import           Control.Concurrent.Async (mapConcurrently)
 import           Control.Exception (IOException, try)
 import           Control.Monad (forM_, unless, when)
 import           Data.List (find, partition, sortOn)
@@ -65,7 +67,8 @@ updatePagesDB logger' contentDir' pagesDir db = do
     let newIndex = DI.insertMany pagesIndexClean $ map fst inserted
     -- the links to missing pages are listed on the /doctor page, not logged:
     -- they are an issue of the content, not of the server
-    return $ db { pagesIndex = newIndex
+    return $ db { dbGeneration = dbGeneration db + 1
+                , pagesIndex = newIndex
                 , searchEngine = insertDocs inserted searchEngineClean }
   where
     -- TODO : gérer des conditions de rechargement
@@ -80,9 +83,17 @@ updatePagesDB logger' contentDir' pagesDir db = do
       Nothing -> True
       Just pg -> mt /= Just (pageMTime pg)
 
-    -- pages that can not be loaded are ignored, with a warning
+    -- pages that can not be loaded are ignored, with a warning. The files
+    -- are read and parsed concurrently, one thread by capability, each one
+    -- with a slice of the paths: the results, and so the logs, are in the
+    -- order of the paths.
     loadPages paths = do
-      results <- mapM (\p -> (p,) <$> loadPage contentDir' p) paths
+      n <- getNumCapabilities
+      let size = max 1 $ (length paths + n - 1) `div` n
+          slices [] = []
+          slices ps = let (s, rest) = splitAt size ps in s : slices rest
+      results <- concat <$> mapConcurrently
+                   (mapM (\p -> (p,) <$> loadPage contentDir' p)) (slices paths)
       forM_ [ (p, e) | (p, Left e) <- results ] $ \(p, e) ->
         logger' L.Warn $ T.pack $ concat ["page ignored, ", p, " : ", e]
       -- the lang may have been detected from the content
@@ -157,6 +168,7 @@ emptyPagesDB md cmc sc =
     PagesDB { defaultMeta = md
             , customMetaConfig = cmc
             , sourcesConfig = sc
+            , dbGeneration = 0
             -- , lastUpdate = oldDate
             , pagesIndex = DI.empty pageUID (pageExtractKeys cmc)
             , searchEngine = initPageSearchEngine }

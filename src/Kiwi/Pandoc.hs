@@ -16,7 +16,7 @@ module Kiwi.Pandoc
   ) where
 
 import           Control.Applicative ((<|>))
-import           Control.Exception (IOException, try)
+import           Control.Exception (IOException, evaluate, try)
 import           Control.Monad (mfilter)
 import qualified Commonmark as Cm
 import qualified Commonmark.Extensions as CmEx
@@ -328,7 +328,9 @@ loadPageIO fullPath relPath source md cmc scM = do
   -- loaded again at the next reload.
   fileE <- try $ flip (,) <$> D.getModificationTime fullPath <*> BS.readFile fullPath
   let rootTag = fromMaybe [] (scRootTag <$> scM)
-  return $ case fileE of
+  -- evaluated by the caller thread, so that pages are parsed concurrently
+  -- (see 'Kiwi.PagesDB.updatePagesDB')
+  evaluate $ case fileE of
     Left (e :: IOException) -> Left $ "unable to read file : " ++ ioeGetErrorString e
     Right (bytes, mt) -> case TE.decodeUtf8' bytes of
      Left e -> Left $ "not a valid UTF-8 file : " ++ show e

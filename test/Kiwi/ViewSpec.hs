@@ -2,6 +2,7 @@ module Kiwi.ViewSpec (viewSpec) where
 
 import qualified Data.Text as T
 import           Control.Monad.IO.Class (liftIO)
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLE
 import           Lucid (renderText)
@@ -78,3 +79,51 @@ viewSpec = do
     liftIO $ body resp `shouldSatisfy` T.isInfixOf "<h1>Invalid request</h1>"
     liftIO $ body resp `shouldSatisfy` T.isInfixOf "missing parameter: username"
     liftIO $ lookup "X-Content-Type-Options" (WT.simpleHeaders resp) `shouldBe` Just "nosniff"
+
+  let getWith etag path = WT.request $ WT.setPath
+        Wai.defaultRequest { Wai.requestHeaders = [("If-None-Match", etag)] } path
+      withAdmin = withKiwiAccounts [("ann", "secret", ["admin"])]
+                                   [("p.md", "title: Page\n\nHello")] . WT.runSession
+      etagOf = maybe "" id . lookup "ETag" . WT.simpleHeaders
+
+  it "answers 401 to a wrong login, and redirects after a right one" $ withAdmin $ do
+    -- the status is what a reverse proxy or fail2ban can count
+    wrong <- postForm "/login" "username=ann&password=wrong"
+    liftIO $ WT.simpleStatus wrong `shouldBe` Net.status401
+    unknown <- postForm "/login" "username=bob&password=secret"
+    liftIO $ WT.simpleStatus unknown `shouldBe` Net.status401
+    right <- postForm "/login" "username=ann&password=secret"
+    liftIO $ WT.simpleStatus right `shouldBe` Net.status302
+
+  it "answers 304 to the ETag of a page, until the pages are reloaded" $ withAdmin $ do
+    first <- get "/page/s/p"
+    let etag = etagOf first
+    liftIO $ etag `shouldSatisfy` (/= "")
+    liftIO $ lookup "Cache-Control" (WT.simpleHeaders first) `shouldBe` Just "private, no-cache"
+    again <- getWith etag "/page/s/p"
+    liftIO $ WT.simpleStatus again `shouldBe` Net.status304
+    liftIO $ WT.simpleBody again `shouldBe` ""
+    liftIO $ etagOf again `shouldBe` etag
+    -- another URL, another reader: rendered again
+    other <- getWith etag "/page/s/p?archive=yes"
+    liftIO $ WT.simpleStatus other `shouldBe` Net.status404
+    _ <- postForm "/login" "username=ann&password=secret"
+    logged <- getWith etag "/page/s/p"
+    liftIO $ WT.simpleStatus logged `shouldBe` Net.status200
+    let etag' = etagOf logged
+    liftIO $ etag' `shouldSatisfy` (/= etag)
+    cached <- getWith etag' "/page/s/p"
+    liftIO $ WT.simpleStatus cached `shouldBe` Net.status304
+    -- a reload makes the ETags obsolete, even for an unchanged page
+    reload <- postForm "/reload" ""
+    liftIO $ WT.simpleStatus reload `shouldBe` Net.status200
+    reloaded <- getWith etag' "/page/s/p"
+    liftIO $ WT.simpleStatus reloaded `shouldBe` Net.status200
+
+  it "compresses the pages for the clients that accept it" $ onKiwi $ do
+    let long = "/search?query=" <> BC.pack (replicate 2000 'a')
+    resp <- WT.request $ WT.setPath
+      Wai.defaultRequest { Wai.requestHeaders = [("Accept-Encoding", "gzip")] } long
+    liftIO $ lookup "Content-Encoding" (WT.simpleHeaders resp) `shouldBe` Just "gzip"
+    plain <- get long
+    liftIO $ lookup "Content-Encoding" (WT.simpleHeaders plain) `shouldBe` Nothing
