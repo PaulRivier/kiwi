@@ -228,12 +228,23 @@ metaIndex db ctx req =
         Browse.Union        -> True
         Browse.Intersection -> False
       -- keys of a field that can be in the request: those of the selected
-      -- pages narrow it, while alternatives to an union are in all pages,
-      -- with the selected ones, so that they can be removed (a source
-      -- without pages in the archives)
+      -- pages narrow it, while alternatives to an union are those of the
+      -- pages matching the other fields of the request, with the selected
+      -- ones, so that they can be removed (a source without pages with the
+      -- tags of the request, or in the archives)
+      fieldKeys K.FieldSource = S.toList $ otherSources <> reqKeySet K.FieldSource
       fieldKeys f = if isUnion f
                     then S.toList $ S.fromList (DI.getFieldKeys idx f) <> reqKeySet f
                     else DI.getFieldKeys subset f
+      -- sources of the pages matching the other fields of the request,
+      -- without narrowing the index again: from the ids (source, page id)
+      otherSources
+        | M.null others = S.fromList $ DI.getFieldKeys idx K.FieldSource
+        | not (M.member K.FieldSource req) =
+            S.fromList $ DI.getFieldKeys subset K.FieldSource
+        | otherwise = S.map (K.KeyText . fst) $ DI.queryIdSet idx $
+                      Browse.reqToQuery others
+        where others = M.delete K.FieldSource req
       -- tags specific handling
       allTagsSegs = Tags.tagsListSubSegments $ K.fromKeys $ fieldKeys K.FieldTag
       queryTagsSegs = Tags.tagsListSubSegments $ K.fromKeys $ reqKeys K.FieldTag
