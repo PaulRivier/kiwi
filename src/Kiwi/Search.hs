@@ -7,13 +7,15 @@ module Kiwi.Search (
   , queryLang
   , searchLang
   , normalizeText
+  , excerpt
   ) where
 
 -- import           Data.Text.ICU.Char
 -- import           Data.Text.ICU.Normalize2
 import Data.Char (generalCategory, GeneralCategory(NonSpacingMark),
                   isPunctuation, isSpace, isSymbol)
-import Data.List (find, nub)
+import Data.List (find, findIndex, groupBy, nub)
+import Data.Function (on)
 import Data.Maybe (fromMaybe)
 import Data.Text.Normalize (normalize, NormalizationMode(NFC, NFD))
 
@@ -109,6 +111,35 @@ searchLang defLang configs allSources ctxSources =
             | otherwise         = S.toList ctxSources
     sourceLang s = baseLang $ fromMaybe defLang $
                    find ((== s) . scSourceName) configs >>= scLang
+
+-- | Excerpt of the content of a page for the terms of a query (see
+-- 'queryTerms'), as fragments to join with spaces: the words around the
+-- first one matching a term, the matching words being flagged. As in the
+-- search engine, a word matches by its stem, in the lang of the page. The
+-- start of the content when no word matches (the terms are in the title or
+-- the tags), or not among the first words ('excerptScan'). "…" marks the cut
+-- ends.
+excerpt :: [T.Text] -> Page -> [(T.Text, Bool)]
+excerpt terms p =
+  let ws = T.words (pagePlainText p)
+      termSet = S.fromList terms
+      matches w = any (`S.member` termSet) $ extractTerms (alg $ pageLang p) w
+      -- lazy: words are stemmed until the first match, then in the window
+      flagged = [ (w, matches w) | w <- ws ]
+      start = maybe 0 (\i -> max 0 (i - excerptBefore)) $
+              findIndex snd (take excerptScan flagged)
+      (window, rest) = splitAt (excerptBefore + excerptAfter) $ drop start flagged
+      fragments = [ (T.unwords $ map fst g, hit)
+                  | g@((_, hit) : _) <- groupBy ((==) `on` snd) window ]
+  in [ ("…", False) | start > 0 ] ++ fragments ++ [ ("…", False) | not (null rest) ]
+
+-- | Words of an excerpt before and after its first matching word, and
+-- number of words of a page among which this word is searched
+excerptBefore, excerptAfter, excerptScan :: Int
+excerptBefore = 10
+excerptAfter = 25
+excerptScan = 1000
+
 
 -- | ISO 639-1 codes of the langs
 langCodes :: [(T.Text, Lang)]

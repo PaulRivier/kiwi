@@ -7,7 +7,8 @@ import qualified Data.Text as T
 import qualified Data.Time as Time
 import           Test.Hspec
 
-import           Kiwi.Search (initPageSearchEngine, searchPages, queryTerms, queryLang, searchLang)
+import           Kiwi.Search (excerpt, initPageSearchEngine, searchPages, queryTerms, queryLang,
+                              searchLang)
 import           Kiwi.Types
 
 searchSpec :: Spec
@@ -21,6 +22,7 @@ searchSpec = do
                , pageBody = content
                , pageImagesDir = ""
                , pageFilesDir = ""
+               , pagePlainText = content
                , pageTitle = uid
                , pageTags = []
                , pageLang = lang
@@ -73,6 +75,25 @@ searchSpec = do
         visible uid = T.isPrefixOf "v" (snd uid)
     sort (searchPages se' visible $ queryTerms French "chat soleil")
       `shouldBe` [("src", "v1"), ("src", "v2")]
+
+  it "gives an excerpt around the first word of the query, inflected or not" $ do
+    let long = T.unwords $ replicate 30 "mot" ++ ["Les", "chevaux", "galopent,"]
+                           ++ replicate 40 "fin" ++ ["cheval"]
+        pg = fst $ page "x" long
+        ex = excerpt (queryTerms French "cheval") pg
+    ex `shouldBe` [ ("…", False), (T.unwords $ replicate 9 "mot" ++ ["Les"], False)
+                  , ("chevaux", True)
+                  , (T.unwords $ "galopent," : replicate 23 "fin", False), ("…", False) ]
+    -- short content: whole, every matching word flagged
+    excerpt (queryTerms French "chats") (fst $ page "y" "Le chat, et le Chat.")
+      `shouldBe` [("Le", False), ("chat,", True), ("et le", False), ("Chat.", True)]
+
+  it "gives the start of the content when the words of the query are not in it" $ do
+    excerpt (queryTerms French "zèbre") (fst $ page "y" "Le chat dort")
+      `shouldBe` [("Le chat dort", False)]
+    excerpt (queryTerms French "zèbre") (fst $ page "y" "") `shouldBe` []
+    excerpt [] (fst $ page "z" $ T.unwords $ replicate 40 "mot")
+      `shouldBe` [(T.unwords $ replicate 35 "mot", False), ("…", False)]
 
   it "splits unknown prefixes, and prefixes after the start, as other words" $ do
     queryTerms French "fr:chevaux" `shouldBe` queryTerms French "chevaux"

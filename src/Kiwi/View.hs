@@ -129,8 +129,9 @@ renderBrowseAll toggles switch menu filters listing pages = do
     browseView loc ctx toggles switch menu filters listing pages
 
 -- | Results of the query, also in the search field, with the lang it was
--- processed in
-renderSearchResults :: K.Lang -> T.Text -> [K.Page] -> ActM TL.Text
+-- processed in: the pages, each one with an excerpt of its content (see
+-- 'Kiwi.Search.excerpt')
+renderSearchResults :: K.Lang -> T.Text -> [(K.Page, [(T.Text, Bool)])] -> ActM TL.Text
 renderSearchResults lang query pages = do
   vctx <- getViewCtx
   let loc = ctxLocales vctx
@@ -408,7 +409,8 @@ browseView loc ctx toggles switch menu filters listing pages = div_ [class_ "tag
 
 -- | The results of the query, with their number (a single result is
 -- displayed directly, see 'Kiwi.Controller.serveSearch')
-searchView :: K.Locales -> K.Context -> K.Lang -> T.Text -> [K.Page] -> Html ()
+searchView :: K.Locales -> K.Context -> K.Lang -> T.Text -> [(K.Page, [(T.Text, Bool)])] ->
+              Html ()
 searchView loc ctx lang query pages = div_ [class_ "search-results-page"] $ do
   contextBar loc (S.toList $ K.contextSources ctx) mempty (K.contextArchive ctx)
   case pages of
@@ -419,7 +421,14 @@ searchView loc ctx lang query pages = div_ [class_ "search-results-page"] $ do
     _ -> do
       h1_ $ toHtml $ T.concat [T.pack (show $ length pages), " ", K.loc_SearchResults loc]
       searched
-      linksList "results" $ map (pageLink ctx) pages
+      -- one result by line: the title, then the excerpt, in the lang of
+      -- the page, with the words of the query in bold
+      ul_ [class_ "results"] $ forM_ pages $ \(pg, fragments) -> li_ $ do
+        link $ pageLink ctx pg
+        unless (null fragments) $
+          p_ [class_ "excerpt", lang_ (K.langCode $ K.pageLang pg)] $
+            sequence_ $ intersperse " "
+              [ if hit then strong_ (toHtml t) else toHtml t | (t, hit) <- fragments ]
   where
     searched = unless (T.null $ T.strip query) $
       p_ [class_ "search-query"] $ do

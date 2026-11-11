@@ -194,6 +194,7 @@ data Page =
        , pageBody :: !T.Text   -- ^ markdown content of the file, without its header
        , pageImagesDir :: !T.Text  -- ^ folder of its "image:" links (images-dir)
        , pageFilesDir :: !T.Text   -- ^ folder of its "file:" links (files-dir)
+       , pagePlainText :: !T.Text  -- ^ plain text of its content (search, excerpts)
        , pageTitle :: !T.Text
        , pageTags :: ![TagId]
        , pageLang :: !Lang

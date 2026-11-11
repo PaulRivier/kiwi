@@ -37,3 +37,5 @@ TODO
 - New command `kiwi reload CONFIG_FILE`: asks the running server to reload
   its pages and accounts, as the reload button does. `kiwi serve` writes a
   `_pid` file next to *kiwi.ini* for it.
+- Search results are listed one by line, each one with an excerpt of the
+  page around the first word of the query, these words in bold.

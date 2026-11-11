@@ -213,6 +213,7 @@ loadPageSpec = do
                     , pageBody = body
                     , pageImagesDir = "pics"
                     , pageFilesDir = "sub"
+                    , pagePlainText = ""
                     , pageTitle = "t"
                     , pageTags = []
                     , pageLang = English

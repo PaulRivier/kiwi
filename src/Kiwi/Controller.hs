@@ -53,7 +53,8 @@ import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
 import qualified Kiwi.DefaultPages as DP
 import           Kiwi.Pandoc (pageDoc, embeddedDoc)
-import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, normalizeText)
+import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, normalizeText,
+                              excerpt)
 import           Kiwi.PagesDB (brokenLinks)
 import qualified Kiwi.Types as K
 import qualified Kiwi.View as V
@@ -346,12 +347,14 @@ serveSearch query = do
       -- in the restricted index, and in the sources context
       visible uid = isJust (findPage db uid) &&
                     (S.null sources || S.member (fst uid) sources)
+      terms = queryTerms ctxLang query
       pages = mapMaybe (findPage db) $
-              searchPages (K.searchEngine db) visible (queryTerms ctxLang query)
+              searchPages (K.searchEngine db) visible terms
     in case pages of
          -- un seul résultat, on y va
          (p:[]) -> redirect $ TL.fromStrict $ Url.inContext ctx $ Url.pageUrl p
-         _      -> do r <- V.renderSearchResults lang query pages
+         _      -> do r <- V.renderSearchResults lang query
+                             [ (p, excerpt terms p) | p <- pages ]
                       htmlETag db r
 
 

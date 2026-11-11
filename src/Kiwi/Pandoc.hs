@@ -372,6 +372,7 @@ loadPageIO fullPath relPath source md cmc scM = do
                                   , pageBody = pandocBody p
                                   , pageImagesDir = pandocImagesDir p
                                   , pageFilesDir = pandocFilesDir p
+                                  , pagePlainText = content
                                   , pageTitle = metaTitle meta
                                   , pageTags =  map (prefixNormalizeTag rootTag) $
                                                 metaTags meta

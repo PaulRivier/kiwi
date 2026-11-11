@@ -331,6 +331,33 @@ ul.pages-list li a:hover,
   color: rgb(var(--kiwi-page-link));
 }
 
+/* Search results: one by line, the title then an excerpt of the page */
+
+.search-results-page ul.results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.search-results-page ul.results li {
+  margin-top: 0.6em;
+}
+
+.search-results-page ul.results li a {
+  padding: 4px 10px;
+}
+
+.search-results-page ul.results li p.excerpt {
+  margin: 0;
+  padding: 0 10px 4px 10px;
+  color: rgba(var(--kiwi-text), 0.6);
+  font-size: 0.9em;
+}
+
+.search-results-page ul.results li p.excerpt strong {
+  color: rgb(var(--kiwi-text));
+}
+
 
 /* Browse page */
 

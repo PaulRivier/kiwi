@@ -40,6 +40,7 @@ mkPage uid tags access archive day =
        , pageBody = ""
        , pageImagesDir = ""
        , pageFilesDir = ""
+       , pagePlainText = ""
        , pageTitle = snd uid
        , pageTags = tags
        , pageLang = English
