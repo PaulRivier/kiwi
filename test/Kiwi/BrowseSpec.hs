@@ -51,10 +51,15 @@ browseReqSpec = do
     Browse.browseUrl (Context (S.fromList ["x"]) True) (req [(FieldTag, [KeyText "t"])])
       `shouldBe` "/browse?tag=t&archive=yes"
 
+  it "reads the keys of custom fields as in the pages" $
+    -- the booleans of the URLs made by kiwi are true and false
+    map decodeUrl ["/browse?m.done=yes", "/browse?m.done=1", "/browse?m.done=True"]
+      `shouldBe` replicate 3 (decodeUrl "/browse?m.done=true")
+
   it "refuses unknown parameters and invalid values" $ do
     mapM_ (\url -> decodeUrl url `shouldSatisfy` isLeft)
       [ "/browse?foo=bar", "/browse?author=Smith", "/browse?m.unknown=x"
-      , "/browse?m.year=12a", "/browse?m.date=2020-02-30", "/browse?m.done=yes"
+      , "/browse?m.year=12a", "/browse?m.date=2020-02-30", "/browse?m.done=oui"
       , "/browse?tag=", "/browse?tag=>", "/browse?source="
       , "/browse?lang=klingon", "/browse?access=" ]
 

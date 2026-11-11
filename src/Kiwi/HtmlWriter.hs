@@ -23,9 +23,9 @@ import qualified Data.Text as T
 import           Lucid
 import           Lucid.Base (commuteHtmlT2, makeAttributes)
 import qualified Text.Pandoc.Definition as PD
-import qualified Text.Pandoc.Walk as PW
 
 import           Kiwi.Types (PageUID)
+import           Kiwi.Utils (inlinesText)
 
 
 -- | Footnotes met so far, by number (from 1)
@@ -258,15 +258,7 @@ titleAttr t = [title_ t | not (T.null t)]
 
 -- The text of inlines, at any depth, without formatting (for alt attributes)
 inlinesToPlain :: [PD.Inline] -> T.Text
-inlinesToPlain = T.concat . PW.query go
-  where
-    go (PD.Str s) = [s]
-    go (PD.Code _ s) = [s]
-    go (PD.Math _ s) = [s]
-    go PD.Space = [" "]
-    go PD.SoftBreak = [" "]
-    go PD.LineBreak = [" "]
-    go _ = []
+inlinesToPlain = inlinesText
 
 
 --------------------------------------------------------------------------------

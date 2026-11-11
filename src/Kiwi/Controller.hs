@@ -53,7 +53,7 @@ import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
 import qualified Kiwi.DefaultPages as DP
 import           Kiwi.Pandoc (pageDoc, embeddedDoc)
-import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, normalizeText,
+import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, stripAccents,
                               excerpt)
 import           Kiwi.PagesDB (brokenLinks)
 import qualified Kiwi.Types as K
@@ -141,7 +141,7 @@ serveEmbeddedDoc name withHeader defaultTitle content = do
 serveMetadata :: ActM ()
 serveMetadata = do
   db <- getRestrictedDB
-  ctx <- asksK K.context
+  ctx <- asksK (K.context . K.requestState)
   admin <- Auth.isAdmin
   let idx = K.pagesIndex db
       sources = sortOn textOrder [ s | K.KeyText s <- DI.getFieldKeys idx K.FieldSource ]
@@ -176,7 +176,7 @@ serveMetadata = do
 
 -- | Order of the texts (sources, metadata keys), without case nor accents
 textOrder :: T.Text -> T.Text
-textOrder = normalizeText . T.toLower
+textOrder = stripAccents . T.toLower
 
 -- | Order of the keys of a field: the texts without case nor accents (the raw
 -- text breaks ties), the other keys (numbers, dates...) in their natural
@@ -206,7 +206,7 @@ recentPagesCount = 20
 serveBrowseAll :: [(T.Text, T.Text)] -> ActM ()
 serveBrowseAll params = do
   db <- getRestrictedDB
-  ctx <- asksK K.context
+  ctx <- asksK (K.context . K.requestState)
   admin <- Auth.isAdmin
   archives <- hasArchives
   -- the sources and the archive mode are those of the context
@@ -336,7 +336,7 @@ serveSearch :: T.Text -> ActM ()
 serveSearch query = do
   db <- getRestrictedDB
   allDB <- getDB
-  ctx <- asksK K.context
+  ctx <- asksK (K.context . K.requestState)
   let sources = K.contextSources ctx
       -- all the sources, as those the context can have (see 'withContext')
       allSources = [ s | K.KeyText s <- DI.getFieldKeys (K.pagesIndex allDB) K.FieldSource ]
@@ -467,7 +467,7 @@ serveError e = case fromException e of
 -- who may have it once logged in
 serveForbidden :: ActM ()
 serveForbidden = do
-  loginM <- asksK K.login
+  loginM <- asksK (K.login . K.requestState)
   r <- V.renderForbidden
   status $ if isJust loginM then Net.status403 else Net.status401
   html r
@@ -484,7 +484,7 @@ withLogin run = do
   login' <- Auth.requestLogin
   local (setLogin login') run
   where
-    setLogin l ss = ss { K.login = l }
+    setLogin l ss = ss { K.requestState = (K.requestState ss) { K.login = l } }
 
 
 -- | Set the navigation context from the parameters of the URL (see
@@ -498,7 +498,8 @@ withContext run = do
       sources = S.fromList [ s | ("source", s) <- params, K.KeyText s `elem` known ]
   case [ v | ("archive", v) <- params ] of
     vs | all (== "yes") vs ->
-           local (\ss -> ss { K.context = K.Context sources (not $ null vs) }) run
+           local (\ss -> ss { K.requestState = (K.requestState ss)
+                               { K.context = K.Context sources (not $ null vs) } }) run
     _ -> serveBadRequest "invalid value for archive"
 
 
@@ -510,8 +511,8 @@ maxETags = 10000
 etagKey :: ActM (Maybe (T.Text, [T.Text]), BS.ByteString)
 etagKey = do
   req <- request
-  loginM <- asksK K.login
-  return ( (\(user, groups, _) -> (user, groups)) <$> loginM
+  loginM <- asksK (K.login . K.requestState)
+  return ( (\l -> (K.loginUser l, K.loginGroups l)) <$> loginM
          , Wai.rawPathInfo req <> Wai.rawQueryString req )
 
 -- | Runs the action, unless the browser already has its page: when the
@@ -563,14 +564,14 @@ ifAdmin a = withLogin $ do
 getRestrictedDB :: ActM K.PagesDB
 getRestrictedDB = do
   db <- getDB
-  loginM <- asksK K.login
-  archive <- asksK (K.contextArchive . K.context)
+  loginM <- asksK (K.login . K.requestState)
+  archive <- asksK (K.contextArchive . K.context . K.requestState)
   return db { K.pagesIndex = DI.narrow (K.pagesIndex db) (Auth.readableQuery loginM archive) }
 
 -- | Whether the user can read archived pages
 hasArchives :: ActM Bool
 hasArchives = do
   db <- getDB
-  loginM <- asksK K.login
+  loginM <- asksK (K.login . K.requestState)
   return $ not $ S.null $ DI.queryIdSet (K.pagesIndex db) (Auth.readableQuery loginM True)
 

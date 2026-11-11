@@ -5,6 +5,9 @@ module Kiwi.Utils
     -- * Metadata
   , parseLangSetting
   , pageContent
+  , inlinesText
+  , parseBool
+  , readCustomValue
     -- * Lists
   , nodup
   , fastListDiff
@@ -24,7 +27,7 @@ module Kiwi.Utils
   , timeIO
     -- * Misc
   , splitOnFirst
-  , fst3
+  -- , fst3
   ) where
 
 import           Control.Monad (forM)
@@ -34,6 +37,7 @@ import           Data.IORef
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.IO as TSIO
+import qualified Data.Time as Time
 import           GHC.Clock (getMonotonicTime)
 import qualified Network.Wai.Middleware.Static as Static
 import           Network.HTTP.Types.Header (RequestHeaders)
@@ -41,6 +45,7 @@ import qualified System.Directory as D
 import qualified System.FilePath as FP
 import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
+import           Text.Read (readMaybe)
 
 import           Kiwi.Types
 import qualified Utils.DocIndex as DI
@@ -77,7 +82,12 @@ parseLangSetting t = case map T.strip $ T.splitOn "/" $ T.toLower t of
 
 -- | Text of the page content, for indexing
 pageContent :: PD.Pandoc -> T.Text
-pageContent = T.unwords . T.words . PW.query textOf
+pageContent = T.unwords . T.words . inlinesText
+
+-- | Text of the inlines of a document or of a part of it, at any depth,
+-- without formatting (index, table of contents, alt attributes)
+inlinesText :: PW.Walkable PD.Inline a => a -> T.Text
+inlinesText = PW.query textOf
   where
     textOf :: PD.Inline -> T.Text
     textOf (PD.Str s)    = s
@@ -88,6 +98,24 @@ pageContent = T.unwords . T.words . PW.query textOf
     textOf PD.LineBreak  = " "
     textOf _          = ""
 
+
+
+-- | yes, true, 1 or no, false, 0, ignoring case
+parseBool :: T.Text -> Maybe Bool
+parseBool b = case T.toLower (T.strip b) of
+  v | v `elem` ["yes", "true", "1"] -> Just True
+    | v `elem` ["no", "false", "0"] -> Just False
+    | otherwise -> Nothing
+
+
+-- | Value of a custom metadata, if it can be read for its type
+readCustomValue :: CustomMetaType -> T.Text -> Maybe DocIndexKey
+readCustomValue t v = case t of
+  CmtText -> Just $ KeyText v
+  CmtInt  -> KeyInt <$> readMaybe (T.unpack v)
+  CmtDate -> KeyDay <$> Time.parseTimeM True Time.defaultTimeLocale "%Y-%-m-%-d"
+                                        (T.unpack v)
+  CmtBool -> KeyBool <$> parseBool v
 
 
 -- DocIndex request helpers
@@ -203,5 +231,5 @@ splitOnFirst sep t = case T.breakOn sep t of
   (pref,rst) -> Just (pref, T.drop (T.length sep) rst)
 
 
-fst3 :: (a,b,c) -> a
-fst3 (a,_,_) = a
+-- fst3 :: (a,b,c) -> a
+-- fst3 (a,_,_) = a

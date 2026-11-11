@@ -36,7 +36,7 @@ import qualified Kiwi.Auth as Auth
 import qualified Kiwi.Browse as Browse
 import           Kiwi.Tags (prettyTag)
 import qualified Kiwi.Url as Url
-import           Kiwi.Utils (asksK, fst3)
+import           Kiwi.Utils (asksK, inlinesText)
 import           Kiwi.HtmlWriter (writeHtml5)
 import           Kiwi.Pandoc (linksInContext)
 
@@ -53,11 +53,11 @@ data ViewCtx = ViewCtx { ctxLocales :: K.Locales
 
 getViewCtx :: ActM ViewCtx
 getViewCtx = ViewCtx <$> getLocales
-                     <*> (fmap fst3 <$> asksK K.login)
+                     <*> (fmap K.loginUser <$> asksK (K.login . K.requestState))
                      <*> Auth.isAdmin
                      <*> (isJust <$> asksK K.editorCommand)
                      <*> asksK K.tocSetting
-                     <*> asksK K.context
+                     <*> asksK (K.context . K.requestState)
                      <*> pure T.empty
 
 getLocales :: ActM K.Locales
@@ -83,7 +83,7 @@ renderView title actions tocDoc content = do
 renderPage :: (K.PageUID -> Bool) -> K.Page -> PD.Pandoc -> [K.Page] -> ActM TL.Text
 renderPage pageExists p doc backlinks = do
   loc <- getLocales
-  ctx <- asksK K.context
+  ctx <- asksK (K.context . K.requestState)
   renderView (K.pageTitle p) (PageActions p) (Just doc)
              (pageView loc ctx pageExists p doc backlinks)
 
@@ -124,7 +124,7 @@ renderBrowseAll :: BrowseToggles -> Maybe T.Text -> BrowseMenu -> BrowseFilters 
                    PagesListing -> [K.Page] -> ActM TL.Text
 renderBrowseAll toggles switch menu filters listing pages = do
   loc <- getLocales
-  ctx <- asksK K.context
+  ctx <- asksK (K.context . K.requestState)
   renderView (K.loc_Tags loc) ReloadAction Nothing $
     browseView loc ctx toggles switch menu filters listing pages
 
@@ -145,7 +145,7 @@ renderDoctor :: [(T.Text, [(FilePath, T.Text)])] -> [(T.Text, [(K.Page, [T.Text]
                 ActM TL.Text
 renderDoctor errors broken = do
   loc <- getLocales
-  ctx <- asksK K.context
+  ctx <- asksK (K.context . K.requestState)
   renderView (K.loc_Doctor loc) NoActions Nothing $ doctorView loc ctx errors broken
 
 -- | A key of a field on the metadata page
@@ -318,15 +318,7 @@ tocList hs = unless (null hs) $ ul_ $ go hs
 
 -- | Text of inlines, without formatting
 plainText :: [PD.Inline] -> T.Text
-plainText = PW.query txt
-  where
-    txt (PD.Str t)    = t
-    txt (PD.Code _ t) = t
-    txt (PD.Math _ t) = t
-    txt PD.Space      = " "
-    txt PD.SoftBreak  = " "
-    txt PD.LineBreak  = " "
-    txt _             = ""
+plainText = inlinesText
 
 
 

@@ -153,8 +153,8 @@ sessionsSpec = do
       `shouldBe` M.empty
 
   it "gives the current groups of the account, the password unchanged" $ do
-    status [account ["friends"]] `shouldBe` Auth.ActiveSession ("paul", ["friends"], t0)
-    status [account ["admin"]] `shouldBe` Auth.ActiveSession ("paul", ["admin"], t0)
+    status [account ["friends"]] `shouldBe` Auth.ActiveSession (Login "paul" ["friends"] t0)
+    status [account ["admin"]] `shouldBe` Auth.ActiveSession (Login "paul" ["admin"] t0)
 
   it "revokes the sessions of removed accounts" $
     status [Account "other" salt "" []] `shouldBe` Auth.RevokedSession "paul"
@@ -194,7 +194,7 @@ readableQuerySpec = do
               , mkPage ("s", "old-admin") [] ["admin"] True 1 ]
       idx = pagesIndex $ mkPagesDB pages
       t0 = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
-      user groups = Just ("user", groups, t0)
+      user groups = Just (Login "user" groups t0)
       readable loginM archive =
         sort $ map snd $ S.toList $ DI.queryIdSet idx $ readableQuery loginM archive
 

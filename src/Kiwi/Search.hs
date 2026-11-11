@@ -6,7 +6,7 @@ module Kiwi.Search (
   , queryTerms
   , queryLang
   , searchLang
-  , normalizeText
+  , stripAccents
   , excerpt
   ) where
 
@@ -154,7 +154,7 @@ langCodes = [ (K.langCode l, l) | l <- [minBound .. maxBound] ]
 -- accents (in NFC, as Snowball expects), and the accents are removed from the
 -- stems
 extractTerms :: Algorithm -> T.Text -> [T.Text]
-extractTerms lg = map normalizeText .
+extractTerms lg = map stripAccents .
                   stems lg .
                   tokenize
 
@@ -178,8 +178,8 @@ tokenize = filter (not . T.null) .
 
 
 -- | Text without its accents (also used to sort texts, with T.toLower)
-normalizeText :: T.Text -> T.Text
-normalizeText = T.filter ((/= NonSpacingMark) . generalCategory) .
+stripAccents :: T.Text -> T.Text
+stripAccents = T.filter ((/= NonSpacingMark) . generalCategory) .
                 normalize NFD
 
 -- normalizeText :: T.Text -> T.Text

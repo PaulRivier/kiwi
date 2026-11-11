@@ -141,7 +141,7 @@ sessionStatus accounts' now sessionM = case sessionM of
     | not (isSessionValid now s) -> NoSession
     | otherwise -> case L.find (\a -> accountId a == user) accounts' of
         Just a | saltFingerprint (accountSalt a) == sessionSaltFp s ->
-                   ActiveSession (user, accountGroups a, sessionTime s)
+                   ActiveSession (Login user (accountGroups a) (sessionTime s))
         _ -> RevokedSession user
     where user = sessionUser s
 
@@ -298,13 +298,13 @@ hashPassword salt pass =
 
 -- | Whether the user of the request is an admin
 isAdmin :: ActM Bool
-isAdmin = loginIsAdmin <$> asksK login
+isAdmin = loginIsAdmin <$> asksK (login . requestState)
 
 -- | Whether the user is logged in, and in the "admin" group
 loginIsAdmin :: Maybe Login -> Bool
 loginIsAdmin loginM = case loginM of
   Nothing -> False
-  Just (_,g,_) -> elem "admin" g
+  Just l -> elem "admin" (loginGroups l)
 
 -- | The pages the user can read, archived or not: "public" ones for anonymous
 -- users, those of their groups too once logged in, all of them for admins
@@ -313,7 +313,7 @@ readableQuery loginM archive
   | loginIsAdmin loginM = world
   | otherwise = case loginM of
       Nothing        -> readable []
-      Just (_, g, _) -> readable g
+      Just l         -> readable (loginGroups l)
   where
     world = U.qOnly FieldArchive archive
     readable groups = DI.And [U.qAny FieldAccess ("public" : groups :: [T.Text]), world]

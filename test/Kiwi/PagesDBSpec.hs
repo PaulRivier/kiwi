@@ -194,7 +194,7 @@ pagesDBSpec = do
       let broken loginM = map (\(pg, uid) -> (pageUID pg, uid)) $ DB.brokenLinks $
                           DI.narrow (pagesIndex db) (readableQuery loginM False)
       broken Nothing `shouldBe` [(("s", "a"), ("s", "b"))]
-      broken (Just ("someone", ["secret"], Time.UTCTime (Time.fromGregorian 2026 1 1) 0))
+      broken (Just $ Login "someone" ["secret"] $ Time.UTCTime (Time.fromGregorian 2026 1 1) 0)
         `shouldBe` []
 
   it "finds the backlinks of a page linked with an anchor" $

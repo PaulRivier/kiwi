@@ -32,7 +32,6 @@ import           Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
-import qualified Data.Time as Time
 import qualified System.Directory as D
 import qualified System.FilePath as FP
 import           System.IO.Error (ioeGetErrorString)
@@ -41,14 +40,14 @@ import qualified Text.Pandoc.Builder as PB
 import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 -- import qualified Text.Pandoc.Shared as PS
-import           Text.Read (readMaybe)
 
 import           Kiwi.HtmlWriter (pageTargetAttrs)
 import           Kiwi.LangDetect (resolveLang)
 import           Kiwi.Types
 import           Kiwi.Tags (splitMeta, splitTags, prefixNormalizeTag)
 import qualified Kiwi.Url as Url
-import           Kiwi.Utils (splitOnFirst, pathToPageId, parseLangSetting)
+import           Kiwi.Utils (splitOnFirst, pathToPageId, parseLangSetting, parseBool,
+                             readCustomValue)
 import qualified Kiwi.Utils as U
 
 
@@ -113,29 +112,21 @@ invalidMetaValues cmc docMeta =
                            , isNothing (readCustomValue (cmcType cfg) v) ]
 
 
--- | yes, true, 1 or no, false, 0, ignoring case
-parseBool :: T.Text -> Maybe Bool
-parseBool b = case T.toLower (T.strip b) of
-  v | v `elem` ["yes", "true", "1"] -> Just True
-    | v `elem` ["no", "false", "0"] -> Just False
-    | otherwise -> Nothing
-
-
--- | Metadata and content of a page (see 'normalizeText'): the header is the
+-- | Metadata and content of a page (see 'normalizeNewlines'): the header is the
 -- first block of the file, until its first blank line, and the content is
 -- what follows. A file without blank line is a header only, with an empty
 -- content. Fails when the header is invalid (see 'parseMetaData'); the given
 -- keys (custom metadata names) are allowed even with several words.
 splitPage :: [T.Text] -> T.Text -> Either String (M.Map T.Text [T.Text], T.Text)
 splitPage keys c =
-  let normC = normalizeText c
+  let normC = normalizeNewlines c
       (metaC, content) = fromMaybe (normC, T.empty) $ splitOnFirst "\n\n" normC
   in (, content) <$> parseMetaData keys metaC
 
 -- | The text of a file without its initial byte order mark (U+FEFF, added by
 -- some Windows editors) if any, and with Unix line endings
-normalizeText :: T.Text -> T.Text
-normalizeText c = T.replace "\r\n" "\n" $ fromMaybe c $ T.stripPrefix "\xFEFF" c
+normalizeNewlines :: T.Text -> T.Text
+normalizeNewlines c = T.replace "\r\n" "\n" $ fromMaybe c $ T.stripPrefix "\xFEFF" c
 
 
 -- | Document of a page from its markdown content, with its links fixed, and
@@ -177,7 +168,7 @@ pageDoc contentDir' p =
 embeddedDoc :: FP.FilePath -> Bool -> T.Text -> Either String (Maybe T.Text, PD.Pandoc)
 embeddedDoc name withHeader c = do
   (docMeta, content) <- if withHeader then splitPage [] c
-                        else Right (M.empty, normalizeText c)
+                        else Right (M.empty, normalizeNewlines c)
   let title = T.intercalate " " <$> M.lookup "title" docMeta
   (doc, _) <- loadDoc name "" "" "" "" content
   return (title, doc)
@@ -395,18 +386,6 @@ parseCustomMeta m = mapMaybe $
     Just v  -> let cmdKs = mapMaybe (readCustomValue (cmcType cmc)) $
                            concatMap (splitMeta) v
                in Just $ CustomMetaData (cmcName cmc) cmdKs
-
--- | Value of a custom metadata, if it can be read for its type
-readCustomValue :: CustomMetaType -> T.Text -> Maybe DocIndexKey
-readCustomValue t v = case t of
-  CmtText -> Just $ KeyText v
-  CmtInt  -> KeyInt <$> readMaybe (T.unpack v)
-  CmtDate -> KeyDay <$> Time.parseTimeM True Time.defaultTimeLocale "%Y-%-m-%-d"
-                                        (T.unpack v)
-  CmtBool -> KeyBool <$> parseBool v
-
-
-
 
 -- | Metadata of the header of a page. Each line is a field ("key: value",
 -- with a key in one word of letters, digits, '-' and '_', or one of the

@@ -19,11 +19,11 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Time as Time
-import           Text.Read (readMaybe)
 
 import           Kiwi.Tags (tagToSegments, segmentsToTag)
 import           Kiwi.Types
 import           Kiwi.Url (contextParams, renderParams)
+import           Kiwi.Utils (readCustomValue)
 import qualified Utils.DocIndex as DI
 
 
@@ -117,18 +117,22 @@ decodeReq cmcs = foldM addParam M.empty
     fieldReader n = do
       name <- T.stripPrefix "m." n
       cmc <- L.find ((== name) . cmcName) cmcs
-      return (FieldCustom name, readCustom $ cmcType cmc)
+      return (FieldCustom name, nonEmpty $ readCustomValue $ cmcType cmc)
 
     readText t = if T.null t then Nothing else Just $ KeyText t
 
-    readCustom CmtText = readText
-    readCustom CmtInt = fmap KeyInt . readMaybe . T.unpack
-    readCustom CmtDate = fmap KeyDay .
-      Time.parseTimeM False Time.defaultTimeLocale "%Y-%-m-%-d" . T.unpack
-    readCustom CmtBool = \b -> case b of
-      "true" -> Just $ KeyBool True
-      "false" -> Just $ KeyBool False
-      _ -> Nothing
+    -- the keys of custom fields are read as in the pages (see
+    -- 'readCustomValue'), an empty one is invalid
+    nonEmpty f t = if T.null t then Nothing else f t
+
+    -- readCustom CmtText = readText
+    -- readCustom CmtInt = fmap KeyInt . readMaybe . T.unpack
+    -- readCustom CmtDate = fmap KeyDay .
+    --   Time.parseTimeM False Time.defaultTimeLocale "%Y-%-m-%-d" . T.unpack
+    -- readCustom CmtBool = \b -> case b of
+    --   "true" -> Just $ KeyBool True
+    --   "false" -> Just $ KeyBool False
+    --   _ -> Nothing
 
 showKeyLabel :: DocIndexKey -> T.Text
 showKeyLabel k = case k of

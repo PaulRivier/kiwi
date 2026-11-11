@@ -6,7 +6,8 @@ module Kiwi.Types
   , Context(..)
   , noContext
   , Account(..)
-  , Login
+  , Login(..)
+  , RequestState(..)
   , Session(..)
   , Sessions
   , ETags
@@ -81,8 +82,8 @@ data ServerState =
               , accountsLock  :: MVar ()  -- ^ serializes accounts reloads
               , loginSem      :: QSem  -- ^ limits concurrent password hashes
               , sessions      :: MVar Sessions
-              , login         :: Maybe Login
-              , context       :: Context
+              , requestState  :: RequestState  -- ^ the only part that
+                                               -- depends on the request
               , pagesDB       :: IORef PagesDB
               , pagesDBLock   :: MVar ()  -- ^ serializes pagesDB updates
               , etags         :: MVar ETags
@@ -119,8 +120,21 @@ instance Show Account where
   show a = concat [ "Account ", show (accountId a), " <salt> <hash> "
                   , show (accountGroups a) ]
 
--- | User of a request: (user id, current groups of the account, login time)
-type Login = (T.Text, [T.Text], Time.UTCTime)
+-- | User of a request
+-- type Login = (T.Text, [T.Text], Time.UTCTime)
+data Login =
+  Login { loginUser   :: T.Text         -- ^ user id
+        , loginGroups :: [T.Text]       -- ^ current groups of the account
+        , loginTime   :: Time.UTCTime   -- ^ login time
+        }
+  deriving (Eq, Show)
+
+-- | What depends on the request in the server state, set by
+-- 'Kiwi.Controller.withLogin' and 'Kiwi.Controller.withContext'
+data RequestState =
+  RequestState { login   :: Maybe Login
+               , context :: Context
+               }
 
 data Session =
   Session { sessionUser   :: T.Text
