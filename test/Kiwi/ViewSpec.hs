@@ -9,12 +9,13 @@ import           Lucid (renderText)
 import qualified Network.HTTP.Types as Net
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Test as WT
+import qualified System.FilePath as FP
 import           Test.Hspec
 import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 
 import qualified Kiwi.Locales as Loc
-import           Kiwi.Server (securityHeaders)
+import           Kiwi.Server (reloadKiwi, securityHeaders)
 import           Kiwi.Types
 import qualified Kiwi.View as V
 import           TestUtils
@@ -148,3 +149,13 @@ viewSpec = do
       -- the page is not served
       missing <- get "/page/s/bad"
       liftIO $ WT.simpleStatus missing `shouldBe` Net.status404
+
+  it "reloads the pages and the accounts out of a request, as the reload signal does" $
+    withKiwiState [] [("p.md", "title: Page\n\nHello")] $ \cd ss app -> do
+      let run = flip WT.runSession app
+      missing <- run $ get "/page/s/new"
+      WT.simpleStatus missing `shouldBe` Net.status404
+      writeFile (cd FP.</> "s" FP.</> "pages" FP.</> "new.md") "title: New\n\nHello"
+      reloadKiwi ss
+      found <- run $ get "/page/s/new"
+      WT.simpleStatus found `shouldBe` Net.status200

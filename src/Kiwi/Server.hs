@@ -3,13 +3,14 @@ module Kiwi.Server
     , securityHeaders  -- exported for tests
     , initServerState  -- exported for tests
     , kiwiApp          -- exported for tests
+    , reloadKiwi       -- exported for tests
     ) where
 
 
 import           Control.Concurrent (forkIO)
 import           Control.Concurrent.QSem (newQSem)
 import           Control.Concurrent.MVar (newMVar, withMVar)
-import           Control.Exception (IOException, evaluate, try)
+import           Control.Exception (IOException, SomeException, evaluate, try)
 import           Control.Monad (when, forM_, void)
 import           Control.Monad.Reader
 import           Data.IORef (newIORef, readIORef, atomicWriteIORef)
@@ -36,14 +37,14 @@ import qualified System.FilePath as FP
 import           Text.Printf (printf)
 import           Web.Scotty.Trans
 
-import           Kiwi.Auth (loadAccounts, loadSessions, refusedLinesWarning, reloadAccounts)
+import           Kiwi.Auth (loadAccounts, loadSessions, refusedLinesWarning, reloadAccountsIO)
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.Controller
 import qualified Kiwi.Log as L
 import qualified Kiwi.PagesDB as DB
 import           Kiwi.Theme (serveTheme)
 import           Kiwi.Types
-import           Kiwi.Utils (asksK, isDotFile, timeIO)
+import           Kiwi.Utils (isDotFile, timeIO)
 import qualified Utils.DocIndex as DI
 
 
@@ -53,11 +54,14 @@ filesFSDir = "files"
 imagesFSDir = "images"
 
 
+-- | Serves a kiwi. Once its pages are loaded, the action that reloads it
+-- (see 'reloadKiwi') is given to the last argument, for the reload signal.
 kiwiServer :: FP.FilePath -> Conf.KiwiConfig -> L.LogLevel ->
-              Static.CacheContainer -> IO ()
-kiwiServer cfp c logLevel cache = do
+              Static.CacheContainer -> (IO () -> IO ()) -> IO ()
+kiwiServer cfp c logLevel cache onReload = do
   let logger' = L.mkLogger logLevel (Conf.name c)
   (ss, t) <- timeIO $ initServerState cfp c logger'
+  onReload $ reloadKiwi ss
   nb <- pagesCount <$> readIORef (pagesDB ss)
   logger' L.Info $ T.pack $ concat [ nb, " pages loaded in ", printf "%.2f" t
                                    , "s, listening on ", maybe "port " (++ ":") (Conf.bind c)
@@ -116,8 +120,7 @@ kiwiRoute ss cache = do
   get "/readme" $ withLogin serveReadme
   get "/commonmark" $ withLogin serveCommonMark
   post "/reload" $ ifAdmin $ do
-    reloadAccounts
-    updateDB
+    liftIO $ reloadKiwi ss
     html ""
   -- without editor, the edition is disabled: the route does not exist
   post "/edit-page" $ case editorCommand ss of
@@ -156,15 +159,26 @@ securityHeaders = addHeaders
   , ("X-Content-Type-Options", "nosniff") ]
 
 
+-- | Reads the accounts file again, and reloads the pages: for the reload
+-- button of the admins, and for the reload signal (kiwi reload). A failure
+-- is logged, and leaves the kiwi as it was.
+reloadKiwi :: ServerState -> IO ()
+reloadKiwi ss = do
+  r <- try $ reloadAccountsIO ss >> updateDB ss
+  case r of
+    Right () -> return ()
+    Left e -> logger ss L.Error $ T.pack $ "reload failed: " ++ show (e :: SomeException)
+
+
 -- | Reloads are serialized by pagesDBLock, so that two concurrent reloads
 -- can not overwrite each other. Readers are never blocked.
-updateDB :: ActM ()
-updateDB = do
-  dbR <- asksK pagesDB
-  lock <- asksK pagesDBLock
-  cd <- asksK contentDir
-  logger' <- asksK logger
-  liftIO $ withMVar lock $ \_ -> do
+updateDB :: ServerState -> IO ()
+updateDB ss = do
+  let dbR = pagesDB ss
+      lock = pagesDBLock ss
+      cd = contentDir ss
+      logger' = logger ss
+  withMVar lock $ \_ -> do
     db' <- readIORef dbR
     (db, t) <- timeIO $ DB.updatePagesDB logger' cd pagesFSDir db'
     atomicWriteIORef dbR db

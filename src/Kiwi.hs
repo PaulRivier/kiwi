@@ -1,9 +1,11 @@
 module Kiwi (runKiwiRun) where
 
 import           Control.Concurrent.Async (mapConcurrently_)
-import           Control.Exception (bracket_, try)
+import           Control.Concurrent (myThreadId)
+import           Control.Exception (IOException, bracket_, throwTo, try)
 import           Control.Monad (forM_, unless, when)
 import qualified Data.ByteString as BS
+import           Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import qualified Data.List as L
 import           Data.Maybe (isJust)
 import qualified Data.Text as T
@@ -11,11 +13,14 @@ import qualified Data.Text.IO as TIO
 import           Data.Version (showVersion)
 import qualified System.Directory as D
 import           System.Environment (getExecutablePath)
-import           System.Exit (exitFailure, exitWith)
+import           System.Exit (ExitCode (ExitSuccess), exitFailure, exitWith)
 import qualified System.FilePath as FP
 import           System.IO
 import           System.IO.Error (isEOFError)
+import           System.Posix.Process (getProcessID)
+import qualified System.Posix.Signals as Sig
 import           System.Process (rawSystem)
+import           Text.Read (readMaybe)
 import           GHC.IO.Encoding (setLocaleEncoding, setFileSystemEncoding)
 
 import Paths_kiwi (version)
@@ -47,6 +52,7 @@ runKiwiRun = do
     Init c -> initKiwiDir (CLI.initDirectory c)
     Access action -> runAccess action
     Update c -> runUpdate c
+    Reload c -> runReload (CLI.reloadCfp c)
 
 
 -- | Every config is read and checked before any server starts, so that
@@ -64,7 +70,56 @@ runServers logLevel cfps = do
       "several kiwis use the same port: " ++ L.intercalate ", " (map show dupPorts)
     exitFailure
   cache <- U.initWAICaching
-  mapConcurrently_ (\(cfp, conf) -> kiwiServer cfp conf logLevel cache) confs
+  -- the reload signal (sent by kiwi reload) reloads every kiwi of this
+  -- process, once it has loaded its pages
+  reloaders <- newIORef []
+  let onReload a = atomicModifyIORef' reloaders (\as -> (a : as, ()))
+  _ <- Sig.installHandler Sig.sigHUP (Sig.Catch $ readIORef reloaders >>= sequence_) Nothing
+  -- a termination signal stops kiwi as an interruption does, so that the
+  -- pid files are removed
+  mainThread <- myThreadId
+  _ <- Sig.installHandler Sig.sigTERM (Sig.Catch $ throwTo mainThread ExitSuccess) Nothing
+  pid <- getProcessID
+  let pidFiles = U.nodup $ map (pidFilePath . fst) confs
+  bracket_ (forM_ pidFiles $ \p -> writeFile p (show pid ++ "\n"))
+           (forM_ pidFiles $ \p -> try (D.removeFile p) :: IO (Either IOException ()))
+           (mapConcurrently_ (\(cfp, conf) -> kiwiServer cfp conf logLevel cache onReload) confs)
+
+
+-- | File with the id of the process serving the kiwi of a config file,
+-- next to it: written by kiwi serve, read by kiwi reload
+pidFilePath :: FP.FilePath -> FP.FilePath
+pidFilePath cfp = FP.combine (FP.takeDirectory cfp) "_pid"
+
+
+-- | Sends the reload signal to the server of the kiwi, found by its pid
+-- file. The server reloads all its kiwis; the result is in its logs. On
+-- Linux, the process is checked to be a kiwi server first: the id of a
+-- stopped server may have been given to another program, that the signal
+-- would stop.
+runReload :: FP.FilePath -> IO ()
+runReload cfp = do
+  let pidFile = pidFilePath cfp
+  contentM <- U.getFileContent pidFile
+  content <- maybe (exitError $ "no kiwi server is running for " ++ cfp
+                                ++ " (" ++ pidFile ++ " does not exist)") return contentM
+  pid <- maybe (exitError $ pidFile ++ " is not a process id") return $
+         readMaybe (T.unpack $ T.strip content) :: IO Int
+  let cmdlineFile = "/proc/" ++ show pid ++ "/cmdline"
+  hasProc <- D.doesDirectoryExist "/proc/self"
+  cmdlineE <- try $ BS.readFile cmdlineFile
+  case cmdlineE of
+    Right cmdline | "serve" `elem` BS.split 0 cmdline -> return ()
+    Right _ -> exitError $ "process " ++ show pid ++ " is not a kiwi server, remove " ++ pidFile
+    Left (_ :: IOException)
+      | hasProc -> exitError $ "no kiwi server is running for " ++ cfp
+                               ++ " (no process " ++ show pid ++ "), remove " ++ pidFile
+      | otherwise -> return ()
+  r <- try $ Sig.signalProcess Sig.sigHUP (fromIntegral pid)
+  case r of
+    Right () -> putStrLn $ "Reload requested from the kiwi server (process " ++ show pid
+                           ++ "), see its logs for the result."
+    Left (e :: IOException) -> exitError $ "unable to signal process " ++ show pid ++ ": " ++ show e
 
 
 -- | The config of a kiwi, if it can be read and its content directory

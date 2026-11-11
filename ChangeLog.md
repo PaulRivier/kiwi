@@ -34,3 +34,6 @@ TODO
   `1:` at the start of each line of your `_accounts` files when updating
   (`paul:salt:hash:admin` becomes `1:paul:salt:hash:admin`): the lines
   without it are ignored, so nobody can log in until it is done.
+- New command `kiwi reload CONFIG_FILE`: asks the running server to reload
+  its pages and accounts, as the reload button does. `kiwi serve` writes a
+  `_pid` file next to *kiwi.ini* for it.

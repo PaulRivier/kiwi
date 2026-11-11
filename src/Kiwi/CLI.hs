@@ -1,5 +1,5 @@
 module Kiwi.CLI (Config(..), ServerConfig(..), InitConfig(..), AccessConfig(..), AccessOp(..),
-                 UpdateConfig(..), parseCLI ) where
+                 UpdateConfig(..), ReloadConfig(..), parseCLI ) where
 
 -- Afficher version Cabal
 import Paths_kiwi (version)
@@ -17,6 +17,7 @@ data Config = Server ServerConfig
             | Init InitConfig
             | Access AccessConfig
             | Update UpdateConfig
+            | Reload ReloadConfig
 
 
 data ServerConfig =
@@ -38,11 +39,17 @@ data AccessOp = AccessCreate T.Text
 data UpdateConfig =
   UpdateConfig { updateCheck :: Bool }
 
+data ReloadConfig =
+  ReloadConfig { reloadCfp :: FP.FilePath }
+
 parser :: Parser Config
 parser = hsubparser
          ( command "serve" (info serveParser (progDesc "Start your kiwi server, serve one or more directory"))   <>
            command "init"  (info initParser (progDesc "Init a new kiwi directory")) <>
            command "access" (info accessParser (progDesc "Manage accounts and permissions")) <>
+           command "reload" (info reloadParser (progDesc "Ask the running kiwi server of a \
+                                                         \config file to reload its pages \
+                                                         \and accounts")) <>
            command "update" (info updateParser (progDesc "Update kiwi to its latest release \
                                                          \(Linux x86_64 only, needs bash, curl, \
                                                          \tar and sha256sum)")) )
@@ -67,6 +74,9 @@ parser = hsubparser
                                                 <> metavar "LOGIN"
                                                 <> help "remove account with login" ) ) )
       )
+
+    reloadParser :: Parser Config
+    reloadParser = Reload <$> (ReloadConfig <$> configFilePathParser)
 
     updateParser :: Parser Config
     updateParser = Update <$>

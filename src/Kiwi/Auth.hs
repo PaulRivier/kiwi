@@ -27,6 +27,7 @@ module Kiwi.Auth
   , loadAccounts
   , refusedLinesWarning
   , reloadAccounts
+  , reloadAccountsIO
   , dumpAccounts
   , parseAccounts        -- exported for tests
   , renderAccounts       -- exported for tests
@@ -356,13 +357,16 @@ refusedLinesWarning p ns = Just $ concat
 -- newer one. On a read error, the accounts are kept as they are, and the
 -- error is logged.
 reloadAccounts :: ActM ()
-reloadAccounts = do
-  accR <- asksK accounts
-  lock <- asksK accountsLock
-  kd <- asksK kiwiDir
-  logger' <- asksK logger
-  let p = FP.combine kd "_accounts"
-  liftIO $ withMVar lock $ \_ -> do
+reloadAccounts = asksK id >>= liftIO . reloadAccountsIO
+
+-- | 'reloadAccounts', out of a request (see 'Kiwi.Server.reloadKiwi')
+reloadAccountsIO :: ServerState -> IO ()
+reloadAccountsIO ss = do
+  let accR = accounts ss
+      lock = accountsLock ss
+      logger' = logger ss
+      p = FP.combine (kiwiDir ss) "_accounts"
+  withMVar lock $ \_ -> do
     r <- try $ loadAccounts p
     case r of
       Right (accs, refused) -> do

@@ -103,7 +103,7 @@ kiwis on the same port stop it. When a config file is invalid, a clean
 started, a server that stops on an error (port already in use for
 example) stops the others.
 
-On error, `kiwi serve`, `kiwi init` and `kiwi access` exit with code 1,
+On error, `kiwi serve`, `kiwi init`, `kiwi access` and `kiwi reload` exit with code 1,
 `kiwi update` with the code of the update script.
 
 
@@ -114,6 +114,7 @@ In your kiwi folder you should have this layout.
 - Kiwi
   - kiwi.ini
   - _accounts (created by `kiwi access`)
+  - _pid (while `kiwi serve` runs)
   - _sessions (created at the first login)
   - content
     - my 
@@ -386,6 +387,16 @@ reload button of the web interface: Kiwi reloads the new, modified,
 renamed and removed pages, reads the accounts file again, then your
 browser page is reloaded. If it fails (session expired, not an admin),
 a message tells why.
+
+The same reload can be asked from the command line, on the machine running
+Kiwi (from a script, a git hook, a cron job...):
+
+    kiwi reload ~/Kiwi/kiwi.ini
+
+It sends a signal to the server of this kiwi, found by the *_pid* file that
+`kiwi serve` writes next to *kiwi.ini*. The command does not wait for the
+reload: its result is in the logs of the server. A server running several
+kiwis reloads them all.
 
 Changes to *kiwi.ini* need a restart.
 

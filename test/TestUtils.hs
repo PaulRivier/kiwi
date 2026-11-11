@@ -1,5 +1,5 @@
 module TestUtils (defMeta, load, loadIn, mkPage, mkPagesDB, withContentDir, withKiwiApp,
-                  withKiwiAccounts) where
+                  withKiwiAccounts, withKiwiState) where
 
 import           Control.Exception (bracket, try)
 import           Control.Monad (forM_)
@@ -91,7 +91,12 @@ withKiwiApp = withKiwiAccounts []
 -- | 'withKiwiApp', with accounts: (login, password, groups)
 withKiwiAccounts :: [(T.Text, T.Text, [T.Text])] -> [(FilePath, String)] ->
                     (Wai.Application -> IO a) -> IO a
-withKiwiAccounts accounts' files test = withContentDir $ \cd -> do
+withKiwiAccounts accounts' files test = withKiwiState accounts' files $ \_ _ -> test
+
+-- | 'withKiwiAccounts', with the content folder and the state of the kiwi
+withKiwiState :: [(T.Text, T.Text, [T.Text])] -> [(FilePath, String)] ->
+                 (FilePath -> ServerState -> Wai.Application -> IO a) -> IO a
+withKiwiState accounts' files test = withContentDir $ \cd -> do
   let kiwiDir' = FP.takeDirectory cd
       account (l, pass, groups) = case Auth.hashPassword "kiwi-test-salt00" pass of
         Just hash -> return $ Account l "kiwi-test-salt00" hash groups
@@ -104,4 +109,4 @@ withKiwiAccounts accounts' files test = withContentDir $ \cd -> do
     , "[metadata-default]", "access: public" ]
   ss <- initServerState (kiwiDir' FP.</> "kiwi.ini") conf (\_ _ -> return ())
   cache <- U.initWAICaching
-  kiwiApp ss cache >>= test
+  kiwiApp ss cache >>= test cd ss
