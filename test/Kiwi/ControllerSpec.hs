@@ -35,9 +35,9 @@ metaIndexSpec = do
     baToggles ba `shouldBe`
       [ (FieldSource, [ V.Toggle "s1" "/browse?source=s1&tag=sport" False ]) ]
     baNextStep ba `shouldBe`
-      [(FieldTag, [ ("maison", "/browse?tag=maison&tag=sport")
-                  , ("> escalade", "/browse?tag=sport%3Eescalade")
-                  , ("> ski", "/browse?tag=sport%3Eski") ])]
+      [(FieldTag, [ ("> escalade", "/browse?tag=sport%3Eescalade")
+                  , ("> ski", "/browse?tag=sport%3Eski")
+                  , ("maison", "/browse?tag=maison&tag=sport") ])]
     baActive ba `shouldBe` [(FieldTag, "sport", "/browse")]
     baListing ba `shouldBe` V.AllPages
     uids ba `shouldBe` [("s1", "b"), ("s1", "a")]
@@ -67,3 +67,10 @@ metaIndexSpec = do
                       , V.Toggle "s2" "/browse?tag=sport" True ]) ]
     uids ba `shouldBe` []
 
+  it "sorts the sources and the next tags without case nor accents" $ do
+    let db' = mkPagesDB [ mkPage ("B", "a") ["zoo"] ["public"] False 1
+                        , mkPage ("a", "b") ["\201cologie"] ["public"] False 2
+                        , mkPage ("\201c", "c") ["abeille", "Zen"] ["public"] False 3 ]
+        ba = metaIndex db' noContext M.empty
+    map (map V.toggleLabel . snd) (baToggles ba) `shouldBe` [["a", "B", "\201c"]]
+    map (map fst . snd) (baNextStep ba) `shouldBe` [["abeille", "\201cologie", "Zen", "zoo"]]

@@ -1,6 +1,8 @@
 module Kiwi.Server
     ( kiwiServer
     , securityHeaders  -- exported for tests
+    , initServerState  -- exported for tests
+    , kiwiApp          -- exported for tests
     ) where
 
 
@@ -12,6 +14,7 @@ import           Control.Monad (when, forM_, void)
 import           Control.Monad.Reader
 import           Data.IORef (newIORef, readIORef, atomicWriteIORef)
 import           Data.List (stripPrefix, isInfixOf)
+import           Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as M
 import qualified Data.SearchEngine as SE
 import qualified Data.Text as T
@@ -75,10 +78,20 @@ kiwiServer cfp c logLevel cache = do
     hidePassword p = Just p
 
 
+-- | The application of a kiwi, as served by 'kiwiServer' (without the
+-- requests logger of the debug mode)
+kiwiApp :: ServerState -> Static.CacheContainer -> IO Wai.Application
+kiwiApp ss cache = scottyAppT defaultOptions { verbose = 0 }
+                              (\m -> runReaderT (runServerM m) ss)
+                              (kiwiRoute ss cache)
+
+
 kiwiRoute :: ServerState -> Static.CacheContainer -> WebM ()
 kiwiRoute ss cache = do
   -- the first middleware is the outer one: all the responses have the headers
   middleware securityHeaders
+  -- exceptions of the actions (redirections are not exceptions for it)
+  defaultHandler $ Handler $ withLogin . serveError
   get "/" $ redirect "/browse"
   get "/page/:source/:pId" $ do
     source <- pathParam "source"
@@ -86,8 +99,9 @@ kiwiRoute ss cache = do
     withLogin $ withContext $ servePage (source, pId)
   get "/browse" $ withLogin $ withContext $ queryParams >>= serveBrowseAll
   get "/search" $ withLogin $ withContext $ do
-    query <- queryParam "query"
-    serveSearch query
+    -- without query, the search form is displayed
+    query <- queryParamMaybe "query"
+    serveSearch $ fromMaybe "" query
   -- in the archive mode, but not in the sources context
   get "/metadata" $ withLogin $ withContext serveMetadata
   get "/doctor" $ withLogin $ withContext serveDoctor

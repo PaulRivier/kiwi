@@ -11,6 +11,7 @@ module Kiwi.Controller
   , logUserIn
   , logUserOut
   , serveNotFound
+  , serveError
   , withLogin
   , withContext
   , ifAdmin
@@ -19,7 +20,7 @@ module Kiwi.Controller
   ) where
 
 import           Control.Concurrent (forkIO)
-import           Control.Exception (IOException, try)
+import           Control.Exception (IOException, SomeException, fromException, try)
 import           Control.Monad (forM_)
 import           Control.Monad.Reader
 import qualified Data.ByteString as BS
@@ -41,7 +42,8 @@ import qualified System.FilePath as FP
 import qualified System.Process as Proc
 import qualified Text.Pandoc.Definition as PD
 import qualified Network.Wai as Wai
-import           Web.Scotty.Trans (formParam, queryParams, redirect, request, status, html)
+import           Web.Scotty.Trans (ScottyException (..), formParam, queryParams, redirect,
+                                   request, status, html)
 
 import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
@@ -159,12 +161,17 @@ serveMetadata = do
       [ (Tags.tagToSegments t, k) | k@(K.KeyText t) <- keys ]
     keysForest _ keys = [ Tree.Node k [] | k <- sortOn keyOrder keys ]
     segOrder seg = (textOrder seg, seg)
-    keyOrder (K.KeyText t) = Left (textOrder t, t)
-    keyOrder k = Right k
 
 -- | Order of the texts (sources, metadata keys), without case nor accents
 textOrder :: T.Text -> T.Text
 textOrder = normalizeText . T.toLower
+
+-- | Order of the keys of a field: the texts without case nor accents (the raw
+-- text breaks ties), the other keys (numbers, dates...) in their natural
+-- order
+keyOrder :: K.DocIndexKey -> Either (T.Text, T.Text) K.DocIndexKey
+keyOrder (K.KeyText t) = Left (textOrder t, t)
+keyOrder k = Right k
 
 -- | Tags sorted segment by segment, as a forest of tags and sub-tags. The
 -- parents are among the tags, since 'K.FieldTag' has every tag prefix.
@@ -253,7 +260,8 @@ metaIndex db ctx req =
       -- sources and custom fields
       fields = K.FieldSource : relevantFields subset (K.customMetaConfig db)
       -- union fields: each key is a toggle, adding or removing it
-      toggles = [ (f, map (toggle f) $ fieldKeys f) | f <- fields, isUnion f ]
+      toggles = [ (f, map (toggle f) $ sortOn keyOrder $ fieldKeys f)
+                | f <- fields, isUnion f ]
       toggle f k
         | S.member k (reqKeySet f) =
             V.Toggle (keyLabel f k) (Browse.browseUrl ctx $ Browse.removeFromReq req (f,k)) True
@@ -261,8 +269,13 @@ metaIndex db ctx req =
             V.Toggle (keyLabel f k) (Browse.browseUrl ctx $ Browse.addToReq req (f,k)) False
       -- intersection fields: the keys narrowing the request, and the keys
       -- of the request with a link to remove them
-      menu = tags : filterOut [ (f, fieldKeys f) | f <- fields, not (isUnion f) ]
-      nextStep = map (\(f, keys) -> (f, map (nextStepLink f) keys)) $ menu
+      menu = tags : filterOut [ (f, sortOn keyOrder $ fieldKeys f)
+                              | f <- fields, not (isUnion f) ]
+      nextStep = map (\(f, keys) -> (f, byLabel f $ map (nextStepLink f) keys)) $ menu
+      -- the next tags are sorted as displayed, without case nor accents: the
+      -- sub-tags of the tags of the request ("> ski") come first
+      byLabel K.FieldTag = sortOn (\(label, _) -> (textOrder label, label))
+      byLabel _ = id
       -- keys already in the request are not proposed again
       filterOut = mapMaybe $ \(f, ks) ->
         case filter (`S.notMember` reqKeySet f) ks of
@@ -416,6 +429,24 @@ serveBadRequest err = do
   r <- V.renderBadRequest err
   status Net.status400
   html r
+
+
+-- | Answer to an exception of an action (the default handler of the routes).
+-- A parameter of the request that is missing or can not be read is an error
+-- of the client (400). Anything else is an error of the server (500): it is
+-- logged, and not detailed on the page.
+serveError :: SomeException -> ActM ()
+serveError e = case fromException e of
+  Just (PathParameterNotFound k) -> missing k
+  Just (QueryParameterNotFound k) -> missing k
+  Just (FormFieldNotFound k) -> missing k
+  Just (FailedToParseParameter k _ _) -> serveBadRequest $ "invalid value for " <> k
+  _ -> do
+    logMsg L.Error $ "request failed: " <> Auth.sanitizeLogText (T.pack $ show e)
+    r <- V.renderServerError
+    status Net.status500
+    html r
+  where missing k = serveBadRequest $ "missing parameter: " <> k
 
 
 -- | 403 for a logged in user without the right, 401 for an anonymous one,

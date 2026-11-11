@@ -1,7 +1,9 @@
 module Kiwi.ViewSpec (viewSpec) where
 
 import qualified Data.Text as T
+import           Control.Monad.IO.Class (liftIO)
 import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TLE
 import           Lucid (renderText)
 import qualified Network.HTTP.Types as Net
 import qualified Network.Wai as Wai
@@ -52,3 +54,27 @@ viewSpec = do
       Just "script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
     lookup "X-Content-Type-Options" (WT.simpleHeaders resp) `shouldBe` Just "nosniff"
 
+  -- requests to the application of a kiwi with a page "p"
+  let get path = WT.request $ WT.setPath Wai.defaultRequest path
+      postForm path form = WT.srequest $ WT.SRequest
+        (WT.setPath Wai.defaultRequest { Wai.requestMethod = "POST"
+                                       , Wai.requestHeaders =
+                                           [("Content-Type", "application/x-www-form-urlencoded")] }
+                    path)
+        form
+      onKiwi = withKiwiApp [("p.md", "title: Page\n\nHello")] . WT.runSession
+      body = TL.toStrict . TLE.decodeUtf8 . WT.simpleBody
+
+  it "serves the pages and the search form without query" $ onKiwi $ do
+    page' <- get "/page/s/p"
+    liftIO $ WT.simpleStatus page' `shouldBe` Net.status200
+    liftIO $ body page' `shouldSatisfy` T.isInfixOf "Hello"
+    search <- get "/search"
+    liftIO $ WT.simpleStatus search `shouldBe` Net.status200
+
+  it "answers a missing parameter with the bad request page" $ onKiwi $ do
+    resp <- postForm "/login" ""
+    liftIO $ WT.simpleStatus resp `shouldBe` Net.status400
+    liftIO $ body resp `shouldSatisfy` T.isInfixOf "<h1>Invalid request</h1>"
+    liftIO $ body resp `shouldSatisfy` T.isInfixOf "missing parameter: username"
+    liftIO $ lookup "X-Content-Type-Options" (WT.simpleHeaders resp) `shouldBe` Just "nosniff"

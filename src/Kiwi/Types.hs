@@ -431,6 +431,7 @@ data Locales = Locales
   , loc_NotFound :: T.Text
   , loc_BadRequest :: T.Text
   , loc_Forbidden :: T.Text
+  , loc_ServerError :: T.Text
   , loc_RemoveFilter :: T.Text
   , loc_LoginFailed :: T.Text
   , loc_LangCode :: T.Text  -- ^ html lang attribute

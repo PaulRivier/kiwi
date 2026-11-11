@@ -1,15 +1,20 @@
-module TestUtils (defMeta, load, loadIn, mkPage, mkPagesDB, withContentDir) where
+module TestUtils (defMeta, load, loadIn, mkPage, mkPagesDB, withContentDir, withKiwiApp) where
 
 import           Control.Exception (bracket, try)
+import           Control.Monad (forM_)
 import qualified Data.Text as T
 import qualified Data.Time as Time
+import qualified Network.Wai as Wai
 import qualified System.Directory as D
 import qualified System.FilePath as FP
 import           System.IO.Error (isAlreadyExistsError)
 
+import qualified Kiwi.ConfigFile as Conf
 import qualified Kiwi.PagesDB as DB
 import           Kiwi.Pandoc (loadPage)
+import           Kiwi.Server (initServerState, kiwiApp)
 import           Kiwi.Types
+import qualified Kiwi.Utils as U
 import qualified Utils.DocIndex as DI
 
 defMeta :: MetaData
@@ -72,3 +77,15 @@ withContentDir test = do
         Left e | isAlreadyExistsError e -> newDir tmp (n + 1)
                | otherwise -> ioError e
 
+-- | Runs the test on the application of a new temporary kiwi, with the given
+-- files (name, content) as the pages of its source "s". The default access
+-- of the pages is "public".
+withKiwiApp :: [(FilePath, String)] -> (Wai.Application -> IO a) -> IO a
+withKiwiApp files test = withContentDir $ \cd -> do
+  forM_ files $ \(name, c) -> writeFile (cd FP.</> "s" FP.</> "pages" FP.</> name) c
+  conf <- either fail return $ Conf.parseConfig $ T.unlines
+    [ "[kiwi]", "content-directory: content", "port: 3456"
+    , "[metadata-default]", "access: public" ]
+  ss <- initServerState (FP.takeDirectory cd FP.</> "kiwi.ini") conf (\_ _ -> return ())
+  cache <- U.initWAICaching
+  kiwiApp ss cache >>= test

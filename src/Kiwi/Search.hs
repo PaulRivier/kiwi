@@ -191,9 +191,13 @@ defaultSearchRankParameters =
       -- are added from the smallest (rarest term), the first one is always
       -- kept whole. It stops before a set that would take the total over the
       -- hard limit, and after a set that takes it over the soft limit: the
-      -- most frequent terms are then silently ignored.
-      paramResultsetSoftLimit = 12,
-      paramResultsetHardLimit = 24,
+      -- most frequent terms are then silently ignored. These limits count
+      -- all the pages, before 'searchPages' keeps the visible ones, so there
+      -- is none: a term in many pages that the user can not read would hide
+      -- the few ones they can read. 'relevanceThreshold' drops the pages
+      -- that are far from the best one.
+      paramResultsetSoftLimit = maxBound,
+      paramResultsetHardLimit = maxBound,
       -- only for 'queryAutosuggest' (unused): over these numbers of pages,
       -- before or after its results filter, it returns nothing
       paramAutosuggestPrefilterLimit  = 100,

@@ -12,12 +12,13 @@ module Kiwi.View
   , renderNotFound
   , renderBadRequest
   , renderForbidden
+  , renderServerError
   , cmLink     -- exported for tests
   , pageView   -- exported for tests
   ) where
 
 import           Control.Monad (forM_, unless, when)
-import           Data.List (intersperse, sortOn)
+import           Data.List (intersperse)
 import           Data.Maybe (fromMaybe, isJust)
 import qualified Data.Set as S
 import qualified Data.Text as T
@@ -182,6 +183,13 @@ renderForbidden :: ActM TL.Text
 renderForbidden = do
   loc <- getLocales
   renderView (K.loc_Forbidden loc) ReloadAction Nothing $ h1_ $ toHtml $ K.loc_Forbidden loc
+
+-- | An error of the server: its cause is in the logs, not on the page
+renderServerError :: ActM TL.Text
+renderServerError = do
+  loc <- getLocales
+  renderView (K.loc_ServerError loc) ReloadAction Nothing $
+    h1_ $ toHtml $ K.loc_ServerError loc
 
 
 
@@ -369,7 +377,7 @@ browseView loc ctx toggles switch menu filters listing pages = div_ [class_ "tag
           toHtml label <> " ×"
   unless (null tags) $
     div_ [class_ "tags-selection"] $
-      fieldset (K.loc_TagsList loc) $ linksList "tags-list" $ sortOn fst tags
+      fieldset (K.loc_TagsList loc) $ linksList "tags-list" tags
   unless (null customs) $
     div_ [class_ "custom-meta-selection"] $ forM_ customs $ \(field, keys) ->
       fieldset field $ linksList "custom-meta-list" keys

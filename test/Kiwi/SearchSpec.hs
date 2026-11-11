@@ -3,6 +3,7 @@ module Kiwi.SearchSpec (searchSpec) where
 import           Data.List (sort)
 import qualified Data.SearchEngine as SE
 import qualified Data.Set as S
+import qualified Data.Text as T
 import qualified Data.Time as Time
 import           Test.Hspec
 
@@ -60,6 +61,16 @@ searchSpec = do
 
   it "compares the scores of the visible pages only" $
     searchVisible (/= "e") "chat soleil jardin" `shouldBe` [("src", "f"), ("src", "g")]
+
+  it "finds the visible pages among many pages with the query terms" $ do
+    -- the pages that the user can not read do not count in any limit
+    let hidden = [ page (T.pack $ "h" ++ show n) "Le soleil" | n <- [1 .. 30 :: Int] ]
+                 ++ [ page (T.pack $ "i" ++ show n) "Un chat" | n <- [1 .. 40 :: Int] ]
+        se' = SE.insertDocs (page "v1" "Un chat" : page "v2" "Un chat" : hidden)
+                            initPageSearchEngine
+        visible uid = T.isPrefixOf "v" (snd uid)
+    sort (searchPages se' visible $ queryTerms French "chat soleil")
+      `shouldBe` [("src", "v1"), ("src", "v2")]
 
   it "splits unknown prefixes, and prefixes after the start, as other words" $ do
     queryTerms French "fr:chevaux" `shouldBe` queryTerms French "chevaux"
