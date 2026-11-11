@@ -140,11 +140,12 @@ renderSearchResults lang query pages = do
 
 -- | The pages with links to pages that the user can not read, with these
 -- links (page ids), source by source
-renderDoctor :: [(T.Text, [(K.Page, [T.Text])])] -> ActM TL.Text
-renderDoctor broken = do
+renderDoctor :: [(T.Text, [(FilePath, T.Text)])] -> [(T.Text, [(K.Page, [T.Text])])] ->
+                ActM TL.Text
+renderDoctor errors broken = do
   loc <- getLocales
   ctx <- asksK K.context
-  renderView (K.loc_Doctor loc) NoActions Nothing $ doctorView loc ctx broken
+  renderView (K.loc_Doctor loc) NoActions Nothing $ doctorView loc ctx errors broken
 
 -- | A key of a field on the metadata page
 data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ as displayed
@@ -444,9 +445,19 @@ contextBar loc sources content archive = div_ [class_ "sources-selection"] $ do
 -- in a nested list
 -- | The pages with broken links, each one with the ids of its broken links,
 -- in a section by source
-doctorView :: K.Locales -> K.Context -> [(T.Text, [(K.Page, [T.Text])])] -> Html ()
-doctorView loc ctx broken = div_ [class_ "doctor-page"] $ do
+doctorView :: K.Locales -> K.Context -> [(T.Text, [(FilePath, T.Text)])] ->
+              [(T.Text, [(K.Page, [T.Text])])] -> Html ()
+doctorView loc ctx errors broken = div_ [class_ "doctor-page"] $ do
   h1_ [class_ "page-title"] $ toHtml $ K.loc_Doctor loc
+  -- the files that are not loaded (path in the pages folder, and reason),
+  -- in a section by source: nothing at all without error
+  unless (null errors) $ do
+    h2_ $ toHtml $ K.loc_LoadErrors loc
+    forM_ errors $ \(source, files) -> section_ $ do
+      h3_ $ toHtml source
+      ul_ [class_ "load-errors"] $ forM_ files $ \(path, reason) -> li_ $ do
+        span_ [class_ "file"] $ toHtml path
+        ul_ $ li_ $ toHtml reason
   h2_ $ toHtml $ K.loc_BrokenLinks loc
   if null broken
     then p_ $ toHtml $ K.loc_NoBrokenLink loc

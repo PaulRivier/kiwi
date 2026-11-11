@@ -68,4 +68,9 @@ configSpec = do
     fmap Conf.editor c `shouldBe` Right Nothing
     fmap Conf.uiLang c `shouldBe` Right UI_English
     fmap (metaAccess . Conf.defaultMeta) c `shouldBe` Right ["admin"]
+    fmap Conf.bind c `shouldBe` Right (Just "127.0.0.1")
 
+  it "reads the address to listen on, all of them without it" $ do
+    fmap Conf.bind (Conf.parseConfig $ ini []) `shouldBe` Right Nothing
+    fmap Conf.bind (Conf.parseConfig $ ini ["bind:"]) `shouldBe` Right Nothing
+    fmap Conf.bind (Conf.parseConfig $ ini ["bind: ::1 "]) `shouldBe` Right (Just "::1")

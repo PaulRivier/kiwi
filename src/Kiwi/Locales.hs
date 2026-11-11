@@ -49,6 +49,7 @@ loc_english = Locales
   , loc_Doctor = "Doctor"
   , loc_BrokenLinks = "Broken links"
   , loc_NoBrokenLink = "No broken link"
+  , loc_LoadErrors = "Load errors"
   -- , loc_TimeLocale = enTimeLocale
   }
 
@@ -89,6 +90,7 @@ loc_french = Locales
   , loc_Doctor = "Doctor"
   , loc_BrokenLinks = "Liens cassés"
   , loc_NoBrokenLink = "Aucun lien cassé"
+  , loc_LoadErrors = "Erreurs de chargement"
   -- , loc_TimeLocale = frTimeLocale
   }
 

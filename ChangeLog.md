@@ -20,3 +20,13 @@ TODO
 - Pages, browse, search, metadata and doctor pages have an ETag: a browser
   that already has the page gets a 304, without rendering, until the next
   reload.
+- **Pages with an invalid header are refused.** The first block of a page
+  must be its metadata: `field: value` lines, and `---` or `...`
+  separators. A page starting with a heading or some text, or with a free
+  line in its header, is no longer loaded. A page without metadata starts
+  with an empty line.
+- Doctor page: for admins, a "Load errors" section lists the files that are
+  not loaded, with the reason.
+- New `bind` setting in the `[kiwi]` section: the address to listen on
+  (`127.0.0.1` in a new *kiwi.ini*). Without it, all the interfaces, as
+  before.

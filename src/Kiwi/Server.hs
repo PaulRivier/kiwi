@@ -19,7 +19,8 @@ import qualified Data.Map.Strict as M
 import qualified Data.SearchEngine as SE
 import qualified Data.Text as T
 import qualified Network.Wai as Wai
-import           Network.Wai.Handler.Warp (setPort)
+import           Data.String (fromString)
+import           Network.Wai.Handler.Warp (setHost, setPort)
 import           Network.Wai.Middleware.AddHeaders (addHeaders)
 import           Network.Wai.Middleware.Gzip (gzip, defaultGzipSettings)
 import           Network.Wai.Middleware.RequestLogger (DetailedSettings (..), OutputFormat (..),
@@ -59,7 +60,8 @@ kiwiServer cfp c logLevel cache = do
   (ss, t) <- timeIO $ initServerState cfp c logger'
   nb <- pagesCount <$> readIORef (pagesDB ss)
   logger' L.Info $ T.pack $ concat [ nb, " pages loaded in ", printf "%.2f" t
-                                   , "s, listening on port ", show (Conf.port c) ]
+                                   , "s, listening on ", maybe "port " (++ ":") (Conf.bind c)
+                                   , show (Conf.port c) ]
   -- HTTP requests are only logged in debug mode
   requestLogger <- mkRequestLogger defaultRequestLoggerSettings
     { outputFormat = DetailedWithSettings defaultDetailedSettings
@@ -68,7 +70,8 @@ kiwiServer cfp c logLevel cache = do
   let runActionToIO m = runReaderT (runServerM m) ss
       -- no scotty startup banner
       opts = defaultOptions { verbose = 0
-                            , settings = setPort (Conf.port c) (settings defaultOptions) }
+                            , settings = maybe id (setHost . fromString) (Conf.bind c) $
+                                         setPort (Conf.port c) (settings defaultOptions) }
   scottyOptsT opts runActionToIO $ do
     when (logLevel == L.Debug) $ middleware requestLogger
     kiwiRoute ss cache

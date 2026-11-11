@@ -9,7 +9,9 @@ module Kiwi.Pandoc
   , linksInContext
   , unknownMetaKeys
   , invalidMetaValues
+  , Loaded (..)
   , loadPage         -- exported for tests
+  , splitPage        -- exported for tests
   , parseMetaData    -- exported for tests
   , parseCustomMeta  -- exported for tests
   , sourceMeta       -- exported for tests
@@ -23,9 +25,9 @@ import qualified Commonmark.Extensions as CmEx
 import qualified Commonmark.Pandoc as CmP
 
 import qualified Data.ByteString as BS
-import           Data.Functor ((<&>))
 import           Data.Functor.Identity (Identity, runIdentity)
 import qualified Data.Map as M
+import           Data.Char (isAlphaNum, isSpace)
 import           Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -51,12 +53,14 @@ import qualified Kiwi.Utils as U
 
 
 
+-- | A page from the text of its file: its header is read once, here. Fails
+-- when the header is invalid (see 'splitPage'), or the markdown unreadable.
 loadPage :: FP.FilePath -> T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
               FP.FilePath -> Either String PandocPage
-loadPage path c source md cmc dir =
-    let (docMeta, content) = splitPage c
+loadPage path c source md cmc dir = do
+    (docMeta, content) <- splitPage (map cmcName cmc) c
         -- an empty id is ignored: the page gets the id of its path
-        meta = md { metaId    = mfilter (not . T.null) $
+    let meta = md { metaId    = mfilter (not . T.null) $
                                 T.concat <$> M.lookup "id" docMeta
                   , metaTitle = findWith (metaTitle md) (T.intercalate " ")
                                          "title" docMeta
@@ -72,8 +76,11 @@ loadPage path c source md cmc dir =
                                   M.lookup "archive" docMeta >>= parseBool . last
                   , metaCustom = parseCustomMeta docMeta cmc
                   }
-    in loadDoc path source dir docMeta content <&>
-       \(doc, colLinks) -> PandocPage doc meta colLinks
+        dirT = T.pack dir
+        imagesDir = maybe dirT T.concat $ M.lookup "images-dir" docMeta
+        filesDir  = maybe dirT T.concat $ M.lookup "files-dir" docMeta
+    (doc, colLinks) <- loadDoc path source dirT imagesDir filesDir content
+    return $ PandocPage doc meta colLinks docMeta content imagesDir filesDir
   where
     -- mdConf = P.def { P.readerExtensions = P.pandocExtensions }
     findWith def join' field meta = fromMaybe def $
@@ -81,23 +88,22 @@ loadPage path c source md cmc dir =
                                     M.lookup field meta
 
 
--- | Keys of the metadata header of a page text that kiwi does not use: neither
--- built-in (read by 'loadPage' and 'loadDoc') nor declared custom metadata
-unknownMetaKeys :: [CustomMetaConfig] -> T.Text -> [T.Text]
-unknownMetaKeys cmc c = filter (`notElem` known) $ M.keys $ fst $ splitPage c
+-- | Keys of the metadata header of a page that kiwi does not use: neither
+-- built-in (read by 'loadPage') nor declared custom metadata
+unknownMetaKeys :: [CustomMetaConfig] -> M.Map T.Text [T.Text] -> [T.Text]
+unknownMetaKeys cmc docMeta = filter (`notElem` known) $ M.keys docMeta
   where
     known = [ "id", "title", "tags", "access", "lang", "archive", "images-dir"
             , "files-dir" ] ++ map cmcName cmc
 
 
--- | Metadata of the header of a page text whose value can not be read, with
--- this value. For "archive" and "lang" (built-in), the page has the default
+-- | Metadata of the header of a page whose value can not be read, with this
+-- value. For "archive" and "lang" (built-in), the page has the default
 -- value instead; for the custom metadata of type int, date or bool, the
 -- value is ignored.
-invalidMetaValues :: [CustomMetaConfig] -> T.Text -> [(T.Text, T.Text)]
-invalidMetaValues cmc c =
-  let docMeta = fst $ splitPage c
-      lastValue k = last <$> M.lookup k docMeta
+invalidMetaValues :: [CustomMetaConfig] -> M.Map T.Text [T.Text] -> [(T.Text, T.Text)]
+invalidMetaValues cmc docMeta =
+  let lastValue k = last <$> M.lookup k docMeta
   in [ ("archive", v) | Just v <- [lastValue "archive"], isNothing (parseBool v) ]
      ++ [ ("lang", v) | Just v <- [lastValue "lang"]
                       , either (const True) (const False) (parseLangSetting v) ]
@@ -115,13 +121,16 @@ parseBool b = case T.toLower (T.strip b) of
     | otherwise -> Nothing
 
 
--- | Metadata and content of a page (see 'normalizeText'). A file without
--- blank line is considered as metadata only, with empty content.
-splitPage :: T.Text -> (M.Map T.Text [T.Text], T.Text)
-splitPage c =
+-- | Metadata and content of a page (see 'normalizeText'): the header is the
+-- first block of the file, until its first blank line, and the content is
+-- what follows. A file without blank line is a header only, with an empty
+-- content. Fails when the header is invalid (see 'parseMetaData'); the given
+-- keys (custom metadata names) are allowed even with several words.
+splitPage :: [T.Text] -> T.Text -> Either String (M.Map T.Text [T.Text], T.Text)
+splitPage keys c =
   let normC = normalizeText c
       (metaC, content) = fromMaybe (normC, T.empty) $ splitOnFirst "\n\n" normC
-  in (parseMetaData metaC, content)
+  in (, content) <$> parseMetaData keys metaC
 
 -- | The text of a file without its initial byte order mark (U+FEFF, added by
 -- some Windows editors) if any, and with Unix line endings
@@ -129,14 +138,13 @@ normalizeText :: T.Text -> T.Text
 normalizeText c = T.replace "\r\n" "\n" $ fromMaybe c $ T.stripPrefix "\xFEFF" c
 
 
--- | Document of a page, with its links fixed, and the links to other pages
-loadDoc :: FP.FilePath -> T.Text -> FP.FilePath -> M.Map T.Text [T.Text] -> T.Text ->
+-- | Document of a page from its markdown content, with its links fixed, and
+-- the links to other pages. Links are relative to the folder of the page,
+-- or to its images and files folders.
+loadDoc :: FP.FilePath -> T.Text -> T.Text -> T.Text -> T.Text -> T.Text ->
            Either String (PD.Pandoc, [PageUID])
-loadDoc path source dir docMeta content =
-    let dirT = T.pack $ dir
-        imagesDir = maybe dirT T.concat $ M.lookup "images-dir" docMeta
-        filesDir  = maybe dirT T.concat $ M.lookup "files-dir" docMeta
-        syntaxSpec = Cm.defaultSyntaxSpec <>
+loadDoc path source dirT imagesDir filesDir content =
+    let syntaxSpec = Cm.defaultSyntaxSpec <>
                      CmEx.strikethroughSpec <> CmEx.pipeTableSpec <> CmEx.autolinkSpec <>
                      CmEx.taskListSpec <> CmEx.footnoteSpec <>
                      CmEx.autoIdentifiersSpec
@@ -152,25 +160,27 @@ loadDoc path source dir docMeta content =
            in Right (doc, colLinks)
 
 
--- | Document of a loaded page, parsed again from its text to be displayed
+-- | Document of a loaded page, parsed again from its content to be
+-- displayed. The header is not read again: the page keeps what it gave.
 pageDoc :: FP.FilePath -> Page -> Either String PD.Pandoc
 pageDoc contentDir' p =
   let path = pageAbsoluteFSPath p
       source = fst $ pageUID p
       relPath = snd $ pagePath contentDir' path
-      (docMeta, content) = splitPage $ pageText p
-  in fst <$> loadDoc path source (pageSubDir relPath) docMeta content
+  in fst <$> loadDoc path source (T.pack $ pageSubDir relPath) (pageImagesDir p)
+                     (pageFilesDir p) (pageBody p)
 
 
 -- | Document of a file embedded in kiwi (README, CommonMark cheatsheet), with
 -- or without a metadata header, and the title of its header. Its links are
 -- not relative to any source.
 embeddedDoc :: FP.FilePath -> Bool -> T.Text -> Either String (Maybe T.Text, PD.Pandoc)
-embeddedDoc name withHeader c =
-  let (docMeta, content) = if withHeader then splitPage c
-                           else (M.empty, normalizeText c)
-      title = T.intercalate " " <$> M.lookup "title" docMeta
-  in (\(doc, _) -> (title, doc)) <$> loadDoc name "" "" docMeta content
+embeddedDoc name withHeader c = do
+  (docMeta, content) <- if withHeader then splitPage [] c
+                        else Right (M.empty, normalizeText c)
+  let title = T.intercalate " " <$> M.lookup "title" docMeta
+  (doc, _) <- loadDoc name "" "" "" "" content
+  return (title, doc)
 
 
 -- | Source of a page file, and its path in the pages folder, without
@@ -319,9 +329,18 @@ sourceMeta scM md = md { metaAccess = fromMaybe (metaAccess md) (scM >>= scAcces
                         , metaLang = fromMaybe (metaLang md) (scM >>= scLang) }
 
 
+-- | A loaded page, the plain text of its content (for indexing), and what
+-- its header has that kiwi can not use (see 'unknownMetaKeys' and
+-- 'invalidMetaValues')
+data Loaded = Loaded { loadedPage :: !Page
+                     , loadedContent :: !T.Text
+                     , loadedUnknownKeys :: ![T.Text]
+                     , loadedInvalidValues :: ![(T.Text, T.Text)]
+                     }
+
 loadPageIO :: FP.FilePath -> FP.FilePath -> T.Text ->
               MetaData -> [CustomMetaConfig] -> Maybe SourceConfig ->
-              IO (Either String (Page, T.Text))
+              IO (Either String Loaded)
 loadPageIO fullPath relPath source md cmc scM = do
   -- file may have been removed since directory listing. The time is read
   -- first: a file modified while it is read then gets another time, and is
@@ -335,18 +354,24 @@ loadPageIO fullPath relPath source md cmc scM = do
     Right (bytes, mt) -> case TE.decodeUtf8' bytes of
      Left e -> Left $ "not a valid UTF-8 file : " ++ show e
      Right c -> case (loadPage fullPath c source (sourceMeta scM md) cmc (pageSubDir relPath)) of
-      Left e -> Left $ "unable to decode markdown : " ++ e
-      -- the page and the plain text of its content, for indexing, are
-      -- evaluated here, so that the document can be freed
+      Left e -> Left $ "unable to load the page : " ++ e
+      -- the page, the plain text of its content and the issues of its
+      -- header are evaluated here, so that the document can be freed
       Right p -> let meta = pandocMeta p
                      pId = fromMaybe (pathToPageId relPath) $ metaId meta
                      !content = U.pageContent $ pandocDoc p
                      links = pandocPageLinks p
                      !_ = length links
+                     !header = pandocHeader p
+                     unknown = unknownMetaKeys cmc header
+                     invalid = invalidMetaValues cmc header
+                     !_ = length unknown + length invalid
                      !page = Page { pageUID = (source, pId)
                                   , pageAbsoluteFSPath = fullPath
                                   , pageMTime = mt
-                                  , pageText = c
+                                  , pageBody = pandocBody p
+                                  , pageImagesDir = pandocImagesDir p
+                                  , pageFilesDir = pandocFilesDir p
                                   , pageTitle = metaTitle meta
                                   , pageTags =  map (prefixNormalizeTag rootTag) $
                                                 metaTags meta
@@ -357,7 +382,7 @@ loadPageIO fullPath relPath source md cmc scM = do
                                   , pageArchive = metaArchive meta
                                   , pageCustomMeta = metaCustom meta
                                   }
-        in Right (page, content)
+        in Right $ Loaded page content unknown invalid
 
 
 -- | Custom metadata of a page header. The values that can not be read for
@@ -382,20 +407,21 @@ readCustomValue t v = case t of
 
 
 
-parseMetaData :: T.Text -> M.Map T.Text [T.Text]
-parseMetaData t = let metaLines = T.lines t
-  in M.fromListWith (flip (++)) $ 
-     mapMaybe parseMetaLine metaLines
+-- | Metadata of the header of a page. Each line is a field ("key: value",
+-- with a key in one word of letters, digits, '-' and '_', or one of the
+-- given keys), a separator made of '-' or '.' ("---", "..."), or blank.
+-- Anything else (a heading, some text) is an error: the first block of a
+-- page must be its metadata.
+parseMetaData :: [T.Text] -> T.Text -> Either String (M.Map T.Text [T.Text])
+parseMetaData keys t =
+  M.fromListWith (flip (++)) . concat <$>
+  traverse parseMetaLine (zip [1 :: Int ..] $ T.lines t)
   where
-    parseMetaLine l = splitOnFirst ":" l <&>
-                      \(k,v) -> (T.strip k, [T.strip v])
-
-                        
-
-        
-                         
-                         
-
-
-
-
+    parseMetaLine (n, l)
+      | T.all isSpace l = Right []
+      | T.all (`elem` ['-', '.']) (T.strip l) = Right []
+      | Just (k, v) <- splitOnFirst ":" l, validKey (T.strip k) =
+          Right [(T.strip k, [T.strip v])]
+      | otherwise = Left $ "invalid metadata header, line " ++ show n
+    validKey k = k `elem` keys ||
+                 (not (T.null k) && T.all (\ch -> isAlphaNum ch || ch `elem` ['-', '_']) k)

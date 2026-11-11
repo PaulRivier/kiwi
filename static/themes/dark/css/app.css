@@ -347,6 +347,10 @@ ul.pages-list li a:hover,
   margin-top: 0.6em;
 }
 
+.doctor-page ul.load-errors > li {
+  margin-top: 0.6em;
+}
+
 .doctor-page ul.broken-links a {
   color: rgba(var(--kiwi-page-link), 0.7);
   text-decoration: none;

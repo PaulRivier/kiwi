@@ -102,7 +102,14 @@ serveDoctor = do
                                                 (brokenLinks $ K.pagesIndex db) ]
       bySource = [ (fst $ K.pageUID pg, pages)
                  | pages@((pg, _) : _) <- groupBy ((==) `on` (fst . K.pageUID . fst)) byPage ]
-  r <- V.renderDoctor $ sortOn (textOrder . fst) bySource
+      -- the files that are not loaded, for admins only: their access is
+      -- unknown, and they are in the archives or not
+      errors = [ (s, [ (p, e) | (_, p, e) <- es ])
+               | es@((s, _, _) : _) <- groupBy ((==) `on` (\(src, _, _) -> src))
+                                               (K.loadErrors db) ]
+  admin <- Auth.isAdmin
+  r <- V.renderDoctor (if admin then sortOn (textOrder . fst) errors else [])
+                      (sortOn (textOrder . fst) bySource)
   htmlETag db r
 
 

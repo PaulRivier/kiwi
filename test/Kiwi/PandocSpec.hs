@@ -10,7 +10,7 @@ import qualified Text.Pandoc.Walk as PW
 
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.Pandoc (linksInContext, loadPage, pageDoc, pagePath, parseMetaData,
-                              parseCustomMeta, sourceMeta, unknownMetaKeys,
+                              parseCustomMeta, sourceMeta, splitPage, unknownMetaKeys,
                               invalidMetaValues)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
@@ -29,6 +29,19 @@ images = PW.query f . pandocDoc
 
 blocks :: PandocPage -> [PD.Block]
 blocks p = let PD.Pandoc _ bs = pandocDoc p in bs
+
+-- | Fields of the header of a page text
+header :: T.Text -> M.Map T.Text [T.Text]
+header = either error fst . splitPage []
+
+metaData :: T.Text -> M.Map T.Text [T.Text]
+metaData = either error id . parseMetaData []
+
+unknownKeys :: [CustomMetaConfig] -> T.Text -> [T.Text]
+unknownKeys cfg = unknownMetaKeys cfg . header
+
+invalidValues :: [CustomMetaConfig] -> T.Text -> [(T.Text, T.Text)]
+invalidValues cfg = invalidMetaValues cfg . header
 
 loadPageSpec :: Spec
 loadPageSpec = do
@@ -161,16 +174,16 @@ loadPageSpec = do
     archived "title: t\narchive: Yes\n\nx" `shouldBe` True
     archived "title: t\narchive: 0\n\nx" `shouldBe` False
     archived "title: t\narchive: oui\n\nx" `shouldBe` False
-    invalidMetaValues [] "title: t\narchive: oui\n\narchive: x" `shouldBe` [("archive", "oui")]
-    invalidMetaValues [] "title: t\narchive: true\n\narchive: x" `shouldBe` []
+    invalidValues [] "title: t\narchive: oui\n\narchive: x" `shouldBe` [("archive", "oui")]
+    invalidValues [] "title: t\narchive: true\n\narchive: x" `shouldBe` []
 
   it "finds the invalid lang and typed custom metadata values" $ do
     let cfg = [ CustomMetaConfig "date" CmtDate 1, CustomMetaConfig "count" CmtInt 1
               , CustomMetaConfig "flag" CmtBool 1, CustomMetaConfig "authors" CmtText 1 ]
-    invalidMetaValues cfg "lang: fr\ndate: 2020-1-5, 2020-13-1\ncount: 3, x\n\
+    invalidValues cfg "lang: fr\ndate: 2020-1-5, 2020-13-1\ncount: 3, x\n\
                           \flag: yes, oui\nauthors: anything\n\nlang: x"
       `shouldBe` [ ("lang", "fr"), ("date", "2020-13-1"), ("count", "x"), ("flag", "oui") ]
-    invalidMetaValues cfg "lang: auto/french\ndate: 2020-1-5\ncount: 3\nflag: No\n\n"
+    invalidValues cfg "lang: auto/french\ndate: 2020-1-5\ncount: 3\nflag: No\n\n"
       `shouldBe` []
     -- the default lang is used
     metaLang (pandocMeta $ load "title: t\nlang: fr\n\nx") `shouldBe` LangFixed English
@@ -179,7 +192,7 @@ loadPageSpec = do
     let p = load "\xFEFFtitle: T\r\ntags: x\r\n\r\nHello"
     metaTitle (pandocMeta p) `shouldBe` "T"
     blocks p `shouldBe` [PD.Para [PD.Str "Hello"]]
-    unknownMetaKeys [] "\xFEFFtitle: T\n\nHello" `shouldBe` []
+    unknownKeys [] "\xFEFFtitle: T\n\nHello" `shouldBe` []
 
   it "fixes images paths" $ do
     let p = load "title: t\n\n![x](<image:a.png>) ![y](<image:/b.png>) ![z](http://e.org/c.png)"
@@ -191,13 +204,15 @@ loadPageSpec = do
     images p `shouldBe` ["/image/src/pics/a.png"]
     links p `shouldBe` [(["kiwi-link-file"], "/file/src/docs/c.ods")]
 
-  it "parses a page again, from its text, to display it" $ do
-    let c = "title: t\r\nimages-dir: pics\r\n\r\n\
-            \[a](<page:Other>) ![x](<image:a.png>) [f](<file:c.ods>)"
+  it "parses a page again, from its content, to display it" $ do
+    let body = "[a](<page:Other>) ![x](<image:a.png>) [f](<file:c.ods>)"
+        c = "title: t\r\nimages-dir: pics\r\n\r\n" <> body
         page = Page { pageUID = ("src", "sub:p")
                     , pageAbsoluteFSPath = "/k/content/src/pages/sub/p.md"
                     , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
-                    , pageText = c
+                    , pageBody = body
+                    , pageImagesDir = "pics"
+                    , pageFilesDir = "sub"
                     , pageTitle = "t"
                     , pageTags = []
                     , pageLang = English
@@ -206,6 +221,9 @@ loadPageSpec = do
                     , pageArchive = False
                     , pageCustomMeta = []
                     }
+    pandocBody (load c) `shouldBe` body
+    pandocImagesDir (load c) `shouldBe` "pics"
+    pandocFilesDir (load c) `shouldBe` "sub"
     pageDoc "/k/content" page `shouldBe` Right (pandocDoc $ load c)
     pagePath "/k/content" "/k/content/src/pages/sub/p.md" `shouldBe` ("src", "sub/p")
 
@@ -232,9 +250,34 @@ metaDataSpec = do
     access (Just sc { scAccess = Nothing }) "title: t\n\n" `shouldBe` ["private"]
     access Nothing "title: t\n\n" `shouldBe` ["private"]
 
-  it "parses metadata lines" $
-    parseMetaData "title: a: b\nnot meta\ntags: x\n tags : y "
-      `shouldBe` M.fromList [("title", ["a: b"]), ("tags", ["x", "y"])]
+  it "parses metadata lines, separators and blank lines" $
+    parseMetaData [] "---\ntitle: a: b\n  \ntags: x\n tags : y \n...\nimages-dir:"
+      `shouldBe` Right (M.fromList [ ("title", ["a: b"]), ("tags", ["x", "y"])
+                                   , ("images-dir", [""]) ])
+
+  it "refuses a header with anything else than metadata" $ do
+    parseMetaData [] "title: t\nnot meta\ntags: x" `shouldBe`
+      Left "invalid metadata header, line 2"
+    parseMetaData [] "# Heading" `shouldBe` Left "invalid metadata header, line 1"
+    parseMetaData [] "Some text: with a colon" `shouldBe`
+      Left "invalid metadata header, line 1"
+    parseMetaData [] ": no key" `shouldBe` Left "invalid metadata header, line 1"
+    parseMetaData [] ":::" `shouldBe` Left "invalid metadata header, line 1"
+    -- the names of the custom metadata may have several words
+    parseMetaData ["my field"] "my field: x\nmy-key_2: y" `shouldBe`
+      Right (M.fromList [("my field", ["x"]), ("my-key_2", ["y"])])
+
+  it "refuses a page whose first block is not its metadata" $ do
+    let loaded c = either Left (const $ Right ()) $ loadPage "test.md" c "src" defMeta [] ""
+    loaded "# Title\n\nText" `shouldBe` Left "invalid metadata header, line 1"
+    loaded "Just some text, without blank line" `shouldBe`
+      Left "invalid metadata header, line 1"
+    loaded "title: t\nA sentence.\n\nText" `shouldBe` Left "invalid metadata header, line 2"
+    -- an empty header: the content starts after the first blank line
+    loaded "\n\n# Title" `shouldBe` Right ()
+    loaded "" `shouldBe` Right ()
+    fmap (metaTitle . pandocMeta) (loadPage "test.md" "\n\n# Title" "src" defMeta [] "")
+      `shouldBe` Right "untitled"
 
   it "parses custom metadata according to their type" $ do
     let cfg = [ CustomMetaConfig "date" CmtDate 1
@@ -242,7 +285,7 @@ metaDataSpec = do
               , CustomMetaConfig "flag" CmtBool 1
               , CustomMetaConfig "authors" CmtText 1
               , CustomMetaConfig "absent" CmtText 1 ]
-        m = parseMetaData "date: 2020-1-5, 2021-12-31, bad\ncount: 3, x, 12\n\
+        m = metaData "date: 2020-1-5, 2021-12-31, bad\ncount: 3, x, 12\n\
                           \flag: Yes\nauthors: John, Jack\\, Jr"
         res = [ (cmdName c, cmdKeys c) | c <- parseCustomMeta m cfg ]
     res `shouldBe` [ ("date", [ KeyDay (Time.fromGregorian 2020 1 5)
@@ -254,12 +297,12 @@ metaDataSpec = do
   it "finds the unknown metadata keys, in the header only" $ do
     let cfg = [CustomMetaConfig "authors" CmtText 1]
         c = "title: t\ntag: typo\nTitle: case\nauthors: a\nfiles-dir: f\n\nbody: no"
-    unknownMetaKeys cfg c `shouldBe` ["Title", "tag"]
-    unknownMetaKeys [] "title: t\nauthors: a" `shouldBe` ["authors"]
+    unknownKeys cfg c `shouldBe` ["Title", "tag"]
+    unknownKeys [] "title: t\nauthors: a" `shouldBe` ["authors"]
 
   it "reads booleans" $ do
     let cfg = [CustomMetaConfig "b" CmtBool 1]
-        m = parseMetaData "b: true, 1, Yes, no, false, 0, oui"
+        m = metaData "b: true, 1, Yes, no, false, 0, oui"
     -- invalid values are ignored
     map cmdKeys (parseCustomMeta m cfg)
       `shouldBe` [map KeyBool [True, True, True, False, False, False]]

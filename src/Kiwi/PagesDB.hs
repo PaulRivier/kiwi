@@ -24,7 +24,7 @@ import qualified System.FilePath as FP
 import qualified Kiwi.Log as L
 import           Kiwi.Search
 import           Kiwi.Types
-import           Kiwi.Pandoc (loadPageIO, pagePath, unknownMetaKeys, invalidMetaValues)
+import           Kiwi.Pandoc (Loaded (..), loadPageIO, pagePath)
 import           Kiwi.Tags (tagSubSegments, segmentsToTag)
 import           Kiwi.Utils (traverseDir, nodup, isDotFile, isValidMdFilename)
 import qualified Utils.DocIndex as DI
@@ -59,15 +59,23 @@ updatePagesDB logger' contentDir' pagesDir db = do
                                    , not $ S.member (pageAbsoluteFSPath pg) keptPaths ]
         pagesIndexClean = DI.removeMany (pagesIndex db) removedUIDs
         searchEngineClean = foldr deleteDoc (searchEngine db) removedUIDs
-    loaded <- loadPages toReload
+    (loaded, failed) <- loadPages toReload
     let (inserted, duplicates) = resolveDuplicates pagesIndexClean loaded
     forM_ duplicates $ \((src, pId), ignored, kept) -> logger' L.Warn $ T.concat
       [ "duplicate page id ", src, ":", pId, ", ", T.pack ignored, " ignored, "
       , T.pack kept, " used" ]
     let newIndex = DI.insertMany pagesIndexClean $ map fst inserted
+        -- a file that is not loaded has no page in the index: it is loaded
+        -- again at each reload, so these are all the errors
+        errors = [ loadError p (T.pack e) | (p, e) <- failed ]
+                 ++ [ loadError ignored $ T.concat
+                        [ "duplicate page id ", pId, ", "
+                        , T.pack (snd $ sourcePath kept), " is used" ]
+                    | ((_, pId), ignored, kept) <- duplicates ]
     -- the links to missing pages are listed on the /doctor page, not logged:
     -- they are an issue of the content, not of the server
     return $ db { dbGeneration = dbGeneration db + 1
+                , loadErrors = sortOn (\(src, p, _) -> (src, p)) errors
                 , pagesIndex = newIndex
                 , searchEngine = insertDocs inserted searchEngineClean }
   where
@@ -97,20 +105,27 @@ updatePagesDB logger' contentDir' pagesDir db = do
       forM_ [ (p, e) | (p, Left e) <- results ] $ \(p, e) ->
         logger' L.Warn $ T.pack $ concat ["page ignored, ", p, " : ", e]
       -- the lang may have been detected from the content
-      forM_ [ (p, pg) | (p, Right (pg, _)) <- results ] $ \(p, pg) -> do
+      forM_ [ (p, l) | (p, Right l) <- results ] $ \(p, l) -> do
+        let pg = loadedPage l
         logger' L.Debug $ T.pack $ concat ["page loaded, ", p, " : ", show (pageLang pg)]
         -- typos, or custom metadata not declared in kiwi.ini
-        let unknown = unknownMetaKeys (customMetaConfig db) (pageText pg)
-        unless (null unknown) $ logger' L.Warn $ T.concat
-          [ "unknown metadata, ", T.pack p, " : ", T.intercalate ", " unknown ]
-        forM_ (invalidMetaValues (customMetaConfig db) $ pageText pg) $ \(k, v) ->
+        unless (null $ loadedUnknownKeys l) $ logger' L.Warn $ T.concat
+          [ "unknown metadata, ", T.pack p, " : ", T.intercalate ", " (loadedUnknownKeys l) ]
+        forM_ (loadedInvalidValues l) $ \(k, v) ->
           logger' L.Warn $ T.concat [ "invalid metadata value, ", T.pack p, " : "
                                     , k, ": ", v ]
         -- ids made from the path have no '/': this one is from the "id" field
         let pId = snd $ pageUID pg
         when (T.isInfixOf "/" pId) $ logger' L.Warn $ T.concat
           [ "page id with a '/', ", T.pack p, " : ", pId ]
-      return [ pg | (_, Right pg) <- results ]
+      return ( [ (loadedPage l, loadedContent l) | (_, Right l) <- results ]
+             , [ (p, e) | (p, Left e) <- results ] )
+
+    -- source of a file, and its path in the pages folder of the source
+    sourcePath path =
+      let source = fst $ pagePath contentDir' path
+      in (source, FP.makeRelative (FP.joinPath [contentDir', T.unpack source, pagesDir]) path)
+    loadError path msg = let (source, rel) = sourcePath path in (source, rel, msg)
 
     -- file may have been removed since directory listing : no mtime, it
     -- will then be reported by loadPage
@@ -118,7 +133,7 @@ updatePagesDB logger' contentDir' pagesDir db = do
       mtE <- try $ D.getModificationTime path
       return (path, either (\(_ :: IOException) -> Nothing) Just mtE)
 
-    loadPage :: FP.FilePath -> FP.FilePath -> IO (Either String (Page, T.Text))
+    loadPage :: FP.FilePath -> FP.FilePath -> IO (Either String Loaded)
     loadPage cd fullPath =
       let (source, relPath) = pagePath cd fullPath
           md = defaultMeta db
@@ -169,6 +184,7 @@ emptyPagesDB md cmc sc =
             , customMetaConfig = cmc
             , sourcesConfig = sc
             , dbGeneration = 0
+            , loadErrors = []
             -- , lastUpdate = oldDate
             , pagesIndex = DI.empty pageUID (pageExtractKeys cmc)
             , searchEngine = initPageSearchEngine }

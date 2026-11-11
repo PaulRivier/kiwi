@@ -10,6 +10,10 @@ content-directory: content
 # editor: gedit
 # Server port
 port: 3456
+# Address to listen on. 127.0.0.1: only this computer can reach kiwi (use it
+# behind a reverse proxy too). Without it (commented out or empty), kiwi
+# listens on all the network interfaces.
+bind: 127.0.0.1
 # Language of the web interface: english (default) | french
 # (the language of the pages and of the search is the lang below)
 ui-lang: english

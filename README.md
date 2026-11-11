@@ -143,6 +143,11 @@ of the pages. Without `editor`, pages can not be opened in an editor
 from the web interface (see [Edit file from
 browser](#edit-file-from-browser)).
 
+`bind` is the address Kiwi listens on. With `bind: 127.0.0.1` (the value
+of a new *kiwi.ini*), only the computer running Kiwi can reach it: use it
+for a personal Kiwi, or behind a reverse proxy. Without `bind`, Kiwi
+listens on all the network interfaces.
+
 If Kiwi is served through HTTPS (behind a reverse proxy for example),
 set `secure-cookie: yes` in the `[kiwi]` section: the session cookie
 will then only be sent over HTTPS connections. Keep it to `no` if you
@@ -203,9 +208,11 @@ fields in the form
 
 and must all be at the very top of the file, without any blank line.
 
-Document content starts after first empty line. Lines in metadata that
-don't include ':' are ignored, so for example all this forms of
-metadata headers are acceptable
+Document content starts after first empty line. In the metadata, a line
+is a field (`field: value`, the field name is a single word of letters,
+digits, `-` and `_`, or the name of one of your custom metadata) or a
+separator made of `-` or `.` (`---`, `...`), so for example all this forms
+of metadata headers are acceptable
 
 ```
 title: The title
@@ -235,7 +242,10 @@ tags: tag1
 ```
 
 But these are NOT acceptable, because of the lack of newlines, or
-because of undue presence of ':'.
+because of undue presence of ':'. A page whose first block is anything
+else than metadata (a heading, some text) is an error: the page is not
+loaded, a warning is logged, and its file is listed on the *Doctor* page.
+A page without metadata starts with an empty line.
 
 ```
 title: The title
@@ -349,7 +359,10 @@ red with a dashed underline. For a reader, a link to a page they can
 not read, or between an archived page and a non archived one (see
 [Archives](#archives)), is broken too. The *Doctor* page (`/doctor`,
 linked at the bottom of every page) lists the pages with broken links,
-among those the reader can read, with these links.
+among those the reader can read, with these links. For admins, it also
+lists the files that could not be loaded as pages, with the reason
+(invalid metadata header, file that is not UTF-8, page identifier already
+used by another file...).
 
 
 ### images and files

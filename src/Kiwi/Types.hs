@@ -153,6 +153,9 @@ data PagesDB =
           , customMetaConfig :: [CustomMetaConfig]
           , sourcesConfig :: [SourceConfig]
           , dbGeneration :: Int  -- ^ number of loads (see 'Kiwi.PagesDB.updatePagesDB')
+          -- | files that are not loaded: (source, path in its pages folder,
+          -- reason), by source then path
+          , loadErrors :: [(T.Text, FP.FilePath, T.Text)]
           -- , lastUpdate :: Time.UTCTime
           , pagesIndex :: DI.DocIndex Page PageUID MetaField DocIndexKey
           , searchEngine :: PageSearchEngine }
@@ -181,13 +184,16 @@ data MetaData =
   deriving (Show)
 
 
--- | The document is not kept, it is parsed again from the text to be
--- displayed. Fields are strict, so that none keeps it alive through a thunk.
+-- | The document is not kept, it is parsed again from the content to be
+-- displayed (see 'Kiwi.Pandoc.pageDoc'). Fields are strict, so that none keeps it alive through a thunk.
 data Page =
   Page { pageUID  :: !PageUID   -- ^ page uid, used for routing
        , pageAbsoluteFSPath :: !FP.FilePath  -- ^ path to file, absolute
        , pageMTime :: !Time.UTCTime -- ^ time of file modification from filesystem
-       , pageText :: !T.Text   -- ^ text of the file, metadata included
+       -- , pageText :: !T.Text   -- ^ text of the file, metadata included
+       , pageBody :: !T.Text   -- ^ markdown content of the file, without its header
+       , pageImagesDir :: !T.Text  -- ^ folder of its "image:" links (images-dir)
+       , pageFilesDir :: !T.Text   -- ^ folder of its "file:" links (files-dir)
        , pageTitle :: !T.Text
        , pageTags :: ![TagId]
        , pageLang :: !Lang
@@ -208,6 +214,10 @@ data PandocPage =
   PandocPage { pandocDoc :: PD.Pandoc
              , pandocMeta :: MetaData
              , pandocPageLinks :: [PageUID]
+             , pandocHeader :: M.Map T.Text [T.Text]  -- ^ fields of the header
+             , pandocBody :: T.Text       -- ^ markdown content, without the header
+             , pandocImagesDir :: T.Text  -- ^ folder of the "image:" links
+             , pandocFilesDir :: T.Text   -- ^ folder of the "file:" links
              }
   deriving (Show)
 
@@ -467,6 +477,7 @@ data Locales = Locales
   , loc_Doctor :: T.Text
   , loc_BrokenLinks :: T.Text
   , loc_NoBrokenLink :: T.Text
+  , loc_LoadErrors :: T.Text
   -- , loc_TimeLocale :: Time.TimeLocale
   }
   deriving (Show)

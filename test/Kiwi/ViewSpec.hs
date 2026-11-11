@@ -127,3 +127,24 @@ viewSpec = do
     liftIO $ lookup "Content-Encoding" (WT.simpleHeaders resp) `shouldBe` Just "gzip"
     plain <- get long
     liftIO $ lookup "Content-Encoding" (WT.simpleHeaders plain) `shouldBe` Nothing
+
+  it "lists the load errors on the doctor page, for admins only" $
+    withKiwiAccounts [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
+                     [("p.md", "title: Page\n\nHello"), ("bad.md", "# No header\n\nText")] $
+    WT.runSession $ do
+      let section = "<h2>Load errors</h2>"
+      anonymous <- get "/doctor"
+      liftIO $ WT.simpleStatus anonymous `shouldBe` Net.status200
+      liftIO $ body anonymous `shouldSatisfy` (not . T.isInfixOf section)
+      _ <- postForm "/login" "username=bob&password=secret"
+      reader <- get "/doctor"
+      liftIO $ body reader `shouldSatisfy` (not . T.isInfixOf "bad.md")
+      _ <- postForm "/logout" ""
+      _ <- postForm "/login" "username=ann&password=secret"
+      admin <- get "/doctor"
+      liftIO $ body admin `shouldSatisfy` T.isInfixOf section
+      liftIO $ body admin `shouldSatisfy` T.isInfixOf "<span class=\"file\">bad.md</span>"
+      liftIO $ body admin `shouldSatisfy` T.isInfixOf "invalid metadata header, line 1"
+      -- the page is not served
+      missing <- get "/page/s/bad"
+      liftIO $ WT.simpleStatus missing `shouldBe` Net.status404

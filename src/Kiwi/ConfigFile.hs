@@ -6,6 +6,7 @@ module Kiwi.ConfigFile
   , defaultConfigFileContent
   ) where
 
+import           Control.Monad (mfilter)
 import qualified Data.ByteString as BS
 import           Data.Ini.Config
 import           Data.FileEmbed (embedFileRelative)
@@ -21,6 +22,7 @@ data KiwiConfig = KiwiConfig
   { name :: T.Text
   , contentDir :: FP.FilePath
   , port :: Int
+  , bind :: Maybe String  -- ^ address to listen on, all of them without it
   , editor :: Maybe (FP.FilePath, [String])
   , uiLang   :: K.UI_Lang
   , defaultMeta :: K.MetaData
@@ -53,6 +55,8 @@ configParser = do
     name'  <- fieldDefOf "name" string "kiwi"
     contentDir' <- fieldOf "content-directory" string
     port' <- fieldOf "port" number
+    -- without address (commented out or empty), on all the interfaces
+    bind' <- fieldMbOf "bind" string
     -- without editor, the edition of pages is disabled
     editor'  <- fieldDefOf "editor" parseEditor Nothing
     lang'  <- fieldDefOf "ui-lang" K.parseUILang K.UI_English
@@ -62,6 +66,7 @@ configParser = do
       { name = name'
       , contentDir = contentDir'
       , port = port'
+      , bind = mfilter (not . null) (trim <$> bind')
       , editor = editor'
       , uiLang = lang'
       , defaultMeta = meta
@@ -96,6 +101,9 @@ sourceConfigParser source = do
                         , K.scLang = lang
                         }
 
+
+trim :: String -> String
+trim = T.unpack . T.strip . T.pack
 
 parseConfig :: T.Text -> Either String KiwiConfig
 parseConfig t = parseIniFile t configParser

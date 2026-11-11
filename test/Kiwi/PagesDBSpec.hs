@@ -215,3 +215,22 @@ pagesDBSpec = do
       dbIds db `shouldReturn` []
       length [ m | (L.Debug, m) <- msgs, T.isPrefixOf "file ignored, " m ] `shouldBe` 2
 
+  it "lists the files that are not loaded, until they are fixed" $
+    withContentDir $ \cd -> do
+      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword"
+      writeFileAt (pageFile cd "sub/bad.md") 0 "# No header\n\nkiwiword"
+      writeFileAt (pageFile cd "a.markdown") 0 "title: A\n\nkiwiword"
+      (db, msgs) <- loadDB cd
+      dbIds db `shouldReturn` ["a"]
+      loadErrors db `shouldBe`
+        [ ("s", "a.md", "duplicate page id a, a.markdown is used")
+        , ("s", "sub/bad.md", "unable to load the page : invalid metadata header, line 1") ]
+      length (warnings msgs) `shouldBe` 2
+      -- the same errors at each reload, without any change
+      (db', _) <- reloadDB cd db
+      loadErrors db' `shouldBe` loadErrors db
+      writeFileAt (pageFile cd "sub/bad.md") 1 "title: Fixed\n\nkiwiword"
+      D.removeFile (pageFile cd "a.md")
+      (db'', _) <- reloadDB cd db'
+      dbIds db'' `shouldReturn` ["a", "sub:bad"]
+      loadErrors db'' `shouldBe` []
