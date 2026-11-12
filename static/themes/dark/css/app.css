@@ -313,25 +313,25 @@ ul.tags-list li a:hover {
   color: rgb(var(--kiwi-tag-link));
 }
 
-ul.pages-list li,
-.search-results-page ul.results li {
+ul.pages-list li {
   padding: 0;
   border-radius: 6px;
 }
 
-ul.pages-list li a,
-.search-results-page ul.results li a {
+ul.pages-list li a {
   display: block;
   padding: 10px;
   color: rgba(var(--kiwi-page-link), 0.7);
 }
 
-ul.pages-list li a:hover,
-.search-results-page ul.results li a:hover {
+ul.pages-list li a:hover {
   color: rgb(var(--kiwi-page-link));
 }
 
-/* Search results: one by line, the title then an excerpt of the page */
+/* Search results: one by line, each one a single link, the title (as the
+   links to pages of a document) then an excerpt of the page, in white and
+   never underlined. The underline is on the title only: an underline of the
+   link would also apply to the excerpt. */
 
 .search-results-page ul.results {
   list-style: none;
@@ -340,22 +340,28 @@ ul.pages-list li a:hover,
 }
 
 .search-results-page ul.results li {
-  margin-top: 0.6em;
+  margin: 0 0 1em 0;
 }
 
 .search-results-page ul.results li a {
+  display: block;
   padding: 4px 10px;
+  text-decoration: none;
 }
 
-.search-results-page ul.results li p.excerpt {
+.search-results-page ul.results li a .title {
+  color: rgba(var(--kiwi-page-link), 0.7);
+}
+
+.search-results-page ul.results li a:hover .title {
+  color: rgb(var(--kiwi-page-link));
+  text-decoration: underline dotted;
+}
+
+.search-results-page ul.results li a p.excerpt {
   margin: 0;
-  padding: 0 10px 4px 10px;
-  color: rgba(var(--kiwi-text), 0.6);
-  font-size: 0.9em;
-}
-
-.search-results-page ul.results li p.excerpt strong {
   color: rgb(var(--kiwi-text));
+  font-size: 0.9em;
 }
 
 

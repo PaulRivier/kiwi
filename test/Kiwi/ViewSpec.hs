@@ -167,5 +167,6 @@ viewSpec = do
       liftIO $ WT.simpleStatus resp `shouldBe` Net.status200
       liftIO $ body resp `shouldSatisfy` T.isInfixOf "<h1>2 results</h1>"
       liftIO $ body resp `shouldSatisfy` T.isInfixOf
-        "<a href=\"/page/s/a\">Alpha</a><p class=\"excerpt\" lang=\"en\">The \
-        \<strong>horses</strong> run in the field</p>"
+        "<li><a href=\"/page/s/a\"><span class=\"title\">Alpha</span>\
+        \<p class=\"excerpt\" lang=\"en\">The <strong>horses</strong> run in the field</p>\
+        \</a></li>"
