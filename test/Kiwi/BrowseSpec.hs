@@ -35,7 +35,10 @@ browseReqSpec = do
                 , (FieldAccess, [KeyText "family"])
                 , (FieldLang, [KeyLang French])
                 , (FieldSource, [KeyText "my source"]) ]
+        r' = Browse.addFieldToReq (Browse.addFieldToReq r (FieldCustom "done"))
+                                  (FieldCustom "author")
     decodeUrl (Browse.browseUrl noContext r) `shouldBe` Right r
+    decodeUrl (Browse.browseUrl noContext r') `shouldBe` Right r'
     Browse.browseUrl noContext (req [(FieldLang, [KeyLang French])])
       `shouldBe` "/browse?lang=french"
 
@@ -61,7 +64,7 @@ browseReqSpec = do
       [ "/browse?foo=bar", "/browse?author=Smith", "/browse?m.unknown=x"
       , "/browse?m.year=12a", "/browse?m.date=2020-02-30", "/browse?m.done=oui"
       , "/browse?tag=", "/browse?tag=>", "/browse?source="
-      , "/browse?lang=klingon", "/browse?access=" ]
+      , "/browse?lang=klingon", "/browse?access=", "/browse?has=unknown", "/browse?has=" ]
 
   it "normalizes the tags of a request" $ do
     decodeUrl "/browse?tag=maison%20%3E%20produits"
@@ -76,6 +79,15 @@ browseReqSpec = do
       `shouldBe` req [(FieldTag, [KeyText "a>b"])]
     Browse.addToReq (Browse.createReq (FieldTag, KeyText "a\\>b")) (FieldTag, KeyText "a>b")
       `shouldBe` req [(FieldTag, [KeyText "a\\>b", KeyText "a>b"])]
+
+  it "selects the pages having a custom field, whatever its key" $ do
+    Browse.browseUrl noContext (Browse.addFieldToReq (req [(FieldTag, [KeyText "t"])])
+                                                     (FieldCustom "author"))
+      `shouldBe` "/browse?tag=t&has=author"
+    decodeUrl "/browse?has=author&m.author=x"
+      `shouldBe` Right (req [(FieldCustom "author", [KeyText "x"])])
+    Browse.reqToQuery (Browse.addFieldToReq M.empty (FieldCustom "author"))
+      `shouldBe` DI.And [DI.HasField (FieldCustom "author")]
 
   it "combines sources with an union, the other fields with an intersection" $
     Browse.reqToQuery (req [ (FieldSource, [KeyText "a", KeyText "b"])

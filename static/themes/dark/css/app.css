@@ -536,6 +536,18 @@ a.archive-switch.active:hover,
   color: rgb(var(--kiwi-text));
 }
 
+/* the name of a field: a link to the pages having it */
+.custom-meta-selection fieldset.flex legend a {
+  color: rgb(var(--kiwi-text));
+  text-decoration: none;
+  opacity: 0.7;
+}
+
+.custom-meta-selection fieldset.flex legend a:hover {
+  opacity: 1;
+  text-decoration: underline dotted;
+}
+
 
 /* Page */
 

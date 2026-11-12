@@ -179,3 +179,8 @@ viewSpec = do
         liftIO $ body resp `shouldSatisfy` T.isInfixOf "<h1>12 results</h1>"
         liftIO $ body resp `shouldSatisfy` T.isInfixOf
           "<p class=\"search-more\">Other pages match too: refine the search to find them.</p>"
+
+  it "refuses to browse the pages having an unknown metadata" $
+    withKiwiApp [] $ WT.runSession $ do
+      resp <- get "/browse?has=nope"
+      liftIO $ WT.simpleStatus resp `shouldBe` Net.status400

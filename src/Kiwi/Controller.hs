@@ -228,8 +228,8 @@ serveBrowseAll params = do
 -- switch between the archives and the other pages
 data BrowseAll = BrowseAll
   { baToggles  :: [(K.MetaField, [V.Toggle])]          -- ^ keys of union fields
-  , baNextStep :: [(K.MetaField, [(T.Text, T.Text)])]  -- ^ (label, link) narrowing the request
-  , baActive   :: [(K.MetaField, T.Text, T.Text)]      -- ^ (field, label, link removing it)
+  , baNextStep :: V.BrowseMenu     -- ^ links narrowing the request
+  , baActive   :: V.BrowseFilters  -- ^ keys of the request, with links removing them
   , baListing  :: V.PagesListing
   , baPages    :: [K.Page]
   }
@@ -283,7 +283,12 @@ metaIndex db ctx req =
       -- of the request with a link to remove them
       menu = tags : filterOut [ (f, sortOn keyOrder $ fieldKeys f)
                               | f <- fields, not (isUnion f) ]
-      nextStep = map (\(f, keys) -> (f, byLabel f $ map (nextStepLink f) keys)) $ menu
+      nextStep = [ (f, fieldLink f, byLabel f $ map (nextStepLink f) keys) | (f, keys) <- menu ]
+      -- a custom field selects the pages having it, unless it is in the
+      -- request
+      fieldLink f@(K.FieldCustom _)
+        | not (M.member f req) = Just $ Browse.browseUrl ctx $ Browse.addFieldToReq req f
+      fieldLink _ = Nothing
       -- the next tags are sorted as displayed, without case nor accents: the
       -- sub-tags of the tags of the request ("> ski") come first
       byLabel K.FieldTag = sortOn (\(label, _) -> (textOrder label, label))
@@ -293,8 +298,12 @@ metaIndex db ctx req =
         case filter (`S.notMember` reqKeySet f) ks of
           [] -> Nothing
           a  -> Just (f, a)
-      active = [ (f, keyLabel f k, Browse.browseUrl ctx $ Browse.removeFromReq req (f,k))
-               | (f, ks) <- M.toList req, not (isUnion f), k <- S.toList ks ]
+      -- a field without keys: the pages having it
+      active = concat
+        [ if S.null ks then [(f, Nothing, Browse.browseUrl ctx $ M.delete f req)]
+          else [ (f, Just $ keyLabel f k, Browse.browseUrl ctx $ Browse.removeFromReq req (f,k))
+               | k <- S.toList ks ]
+        | (f, ks) <- M.toList req, not (isUnion f) ]
       -- produce a label and a link to a narrower request
       nextStepLink f k = (nextStepLabel f k, Browse.browseUrl ctx $ Browse.addToReq req (f,k))
       -- most recently modified first, only the latest ones without

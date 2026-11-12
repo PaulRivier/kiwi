@@ -2,6 +2,8 @@ module Kiwi.View
   ( renderPage
   , renderBrowseAll
   , Toggle (..)
+  , BrowseMenu
+  , BrowseFilters
   , PagesListing (..)
   , renderSearchResults
   , renderDoc
@@ -107,11 +109,13 @@ data Toggle = Toggle { toggleLabel    :: T.Text
 -- | Keys of the union fields, by field
 type BrowseToggles = [(K.MetaField, [Toggle])]
 
--- | Links (label, target) to narrow the request, by field
-type BrowseMenu = [(K.MetaField, [(T.Text, T.Text)])]
+-- | Links (label, target) to narrow the request, by field, with a link to
+-- the pages having the field, if any
+type BrowseMenu = [(K.MetaField, Maybe T.Text, [(T.Text, T.Text)])]
 
--- | Keys of the request: field, label, and link to remove the key
-type BrowseFilters = [(K.MetaField, T.Text, T.Text)]
+-- | Keys of the request: field, label of the key (none for the pages having
+-- the field), and link to remove it
+type BrowseFilters = [(K.MetaField, Maybe T.Text, T.Text)]
 
 -- | Pages listed on the browse page
 data PagesListing = RecentPages  -- ^ only the latest modified ones
@@ -367,15 +371,21 @@ browseView loc ctx toggles switch menu filters listing pages = div_ [class_ "tag
   unless (null filters) $
     div_ [class_ "filters-selection"] $ fieldset (K.loc_FiltersList loc) $
       ul_ [class_ "flex-hz filters-list"] $ forM_ filters $ \(f, label, target) ->
-        li_ $ a_ [href_ target, title_ (K.loc_RemoveFilter loc)] $ do
-          unless (f == K.FieldTag) $ toHtml (fieldName loc f) <> " : "
-          toHtml label <> " ×"
+        li_ $ a_ [href_ target, title_ (K.loc_RemoveFilter loc)] $ case label of
+          Nothing -> toHtml (fieldName loc f) <> " ×"
+          Just l  -> do
+            unless (f == K.FieldTag) $ toHtml (fieldName loc f) <> " : "
+            toHtml l <> " ×"
   unless (null tags) $
     div_ [class_ "tags-selection"] $
       fieldset (K.loc_TagsList loc) $ linksList "tags-list" tags
+  -- the name of a field is a link to the pages having it
   unless (null customs) $
-    div_ [class_ "custom-meta-selection"] $ forM_ customs $ \(field, keys) ->
-      fieldset field $ linksList "custom-meta-list" keys
+    div_ [class_ "custom-meta-selection"] $ forM_ customs $ \(field, fieldLink, keys) ->
+      fieldsetWith (maybe (toHtml field)
+                          (\l -> a_ [href_ l, title_ (K.loc_PagesWithField loc)] $ toHtml field)
+                          fieldLink) $
+        linksList "custom-meta-list" keys
   unless (null pages) $
     div_ [class_ "results"] $
       fieldset ("→ " <> pagesLegend) $ linksList "pages-list" $
@@ -391,12 +401,13 @@ browseView loc ctx toggles switch menu filters listing pages = div_ [class_ "tag
           a_ [href_ (toggleTarget t), title_ (K.loc_RemoveFilter loc)] $
             toHtml (toggleLabel t)
       | otherwise = li_ $ link (toggleLabel t, toggleTarget t)
-    menuOf f = fromMaybe [] $ lookup f menu
-    tags = menuOf K.FieldTag
-    customs = [ (n, keys) | (K.FieldCustom n, keys) <- menu, not (null keys) ]
+    tags = concat [ keys | (K.FieldTag, _, keys) <- menu ]
+    customs = [ (n, l, keys) | (K.FieldCustom n, l, keys) <- menu, not (null keys) ]
     fieldset :: T.Text -> Html () -> Html ()
-    fieldset legend content = fieldset_ [class_ "flex"] $ do
-      legend_ $ toHtml legend
+    fieldset = fieldsetWith . toHtml
+    fieldsetWith :: Html () -> Html () -> Html ()
+    fieldsetWith legend content = fieldset_ [class_ "flex"] $ do
+      legend_ legend
       content
 
 

@@ -469,6 +469,7 @@ data Locales = Locales
   , loc_Forbidden :: T.Text
   , loc_ServerError :: T.Text
   , loc_RemoveFilter :: T.Text
+  , loc_PagesWithField :: T.Text  -- ^ title of the link of a metadata field
   , loc_LoginFailed :: T.Text
   , loc_LangCode :: T.Text  -- ^ html lang attribute
   , loc_Contents :: T.Text

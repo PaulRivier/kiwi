@@ -1,4 +1,4 @@
-module TestUtils (defMeta, load, loadIn, mkPage, mkPagesDB, withContentDir, withKiwiApp,
+module TestUtils (defMeta, load, loadIn, mkPage, mkPagesDB, mkPagesDBWith, withContentDir, withKiwiApp,
                   withKiwiAccounts, withKiwiState) where
 
 import           Control.Exception (bracket, try)
@@ -52,7 +52,11 @@ mkPage uid tags access archive day =
 
 -- | Database of these pages, indexed as by 'DB.updatePagesDB'
 mkPagesDB :: [Page] -> PagesDB
-mkPagesDB pages = let db = DB.emptyPagesDB defMeta [] []
+mkPagesDB = mkPagesDBWith []
+
+-- | 'mkPagesDB', with custom metadata fields
+mkPagesDBWith :: [CustomMetaConfig] -> [Page] -> PagesDB
+mkPagesDBWith cmc pages = let db = DB.emptyPagesDB defMeta cmc []
                   in db { pagesIndex = DI.insertMany (pagesIndex db) pages }
 
 

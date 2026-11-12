@@ -25,7 +25,7 @@ metaIndexSpec = do
       [ (FieldSource, [ V.Toggle "s1" "/browse?source=s1" False
                       , V.Toggle "s2" "/browse?source=s2" False ]) ]
     baNextStep ba `shouldBe`
-      [(FieldTag, [("maison", "/browse?tag=maison"), ("sport", "/browse?tag=sport")])]
+      [(FieldTag, Nothing, [("maison", "/browse?tag=maison"), ("sport", "/browse?tag=sport")])]
     baActive ba `shouldBe` []
     baListing ba `shouldBe` V.RecentPages
     uids ba `shouldBe` [("s2", "c"), ("s1", "b"), ("s1", "a")]
@@ -35,10 +35,10 @@ metaIndexSpec = do
     baToggles ba `shouldBe`
       [ (FieldSource, [ V.Toggle "s1" "/browse?source=s1&tag=sport" False ]) ]
     baNextStep ba `shouldBe`
-      [(FieldTag, [ ("> escalade", "/browse?tag=sport%3Eescalade")
-                  , ("> ski", "/browse?tag=sport%3Eski")
-                  , ("maison", "/browse?tag=maison&tag=sport") ])]
-    baActive ba `shouldBe` [(FieldTag, "sport", "/browse")]
+      [(FieldTag, Nothing, [ ("> escalade", "/browse?tag=sport%3Eescalade")
+                           , ("> ski", "/browse?tag=sport%3Eski")
+                           , ("maison", "/browse?tag=maison&tag=sport") ])]
+    baActive ba `shouldBe` [(FieldTag, Just "sport", "/browse")]
     baListing ba `shouldBe` V.AllPages
     uids ba `shouldBe` [("s1", "b"), ("s1", "a")]
 
@@ -49,7 +49,7 @@ metaIndexSpec = do
       [ (FieldSource, [ V.Toggle "s1" "/browse?source=s1&source=s2&archive=yes" False
                       , V.Toggle "s2" "/browse?archive=yes" True ]) ]
     baNextStep ba `shouldBe`
-      [(FieldTag, [("maison", "/browse?source=s2&tag=maison&archive=yes")])]
+      [(FieldTag, Nothing, [("maison", "/browse?source=s2&tag=maison&archive=yes")])]
     baListing ba `shouldBe` V.RecentPages
     uids ba `shouldBe` [("s2", "c")]
 
@@ -73,4 +73,24 @@ metaIndexSpec = do
                         , mkPage ("\201c", "c") ["abeille", "Zen"] ["public"] False 3 ]
         ba = metaIndex db' noContext M.empty
     map (map V.toggleLabel . snd) (baToggles ba) `shouldBe` [["a", "B", "\201c"]]
-    map (map fst . snd) (baNextStep ba) `shouldBe` [["abeille", "\201cologie", "Zen", "zoo"]]
+    [ map fst keys | (_, _, keys) <- baNextStep ba ] `shouldBe` [["abeille", "\201cologie", "Zen", "zoo"]]
+
+  it "links the name of a custom field to the pages having it" $ do
+    let withAuthor a p = p { pageCustomMeta = [CustomMetaData "author" [KeyText a]] }
+        db' = mkPagesDBWith [CustomMetaConfig "author" CmtText 0]
+                [ withAuthor "Smith" $ mkPage ("s", "a") ["livre"] ["public"] False 1
+                , withAuthor "Jones" $ mkPage ("s", "b") ["livre"] ["public"] False 2
+                , mkPage ("s", "c") ["livre"] ["public"] False 3 ]
+        author = FieldCustom "author"
+        ba = metaIndex db' noContext (Browse.createReq $ tag "livre")
+    [ (f, l) | (f, l, _) <- baNextStep ba, f == author ]
+      `shouldBe` [(author, Just "/browse?tag=livre&has=author")]
+    -- the pages having the field, which is not linked again
+    let ba' = metaIndex db' noContext (Browse.addFieldToReq (Browse.createReq $ tag "livre") author)
+    uids ba' `shouldBe` [("s", "b"), ("s", "a")]
+    [ (f, l) | (f, l, _) <- baNextStep ba', f == author ] `shouldBe` [(author, Nothing)]
+    baActive ba' `shouldBe` [ (FieldTag, Just "livre", "/browse?has=author")
+                            , (author, Nothing, "/browse?tag=livre") ]
+    -- a key of the field replaces it
+    Browse.addToReq (Browse.addFieldToReq M.empty author) (author, KeyText "Smith")
+      `shouldBe` Browse.createReq (author, KeyText "Smith")

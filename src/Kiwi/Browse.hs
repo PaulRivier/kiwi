@@ -7,6 +7,7 @@ module Kiwi.Browse
   , sourcesReq
   , createReq  -- exported for tests
   , addToReq
+  , addFieldToReq
   , removeFromReq
   , browseUrl
   , decodeReq
@@ -32,6 +33,8 @@ import qualified Utils.DocIndex as DI
 -- a query string with one parameter per key, e.g.
 -- @/browse?source=s&tag=a%3Eb&tag=c&m.author=Smith@: "source", "tag",
 -- "access", "lang", and "m." followed by the name of a custom metadata field.
+-- A custom field without keys selects the pages having a key for it, with
+-- the parameter "has" (@has=author@).
 type BrowseAllReq = M.Map MetaField (S.Set DocIndexKey)
 
 -- | How the keys of a field are combined in a request
@@ -45,8 +48,9 @@ fieldCombination _ = Intersection
 
 reqToQuery :: BrowseAllReq -> DI.Query MetaField DocIndexKey
 reqToQuery r = DI.And [ combine (fieldCombination f) f ks | (f, ks) <- M.toList r ]
-  where combine Intersection = DI.All
-        combine Union = DI.Any
+  where combine _ f ks | S.null ks = DI.HasField f
+        combine Intersection f ks = DI.All f ks
+        combine Union f ks = DI.Any f ks
 
 -- | Request with only the sources of the context, where the navigation starts
 sourcesReq :: S.Set T.Text -> BrowseAllReq
@@ -69,6 +73,11 @@ addToReq r (f,k) = M.insertWith S.union f (S.singleton k) $ case (f,k) of
                                in ps /= ts && L.isPrefixOf ps ts
     isParentOf _ _ = False
 
+-- | Select the pages having a key for a field, whatever it is. The keys of
+-- the field already in the request are kept: they are narrower.
+addFieldToReq :: BrowseAllReq -> MetaField -> BrowseAllReq
+addFieldToReq r f = M.insertWith S.union f S.empty r
+
 removeFromReq :: BrowseAllReq -> (MetaField, DocIndexKey) -> BrowseAllReq
 removeFromReq r (f,k) = M.update remove f r
   where remove ks = let ks' = S.delete k ks
@@ -80,10 +89,12 @@ removeFromReq r (f,k) = M.update remove f r
 -- same order, so a request has only one URL.
 browseUrl :: Context -> BrowseAllReq -> T.Text
 browseUrl ctx r = T.append "/browse" $ renderParams $
-  [ (n, v) | (f, ks) <- M.toList r, Just n <- [fieldParam f]
-           , k <- S.toList ks, Just v <- [keyParam k] ]
+  concat [ params f ks | (f, ks) <- M.toList r ]
   ++ contextParams ctx { contextSources = S.empty }
   where
+    params (FieldCustom n) ks | S.null ks = [("has", n)]
+    params f ks = [ (n, v) | Just n <- [fieldParam f], k <- S.toList ks
+                           , Just v <- [keyParam k] ]
     fieldParam FieldSource = Just "source"
     fieldParam FieldTag = Just "tag"
     fieldParam FieldAccess = Just "access"
@@ -103,6 +114,9 @@ browseUrl ctx r = T.append "/browse" $ renderParams $
 decodeReq :: [CustomMetaConfig] -> [(T.Text, T.Text)] -> Either T.Text BrowseAllReq
 decodeReq cmcs = foldM addParam M.empty
   where
+    addParam r ("has", v)
+      | any ((== v) . cmcName) cmcs = Right $ addFieldToReq r (FieldCustom v)
+      | otherwise = Left $ T.append "unknown metadata: " v
     addParam r (n, v) = do
       (f, readKey) <- maybe (Left $ T.append "unknown parameter: " n) Right $
                       fieldReader n
