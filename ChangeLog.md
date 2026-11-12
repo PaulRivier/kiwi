@@ -38,6 +38,7 @@ TODO
   its pages and accounts, as the reload button does. `kiwi serve` writes a
   `_pid` file next to *kiwi.ini* for it.
 - Search results are listed one by line, each one with an excerpt of the
-  page around the first word of the query, these words in bold.
+  page around the first word of the query, these words in bold. A search
+  shows the 12 best pages at most.
 - Browse URLs read the keys of custom metadata as the pages do: a boolean
   can be `yes`, `true`, `1`, `no`, `false` or `0`.

@@ -348,14 +348,15 @@ serveSearch query = do
       visible uid = isJust (findPage db uid) &&
                     (S.null sources || S.member (fst uid) sources)
       terms = queryTerms ctxLang query
-      pages = mapMaybe (findPage db) $
-              searchPages (K.searchEngine db) visible terms
+      -- each page with the query terms found in its content
+      pages = [ (p, ts) | (uid, ts) <- searchPages (K.searchEngine db) visible terms
+                        , Just p <- [findPage db uid] ]
     in case pages of
          -- un seul résultat, on y va
-         (p:[]) -> redirect $ TL.fromStrict $ Url.inContext ctx $ Url.pageUrl p
-         _      -> do r <- V.renderSearchResults lang query
-                             [ (p, excerpt terms p) | p <- pages ]
-                      htmlETag db r
+         [(p, _)] -> redirect $ TL.fromStrict $ Url.inContext ctx $ Url.pageUrl p
+         _        -> do r <- V.renderSearchResults lang query
+                               [ (p, excerpt ts p) | (p, ts) <- pages ]
+                        htmlETag db r
 
 
 -- | Runs the editor of the config (command and arguments) on the file of the

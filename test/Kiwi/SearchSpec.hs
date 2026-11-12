@@ -14,24 +14,23 @@ import           Kiwi.Types
 searchSpec :: Spec
 searchSpec = do
   let page = pageIn French
-      -- a page and the plain text of its content
+      -- a page, with the plain text of its content
       pageIn lang uid content =
-        ( Page { pageUID = ("src", uid)
-               , pageAbsoluteFSPath = "/dev/null"
-               , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
-               , pageBody = content
-               , pageImagesDir = ""
-               , pageFilesDir = ""
-               , pagePlainText = content
-               , pageTitle = uid
-               , pageTags = []
-               , pageLang = lang
-               , pageAccess = []
-               , pageLinks = []
-               , pageArchive = False
-               , pageCustomMeta = []
-               }
-        , content )
+        Page { pageUID = ("src", uid)
+             , pageAbsoluteFSPath = "/dev/null"
+             , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
+             , pageBody = content
+             , pageImagesDir = ""
+             , pageFilesDir = ""
+             , pagePlainText = content
+             , pageTitle = uid
+             , pageTags = []
+             , pageLang = lang
+             , pageAccess = []
+             , pageLinks = []
+             , pageArchive = False
+             , pageCustomMeta = []
+             }
       se = SE.insertDocs [ page "a" "Un développement en été"
                          , page "b" "Elle est aimée"
                          , page "c" "Lui et moi"
@@ -41,7 +40,7 @@ searchSpec = do
                          , page "g" "Le soleil brille" ]
                          initPageSearchEngine
       search q = map snd $ SE.query se (queryTerms French q)
-      searchVisible visible = sort . searchPages se (visible . snd) . queryTerms French
+      searchVisible visible = sort . map fst . searchPages se (visible . snd) . queryTerms French
 
   it "matches inflections of accented words" $
     search "développer" `shouldBe` ["a"]
@@ -73,26 +72,45 @@ searchSpec = do
         se' = SE.insertDocs (page "v1" "Un chat" : page "v2" "Un chat" : hidden)
                             initPageSearchEngine
         visible uid = T.isPrefixOf "v" (snd uid)
-    sort (searchPages se' visible $ queryTerms French "chat soleil")
+    sort (map fst $ searchPages se' visible $ queryTerms French "chat soleil")
       `shouldBe` [("src", "v1"), ("src", "v2")]
+
+  it "gives the query terms found in the content of each page" $ do
+    let se' = SE.insertDocs [ page "t" "Le soleil" `withTitle` "Le chat"
+                            , page "u" "Un chat au soleil" `withTitle` "U" ]
+                            initPageSearchEngine
+        withTitle p t = p { pageTitle = t }
+    sort (searchPages se' (const True) $ queryTerms French "chats soleil")
+      `shouldBe` [ (("src", "t"), queryTerms French "soleil")
+                 , (("src", "u"), queryTerms French "chat soleil") ]
+
+  it "gives 12 pages at most" $ do
+    let se' = SE.insertDocs [ page (T.pack $ "p" ++ show n) "Un chat" | n <- [1 .. 20 :: Int] ]
+                            initPageSearchEngine
+    length (searchPages se' (const True) $ queryTerms French "chat") `shouldBe` 12
 
   it "gives an excerpt around the first word of the query, inflected or not" $ do
     let long = T.unwords $ replicate 30 "mot" ++ ["Les", "chevaux", "galopent,"]
                            ++ replicate 40 "fin" ++ ["cheval"]
-        pg = fst $ page "x" long
+        pg = page "x" long
         ex = excerpt (queryTerms French "cheval") pg
     ex `shouldBe` [ ("…", False), (T.unwords $ replicate 9 "mot" ++ ["Les"], False)
                   , ("chevaux", True)
                   , (T.unwords $ "galopent," : replicate 23 "fin", False), ("…", False) ]
+    -- beyond the first words stemmed at once, words of several terms
+    let far = T.unwords $ replicate 120 "mot" ++ ["gâteau", "chocolat-banane"]
+    excerpt (queryTerms French "banane") (page "z" far)
+      `shouldBe` [ ("…", False), (T.unwords $ replicate 9 "mot" ++ ["gâteau"], False)
+                 , ("chocolat-banane", True) ]
     -- short content: whole, every matching word flagged
-    excerpt (queryTerms French "chats") (fst $ page "y" "Le chat, et le Chat.")
+    excerpt (queryTerms French "chats") (page "y" "Le chat, et le Chat.")
       `shouldBe` [("Le", False), ("chat,", True), ("et le", False), ("Chat.", True)]
 
   it "gives the start of the content when the words of the query are not in it" $ do
-    excerpt (queryTerms French "zèbre") (fst $ page "y" "Le chat dort")
+    excerpt (queryTerms French "zèbre") (page "y" "Le chat dort")
       `shouldBe` [("Le chat dort", False)]
-    excerpt (queryTerms French "zèbre") (fst $ page "y" "") `shouldBe` []
-    excerpt [] (fst $ page "z" $ T.unwords $ replicate 40 "mot")
+    excerpt (queryTerms French "zèbre") (page "y" "") `shouldBe` []
+    excerpt [] (page "z" $ T.unwords $ replicate 40 "mot")
       `shouldBe` [(T.unwords $ replicate 35 "mot", False), ("…", False)]
 
   it "splits unknown prefixes, and prefixes after the start, as other words" $ do
@@ -127,7 +145,7 @@ searchSpec = do
     queryTerms French " ,;… " `shouldBe` []
 
   it "finds the words of the pages, split as those of the query" $ do
-    let withMeta (p, c) title tags = (p { pageTitle = title, pageTags = tags }, c)
+    let withMeta p title tags = p { pageTitle = title, pageTags = tags }
         se' = SE.insertDocs
                 [ page "h" "Un gâteau chocolat-banane"
                 , page "i" "Verser l’eau (froide)"

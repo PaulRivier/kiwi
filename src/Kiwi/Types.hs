@@ -330,7 +330,7 @@ instance FieldKey (T.Text,T.Text) where
 -- Search Engine
 
 -- | Pages are indexed with the plain text of their content
-type PageSearchEngine = SearchEngine (Page, T.Text) PageUID PageField NoFeatures
+type PageSearchEngine = SearchEngine Page PageUID PageField NoFeatures
 
 data PageField = TitleField
                | TagsField

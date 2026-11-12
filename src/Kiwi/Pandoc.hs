@@ -322,11 +322,9 @@ sourceMeta scM md = md { metaAccess = fromMaybe (metaAccess md) (scM >>= scAcces
                         , metaLang = fromMaybe (metaLang md) (scM >>= scLang) }
 
 
--- | A loaded page, the plain text of its content (for indexing), and what
--- its header has that kiwi can not use (see 'unknownMetaKeys' and
--- 'invalidMetaValues')
+-- | A loaded page, and what its header has that kiwi can not use (see
+-- 'unknownMetaKeys' and 'invalidMetaValues')
 data Loaded = Loaded { loadedPage :: !Page
-                     , loadedContent :: !T.Text
                      , loadedUnknownKeys :: ![T.Text]
                      , loadedInvalidValues :: ![(T.Text, T.Text)]
                      }
@@ -376,7 +374,7 @@ loadPageIO fullPath relPath source md cmc scM = do
                                   , pageArchive = metaArchive meta
                                   , pageCustomMeta = metaCustom meta
                                   }
-        in Right $ Loaded page content unknown invalid
+        in Right $ Loaded page unknown invalid
 
 
 -- | Custom metadata of a page header. The values that can not be read for

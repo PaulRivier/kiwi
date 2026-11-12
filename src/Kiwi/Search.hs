@@ -33,22 +33,20 @@ initPageSearchEngine =
 
 -- | The query terms are normalised beforehand by 'queryTerms', in the lang
 -- chosen for each query
-pageSearchConfig :: SearchConfig (Page, T.Text) PageUID PageField NoFeatures
+pageSearchConfig :: SearchConfig Page PageUID PageField NoFeatures
 pageSearchConfig =
     SearchConfig {
-      documentKey           = pageUID . fst,
+      documentKey           = pageUID,
       extractDocumentTerms  = extractTokens,
       transformQueryTerm    = const,
       documentFeatureValue  = const noFeatures
   }
   where
-    -- the page, and the plain text of its content
-    extractTokens :: (Page, T.Text) -> PageField -> [T.Text]
-    extractTokens (p, _) TitleField = extractTerms (alg $ pageLang p) $
-                                      pageTitle p
-    extractTokens (p, _) TagsField  = concatMap (extractTerms (alg $ pageLang p)) $
-                                      pageTags p
-    extractTokens (p, content) ContentField = extractTerms (alg $ pageLang p) content
+    extractTokens :: Page -> PageField -> [T.Text]
+    extractTokens p TitleField   = extractTerms (alg $ pageLang p) $ pageTitle p
+    extractTokens p TagsField    = concatMap (extractTerms (alg $ pageLang p)) $
+                                   pageTags p
+    extractTokens p ContentField = extractTerms (alg $ pageLang p) $ pagePlainText p
 
     -- the tags are indexed word by word, without the term "[tag]" of before:
     -- dans le cas des tags, on indexe le tag sous sa forme canonique
@@ -57,9 +55,12 @@ pageSearchConfig =
 
 
 -- | Visible pages matching the query terms, best first, without the pages
--- whose score is far below the best visible one (see 'relevanceThreshold').
--- 'queryExplain' does the same work as 'query', it also gives the scores.
-searchPages :: PageSearchEngine -> (PageUID -> Bool) -> [T.Text] -> [PageUID]
+-- whose score is far below the best visible one (see 'relevanceThreshold'),
+-- and at most 'maxResults'. Each page comes with the query terms found in its
+-- content, for its excerpt (see 'excerpt'): none when the page matches by its
+-- title or its tags only. 'queryExplain' does the same work as 'query', it
+-- also gives the scores, by term and by field.
+searchPages :: PageSearchEngine -> (PageUID -> Bool) -> [T.Text] -> [(PageUID, [T.Text])]
 searchPages se visible terms = case filter (visible . snd) (queryExplain se terms) of
   [] -> []
   results@((best, _) : _) ->
@@ -67,7 +68,15 @@ searchPages se visible terms = case filter (visible . snd) (queryExplain se term
         -- no threshold when the best score is not positive: the query has
         -- only frequent terms (see the IDF below)
         relevant (e, _) = top <= 0 || overallScore e >= relevanceThreshold * top
-    in map snd $ takeWhile relevant results
+        -- the score of a term in a field is 0 when the field does not
+        -- contain it, whatever its IDF
+        inContent e = [ t | (t, fields) <- termFieldScores e
+                          , maybe False (/= 0) (lookup ContentField fields) ]
+    in [ (uid, inContent e) | (e, uid) <- take maxResults $ takeWhile relevant results ]
+
+-- | Maximal number of pages of the results of a search
+maxResults :: Int
+maxResults = 12
 
 -- | Minimal score of a displayed page, as a ratio of the best score. The score
 -- of a term is capped (see 'paramK1'), so a page with two of the terms has
@@ -112,33 +121,51 @@ searchLang defLang configs allSources ctxSources =
     sourceLang s = baseLang $ fromMaybe defLang $
                    find ((== s) . scSourceName) configs >>= scLang
 
--- | Excerpt of the content of a page for the terms of a query (see
--- 'queryTerms'), as fragments to join with spaces: the words around the
+-- | Excerpt of the content of a page for terms of a query (see 'queryTerms'
+-- and 'searchPages'), as fragments to join with spaces: the words around the
 -- first one matching a term, the matching words being flagged. As in the
 -- search engine, a word matches by its stem, in the lang of the page. The
--- start of the content when no word matches (the terms are in the title or
--- the tags), or not among the first words ('excerptScan'). "…" marks the cut
--- ends.
+-- start of the content without terms (they are in the title or the tags), or
+-- when no word matches among the first ones ('excerptScan'). "…" marks the
+-- cut ends.
 excerpt :: [T.Text] -> Page -> [(T.Text, Bool)]
 excerpt terms p =
   let ws = T.words (pagePlainText p)
       termSet = S.fromList terms
-      matches w = any (`S.member` termSet) $ extractTerms (alg $ pageLang p) w
-      -- lazy: words are stemmed until the first match, then in the window
-      flagged = [ (w, matches w) | w <- ws ]
+      -- lazy: words are stemmed by chunks until the first match, then in
+      -- the window; not at all without terms
+      flagged | null terms = [ (w, False) | w <- ws ]
+              | otherwise  = concatMap flagChunk $ chunksOf excerptChunk ws
+      flagChunk cws = zip cws $ map (any (`S.member` termSet)) $
+                      wordsTerms (alg $ pageLang p) cws
       start = maybe 0 (\i -> max 0 (i - excerptBefore)) $
               findIndex snd (take excerptScan flagged)
       (window, rest) = splitAt (excerptBefore + excerptAfter) $ drop start flagged
       fragments = [ (T.unwords $ map fst g, hit)
                   | g@((_, hit) : _) <- groupBy ((==) `on` snd) window ]
   in [ ("…", False) | start > 0 ] ++ fragments ++ [ ("…", False) | not (null rest) ]
+  where
+    chunksOf n xs = case splitAt n xs of
+      (c, [])   -> [c]
+      (c, more) -> c : chunksOf n more
 
--- | Words of an excerpt before and after its first matching word, and
--- number of words of a page among which this word is searched
-excerptBefore, excerptAfter, excerptScan :: Int
+-- | Words of an excerpt before and after its first matching word, number of
+-- words of a page among which this word is searched, and number of words
+-- stemmed at once (a stemmer is created for each chunk, see 'stems')
+excerptBefore, excerptAfter, excerptScan, excerptChunk :: Int
 excerptBefore = 10
 excerptAfter = 25
 excerptScan = 1000
+excerptChunk = 50
+
+-- | Terms of each word, as 'extractTerms' gives them (a word may give no
+-- term, or several ones: "chocolat-banane"), with a single stemmer
+wordsTerms :: Algorithm -> [T.Text] -> [[T.Text]]
+wordsTerms lg ws = regroup (map length tokens) $ map stripAccents $ stems lg $ concat tokens
+  where
+    tokens = map tokenize ws
+    regroup [] _ = []
+    regroup (n : ns) ts = let (t, ts') = splitAt n ts in t : regroup ns ts'
 
 
 -- | ISO 639-1 codes of the langs

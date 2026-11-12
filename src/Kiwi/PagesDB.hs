@@ -64,7 +64,7 @@ updatePagesDB logger' contentDir' pagesDir db = do
     forM_ duplicates $ \((src, pId), ignored, kept) -> logger' L.Warn $ T.concat
       [ "duplicate page id ", src, ":", pId, ", ", T.pack ignored, " ignored, "
       , T.pack kept, " used" ]
-    let newIndex = DI.insertMany pagesIndexClean $ map fst inserted
+    let newIndex = DI.insertMany pagesIndexClean inserted
         -- a file that is not loaded has no page in the index: it is loaded
         -- again at each reload, so these are all the errors
         errors = [ loadError p (T.pack e) | (p, e) <- failed ]
@@ -118,7 +118,7 @@ updatePagesDB logger' contentDir' pagesDir db = do
         let pId = snd $ pageUID pg
         when (T.isInfixOf "/" pId) $ logger' L.Warn $ T.concat
           [ "page id with a '/', ", T.pack p, " : ", pId ]
-      return ( [ (loadedPage l, loadedContent l) | (_, Right l) <- results ]
+      return ( [ loadedPage l | (_, Right l) <- results ]
              , [ (p, e) | (p, Left e) <- results ] )
 
     -- source of a file, and its path in the pages folder of the source
@@ -148,20 +148,19 @@ updatePagesDB logger' contentDir' pagesDir db = do
 -- the first file path is used, whether it is loaded or already in the index,
 -- so that the same page is shown after each reload.
 resolveDuplicates :: DI.DocIndex Page PageUID MetaField DocIndexKey ->
-                     [(Page, T.Text)] ->
-                     ([(Page, T.Text)], [(PageUID, FP.FilePath, FP.FilePath)])
+                     [Page] -> ([Page], [(PageUID, FP.FilePath, FP.FilePath)])
 resolveDuplicates idx loaded =
-  let byUID = M.fromListWith (flip (++)) [ (pageUID pg, [l]) | l@(pg, _) <- loaded ]
+  let byUID = M.fromListWith (flip (++)) [ (pageUID pg, [pg]) | pg <- loaded ]
       results = map resolve $ M.toList byUID
   in (concatMap fst results, concatMap snd results)
   where
     resolve (uid, news) =
       let existing = pageAbsoluteFSPath <$> DI.findDoc idx uid
-          newPaths = map (pageAbsoluteFSPath . fst) news
+          newPaths = map pageAbsoluteFSPath news
           -- not empty: there is a loaded page for each uid
           used = minimum $ maybe id (:) existing newPaths
           ignored = filter (/= used) $ maybe id (:) existing newPaths
-      in ( [ l | l@(pg, _) <- news, pageAbsoluteFSPath pg == used ]
+      in ( [ pg | pg <- news, pageAbsoluteFSPath pg == used ]
          , [ (uid, p, used) | p <- ignored ] )
 
 
