@@ -136,8 +136,9 @@ serveEmbeddedDoc name withHeader defaultTitle content = do
 
 -- | Metadata of the pages, by source (all the sources with pages visible to
 -- the user, whatever the sources context, but in the archives or not): the
--- keys of the tags, langs, custom fields and, for admins, access groups. Each
--- key has its number of pages, and a link to browse them in its source.
+-- keys of the tags, langs, access groups (for admins), then custom fields in
+-- alphabetical order. Each key has its number of pages, and a link to browse
+-- them in its source.
 serveMetadata :: ActM ()
 serveMetadata = do
   db <- getRestrictedDB
@@ -145,9 +146,10 @@ serveMetadata = do
   admin <- Auth.isAdmin
   let idx = K.pagesIndex db
       sources = sortOn textOrder [ s | K.KeyText s <- DI.getFieldKeys idx K.FieldSource ]
-      fields = [K.FieldTag, K.FieldLang]
-               ++ map (K.FieldCustom . K.cmcName) (K.customMetaConfig db)
-               ++ [K.FieldAccess | admin]
+      -- the tags, the fields of kiwi, then the custom fields by name
+      fields = [K.FieldTag, K.FieldLang] ++ [K.FieldAccess | admin]
+               ++ map K.FieldCustom (sortOn (\n -> (textOrder n, n)) $
+                                     map K.cmcName $ K.customMetaConfig db)
       section s =
         let sub = DI.narrow idx (U.qOnly K.FieldSource s)
         in (s, [ (f, fieldLink s f, map (fmap $ entry s sub f) $ keysForest f keys)

@@ -112,6 +112,7 @@ withKiwiState accounts' files test = withContentDir $ \cd -> do
   conf <- either fail return $ Conf.parseConfig $ T.unlines
     [ "[kiwi]", "content-directory: content", "port: 3456"
     , "[metadata-default]", "access: public"
+    , "[metadata zone]", "type: text"
     , "[metadata author]", "type: text" ]
   ss <- initServerState (kiwiDir' FP.</> "kiwi.ini") conf (\_ _ -> return ())
   cache <- U.initWAICaching

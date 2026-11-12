@@ -509,8 +509,10 @@ metadataView loc sources = div_ [class_ "metadata-page"] $ do
         span_ [class_ "count"] $ toHtml $ "(" <> T.pack (show $ metaCount e) <> ")"
         copyTextButton (K.loc_Copy loc) (metaCopy e)
       unless (null children) $ ul_ $ mapM_ entryTree children
-    fieldClass K.FieldTag = "tags-meta"
-    fieldClass _          = "other-meta"
+    fieldClass K.FieldTag    = "tags-meta"
+    fieldClass K.FieldLang   = "internal-meta"
+    fieldClass K.FieldAccess = "internal-meta"
+    fieldClass _             = "other-meta"
 
 
 loginView :: K.Locales -> Bool -> Html ()

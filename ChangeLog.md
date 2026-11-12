@@ -43,5 +43,7 @@ TODO
 - The name of a custom metadata is a link to the pages having it, whatever
   its value (`has=author` in the browse URL): on the browse page, at the top
   of a page, and on the metadata page (pages of the source).
+- Metadata page: the tags, then the language and access fields of kiwi (in
+  their own color), then the custom metadata in alphabetical order.
 - Browse URLs read the keys of custom metadata as the pages do: a boolean
   can be `yes`, `true`, `1`, `no`, `false` or `0`.

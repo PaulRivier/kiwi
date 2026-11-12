@@ -9,6 +9,8 @@
   --kiwi-text:      248, 249, 250;
   --kiwi-page-link: 51, 204, 255;
   --kiwi-tag-link:  153, 255, 102;
+  /* metadata of kiwi (lang, access) */
+  --kiwi-internal-meta: 190, 150, 255;
   --kiwi-code:      48, 175, 65;
   --kiwi-error:     224, 108, 108;
   --kiwi-primary:   0, 120, 231;
@@ -641,6 +643,23 @@ h1.page-title {
 
 .metadata-page fieldset.tags-meta legend {
   color: rgba(var(--kiwi-tag-link), 0.8);
+}
+
+/* metadata of kiwi (lang, access), apart from the custom ones */
+.metadata-page fieldset.internal-meta {
+  border-color: rgba(var(--kiwi-internal-meta), 0.3);
+}
+
+.metadata-page fieldset.internal-meta legend {
+  color: rgba(var(--kiwi-internal-meta), 0.8);
+}
+
+.metadata-page fieldset.internal-meta a.key {
+  color: rgba(var(--kiwi-internal-meta), 0.7);
+}
+
+.metadata-page fieldset.internal-meta a.key:hover {
+  color: rgb(var(--kiwi-internal-meta));
 }
 
 .metadata-page ul.meta-list {

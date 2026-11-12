@@ -196,3 +196,16 @@ viewSpec = do
         \title=\"The pages with this metadata\">author</a></legend>"
       -- not the other fields
       liftIO $ body meta `shouldSatisfy` T.isInfixOf "<legend>Tags</legend>"
+
+  it "lists the tags, the fields of kiwi, then the custom fields by name" $
+    withKiwiAccounts [("ann", "secret", ["admin"])]
+                     [("a.md", "title: A\ntags: t\nzone: Nord\nauthor: Smith\n\nText")] $
+    WT.runSession $ do
+      _ <- postForm "/login" "username=ann&password=secret"
+      meta <- body <$> get "/metadata"
+      let position t = T.length $ fst $ T.breakOn t meta
+          legends = [ "Tags</legend>", "Language</legend>", "Access</legend>"
+                    , "author</a></legend>", "zone</a></legend>" ]
+      liftIO $ map (`T.isInfixOf` meta) legends `shouldBe` map (const True) legends
+      liftIO $ map position legends `shouldSatisfy` (\ps -> and $ zipWith (<) ps (drop 1 ps))
+      liftIO $ meta `shouldSatisfy` T.isInfixOf "<fieldset class=\"flex internal-meta\"><legend>Language"
