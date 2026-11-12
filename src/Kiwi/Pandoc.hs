@@ -139,9 +139,11 @@ loadDoc path source dirT imagesDir filesDir content =
                      CmEx.strikethroughSpec <> CmEx.pipeTableSpec <> CmEx.autolinkSpec <>
                      CmEx.taskListSpec <> CmEx.footnoteSpec <>
                      CmEx.autoIdentifiersSpec
-
-
-    in case runIdentity (Cm.commonmarkWith syntaxSpec path content
+        -- the last row of a table is not read as a row without a newline
+        -- after it
+        content' | "\n" `T.isSuffixOf` content = content
+                 | otherwise                   = content <> "\n"
+    in case runIdentity (Cm.commonmarkWith syntaxSpec path content'
                          :: Identity (Either Cm.ParseError (CmP.Cm () PB.Blocks))) of
          Left e -> Left $ show e
          Right cmBlocks->

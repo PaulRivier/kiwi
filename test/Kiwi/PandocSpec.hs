@@ -54,6 +54,12 @@ loadPageSpec = do
     metaLang m `shouldBe` LangFixed French
     blocks p `shouldBe` [PD.Para [PD.Str "Hello"]]
 
+  it "separates the blocks in the plain text of the content" $
+    U.pageContent (pandocDoc $ load
+      "title: t\n\n# Titre\n## Sous-titre\nUn *texte*\n\n- a\n- b\n\n> c\n\n\
+      \| x | y |\n|---|---|\n| z | w |")
+      `shouldBe` "Titre Sous-titre Un texte a b c x y z w"
+
   it "uses default metadata when fields are missing" $ do
     let m = pandocMeta $ load "foo: bar\n\nHello"
     metaTitle m `shouldBe` "untitled"

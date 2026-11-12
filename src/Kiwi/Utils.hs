@@ -80,9 +80,21 @@ parseLangSetting t = case map T.strip $ T.splitOn "/" $ T.toLower t of
   _           -> Left $ "invalid lang \"" ++ T.unpack (T.strip t)
                         ++ "\", expected LANG, auto or auto/LANG"
 
--- | Text of the page content, for indexing
+-- | Text of the page content, for indexing and search excerpts. The blocks
+-- (paragraphs, headers, table cells, lines…) are separated by a space, so
+-- that the last word of a block is not stuck to the first one of the next.
 pageContent :: PD.Pandoc -> T.Text
-pageContent = T.unwords . T.words . inlinesText
+pageContent = T.unwords . T.words . inlinesText . PW.walk spaced
+  where
+    spaced :: PD.Block -> PD.Block
+    spaced b = case b of
+      PD.Plain is          -> PD.Plain (sp is)
+      PD.Para is           -> PD.Para (sp is)
+      PD.Header n a is     -> PD.Header n a (sp is)
+      PD.LineBlock ls      -> PD.LineBlock (map sp ls)
+      PD.DefinitionList ds -> PD.DefinitionList [ (sp t, d) | (t, d) <- ds ]
+      _                    -> b
+    sp is = PD.Space : is ++ [PD.Space]
 
 -- | Text of the inlines of a document or of a part of it, at any depth,
 -- without formatting (index, table of contents, alt attributes)
