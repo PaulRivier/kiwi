@@ -139,11 +139,10 @@ loadDoc path source dirT imagesDir filesDir content =
                      CmEx.strikethroughSpec <> CmEx.pipeTableSpec <> CmEx.autolinkSpec <>
                      CmEx.taskListSpec <> CmEx.footnoteSpec <>
                      CmEx.autoIdentifiersSpec
-        -- the last row of a table is not read as a row without a newline
-        -- after it
-        content' | "\n" `T.isSuffixOf` content = content
-                 | otherwise                   = content <> "\n"
-    in case runIdentity (Cm.commonmarkWith syntaxSpec path content'
+    -- the last row of a table is not read as a row without a newline after
+    -- it. An extra newline only changes an unclosed fenced code block at the
+    -- end, which gets one more empty line.
+    in case runIdentity (Cm.commonmarkWith syntaxSpec path (content <> "\n")
                          :: Identity (Either Cm.ParseError (CmP.Cm () PB.Blocks))) of
          Left e -> Left $ show e
          Right cmBlocks->
