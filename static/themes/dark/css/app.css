@@ -364,6 +364,13 @@ ul.pages-list li a:hover {
   font-size: 0.9em;
 }
 
+/* other pages match, but are not shown */
+.search-results-page p.search-more {
+  padding: 0 10px;
+  color: rgba(var(--kiwi-text), 0.6);
+  font-style: italic;
+}
+
 
 /* Browse page */
 

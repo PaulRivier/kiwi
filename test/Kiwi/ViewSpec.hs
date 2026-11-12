@@ -170,3 +170,12 @@ viewSpec = do
         "<li><a href=\"/page/s/a\"><span class=\"title\">Alpha</span>\
         \<p class=\"excerpt\" lang=\"en\">The <strong>horses</strong> run in the field</p>\
         \</a></li>"
+      liftIO $ body resp `shouldNotSatisfy` T.isInfixOf "search-more"
+
+  it "tells when other pages match but are not shown" $
+    withKiwiApp [ (show n ++ ".md", "title: P\n\nA horse") | n <- [1 .. 13 :: Int] ] $
+      WT.runSession $ do
+        resp <- get "/search?query=horse"
+        liftIO $ body resp `shouldSatisfy` T.isInfixOf "<h1>12 results</h1>"
+        liftIO $ body resp `shouldSatisfy` T.isInfixOf
+          "<p class=\"search-more\">Other pages match too: refine the search to find them.</p>"

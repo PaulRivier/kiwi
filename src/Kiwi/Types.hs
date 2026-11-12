@@ -462,6 +462,7 @@ data Locales = Locales
   , loc_SearchResults :: T.Text  -- ^ after the number of results
   , loc_SearchNothing :: T.Text
   , loc_SearchQuery :: T.Text    -- ^ before the lang of the query, then the query
+  , loc_SearchMore :: T.Text     -- ^ after the results, when some are not shown
   , loc_Colon :: T.Text          -- ^ ":", with a space before it in French
   , loc_NotFound :: T.Text
   , loc_BadRequest :: T.Text

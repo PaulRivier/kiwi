@@ -130,14 +130,15 @@ renderBrowseAll toggles switch menu filters listing pages = do
 
 -- | Results of the query, also in the search field, with the lang it was
 -- processed in: the pages, each one with an excerpt of its content (see
--- 'Kiwi.Search.excerpt')
-renderSearchResults :: K.Lang -> T.Text -> [(K.Page, [(T.Text, Bool)])] -> ActM TL.Text
-renderSearchResults lang query pages = do
+-- 'Kiwi.Search.excerpt'), and True when other pages match but are not shown
+renderSearchResults :: K.Lang -> T.Text -> [(K.Page, [(T.Text, Bool)])] -> Bool ->
+                       ActM TL.Text
+renderSearchResults lang query pages more = do
   vctx <- getViewCtx
   let loc = ctxLocales vctx
   return $ renderText $
     layout vctx { ctxQuery = query } (K.loc_Search loc) ReloadAction Nothing $
-      searchView loc (ctxContext vctx) lang query pages
+      searchView loc (ctxContext vctx) lang query pages more
 
 -- | The pages with links to pages that the user can not read, with these
 -- links (page ids), source by source
@@ -400,10 +401,11 @@ browseView loc ctx toggles switch menu filters listing pages = div_ [class_ "tag
 
 
 -- | The results of the query, with their number (a single result is
--- displayed directly, see 'Kiwi.Controller.serveSearch')
+-- displayed directly, see 'Kiwi.Controller.serveSearch'), and a line after
+-- them when other pages match but are not shown
 searchView :: K.Locales -> K.Context -> K.Lang -> T.Text -> [(K.Page, [(T.Text, Bool)])] ->
-              Html ()
-searchView loc ctx lang query pages = div_ [class_ "search-results-page"] $ do
+              Bool -> Html ()
+searchView loc ctx lang query pages more = div_ [class_ "search-results-page"] $ do
   contextBar loc (S.toList $ K.contextSources ctx) mempty (K.contextArchive ctx)
   case pages of
     [] -> do
@@ -422,6 +424,7 @@ searchView loc ctx lang query pages = div_ [class_ "search-results-page"] $ do
             p_ [class_ "excerpt", lang_ (K.langCode $ K.pageLang pg)] $
               sequence_ $ intersperse " "
                 [ if hit then strong_ (toHtml t) else toHtml t | (t, hit) <- fragments ]
+      when more $ p_ [class_ "search-more"] $ toHtml $ K.loc_SearchMore loc
   where
     searched = unless (T.null $ T.strip query) $
       p_ [class_ "search-query"] $ do

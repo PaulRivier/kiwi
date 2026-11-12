@@ -56,13 +56,15 @@ pageSearchConfig =
 
 -- | Visible pages matching the query terms, best first, without the pages
 -- whose score is far below the best visible one (see 'relevanceThreshold'),
--- and at most 'maxResults'. Each page comes with the query terms found in its
--- content, for its excerpt (see 'excerpt'): none when the page matches by its
--- title or its tags only. 'queryExplain' does the same work as 'query', it
--- also gives the scores, by term and by field.
-searchPages :: PageSearchEngine -> (PageUID -> Bool) -> [T.Text] -> [(PageUID, [T.Text])]
+-- and at most 'maxResults', with True when there are more of them. Each page
+-- comes with the query terms found in its content, for its excerpt (see
+-- 'excerpt'): none when the page matches by its title or its tags only.
+-- 'queryExplain' does the same work as 'query', it also gives the scores, by
+-- term and by field.
+searchPages :: PageSearchEngine -> (PageUID -> Bool) -> [T.Text] ->
+               ([(PageUID, [T.Text])], Bool)
 searchPages se visible terms = case filter (visible . snd) (queryExplain se terms) of
-  [] -> []
+  [] -> ([], False)
   results@((best, _) : _) ->
     let top = overallScore best
         -- no threshold when the best score is not positive: the query has
@@ -72,7 +74,8 @@ searchPages se visible terms = case filter (visible . snd) (queryExplain se term
         -- contain it, whatever its IDF
         inContent e = [ t | (t, fields) <- termFieldScores e
                           , maybe False (/= 0) (lookup ContentField fields) ]
-    in [ (uid, inContent e) | (e, uid) <- take maxResults $ takeWhile relevant results ]
+        (shown, more) = splitAt maxResults $ takeWhile relevant results
+    in ([ (uid, inContent e) | (e, uid) <- shown ], not (null more))
 
 -- | Maximal number of pages of the results of a search
 maxResults :: Int

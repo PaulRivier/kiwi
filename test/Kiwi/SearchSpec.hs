@@ -40,7 +40,7 @@ searchSpec = do
                          , page "g" "Le soleil brille" ]
                          initPageSearchEngine
       search q = map snd $ SE.query se (queryTerms French q)
-      searchVisible visible = sort . map fst . searchPages se (visible . snd) . queryTerms French
+      searchVisible visible = sort . map fst . fst . searchPages se (visible . snd) . queryTerms French
 
   it "matches inflections of accented words" $
     search "développer" `shouldBe` ["a"]
@@ -72,7 +72,7 @@ searchSpec = do
         se' = SE.insertDocs (page "v1" "Un chat" : page "v2" "Un chat" : hidden)
                             initPageSearchEngine
         visible uid = T.isPrefixOf "v" (snd uid)
-    sort (map fst $ searchPages se' visible $ queryTerms French "chat soleil")
+    sort (map fst $ fst $ searchPages se' visible $ queryTerms French "chat soleil")
       `shouldBe` [("src", "v1"), ("src", "v2")]
 
   it "gives the query terms found in the content of each page" $ do
@@ -80,14 +80,17 @@ searchSpec = do
                             , page "u" "Un chat au soleil" `withTitle` "U" ]
                             initPageSearchEngine
         withTitle p t = p { pageTitle = t }
-    sort (searchPages se' (const True) $ queryTerms French "chats soleil")
+    sort (fst $ searchPages se' (const True) $ queryTerms French "chats soleil")
       `shouldBe` [ (("src", "t"), queryTerms French "soleil")
                  , (("src", "u"), queryTerms French "chat soleil") ]
 
-  it "gives 12 pages at most" $ do
-    let se' = SE.insertDocs [ page (T.pack $ "p" ++ show n) "Un chat" | n <- [1 .. 20 :: Int] ]
+  it "gives 12 pages at most, telling when there are more" $ do
+    let se' = SE.insertDocs [ page (T.pack $ "p" ++ show n) "Un chat" | n <- [1 .. 13 :: Int] ]
                             initPageSearchEngine
-    length (searchPages se' (const True) $ queryTerms French "chat") `shouldBe` 12
+        summary visible = let (ps, more) = searchPages se' visible (queryTerms French "chat")
+                          in (length ps, more)
+    summary (const True) `shouldBe` (12, True)
+    summary ((/= "p13") . snd) `shouldBe` (12, False)
 
   it "gives an excerpt around the first word of the query, inflected or not" $ do
     let long = T.unwords $ replicate 30 "mot" ++ ["Les", "chevaux", "galopent,"]

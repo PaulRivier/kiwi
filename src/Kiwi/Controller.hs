@@ -348,14 +348,14 @@ serveSearch query = do
       visible uid = isJust (findPage db uid) &&
                     (S.null sources || S.member (fst uid) sources)
       terms = queryTerms ctxLang query
+      (found, more) = searchPages (K.searchEngine db) visible terms
       -- each page with the query terms found in its content
-      pages = [ (p, ts) | (uid, ts) <- searchPages (K.searchEngine db) visible terms
-                        , Just p <- [findPage db uid] ]
+      pages = [ (p, ts) | (uid, ts) <- found, Just p <- [findPage db uid] ]
     in case pages of
          -- un seul résultat, on y va
          [(p, _)] -> redirect $ TL.fromStrict $ Url.inContext ctx $ Url.pageUrl p
          _        -> do r <- V.renderSearchResults lang query
-                               [ (p, excerpt ts p) | (p, ts) <- pages ]
+                               [ (p, excerpt ts p) | (p, ts) <- pages ] more
                         htmlETag db r
 
 
