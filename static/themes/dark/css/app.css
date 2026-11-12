@@ -351,6 +351,7 @@ ul.pages-list li a:hover {
 
 .search-results-page ul.results li a .title {
   color: rgba(var(--kiwi-page-link), 0.7);
+  font-weight: bold;
 }
 
 .search-results-page ul.results li a:hover .title {
@@ -366,6 +367,7 @@ ul.pages-list li a:hover {
 
 /* other pages match, but are not shown */
 .search-results-page p.search-more {
+  margin: 2em 0 0 0;
   padding: 0 10px;
   color: rgba(var(--kiwi-text), 0.6);
   font-style: italic;
