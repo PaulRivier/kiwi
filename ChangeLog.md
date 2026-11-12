@@ -1,6 +1,6 @@
 # Changelog for kiwi
 
-## v0.4.2.0 - 2026-11-12
+## v0.4.1.0 - 2026-11-12
 
 - Search: no more limit on the number of pages ranked for a query. With the
   former limit (24 pages), a reader could miss results among pages they can
