@@ -111,7 +111,8 @@ withKiwiState accounts' files test = withContentDir $ \cd -> do
   mapM_ (hPutStrLn stderr) =<< Auth.dumpAccounts accs (kiwiDir' FP.</> "_accounts")
   conf <- either fail return $ Conf.parseConfig $ T.unlines
     [ "[kiwi]", "content-directory: content", "port: 3456"
-    , "[metadata-default]", "access: public" ]
+    , "[metadata-default]", "access: public"
+    , "[metadata author]", "type: text" ]
   ss <- initServerState (kiwiDir' FP.</> "kiwi.ini") conf (\_ _ -> return ())
   cache <- U.initWAICaching
   kiwiApp ss cache >>= test cd ss

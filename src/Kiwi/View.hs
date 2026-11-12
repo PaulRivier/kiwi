@@ -160,9 +160,9 @@ data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ as displayed
                            , metaCount :: Int     -- ^ number of pages
                            }
 
--- | Metadata of the pages, by source: the keys of each field, with their
--- sub-keys (sub-tags)
-renderMetadata :: [(T.Text, [(K.MetaField, Forest MetaEntry)])] -> ActM TL.Text
+-- | Metadata of the pages, by source: the fields, with a link to the pages
+-- having them, if any, and their keys with their sub-keys (sub-tags)
+renderMetadata :: [(T.Text, [(K.MetaField, Maybe T.Text, Forest MetaEntry)])] -> ActM TL.Text
 renderMetadata sources = do
   loc <- getLocales
   renderView (K.loc_Metadata loc) NoActions Nothing $ metadataView loc sources
@@ -336,9 +336,13 @@ pageView loc ctx pageExists p doc backlinks = div_ [class_ "page-view"] $ do
     (linksList "tags-list" [ (prettyTag t, browseLink K.FieldTag (K.KeyText t))
                            | t <- K.pageTags p ])
     (K.contextArchive ctx)
+  -- the name of a field is a link to the pages having it
   unless (null $ K.pageCustomMeta p) $
     ul_ [class_ "custom-meta-list"] $ forM_ (K.pageCustomMeta p) $ \cmd -> li_ $ do
-      span_ [class_ "field"] $ toHtml $ K.cmdName cmd
+      a_ [ class_ "field", title_ (K.loc_PagesWithField loc)
+         , href_ $ Browse.browseUrl ctx $ Browse.addFieldToReq contextReq
+                                            (K.FieldCustom $ K.cmdName cmd) ] $
+        toHtml $ K.cmdName cmd
       " – "
       sequence_ $ intersperse " "
         [ link (Browse.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
@@ -350,8 +354,8 @@ pageView loc ctx pageExists p doc backlinks = div_ [class_ "page-view"] $ do
     -- the title and the document are in the lang of the page, the rest in
     -- the lang of the interface
     pageLang = lang_ $ K.langCode $ K.pageLang p
-    browseLink f k = Browse.browseUrl ctx $
-                     Browse.addToReq (Browse.sourcesReq $ K.contextSources ctx) (f, k)
+    contextReq = Browse.sourcesReq $ K.contextSources ctx
+    browseLink f k = Browse.browseUrl ctx $ Browse.addToReq contextReq (f, k)
 
 
 browseView :: K.Locales -> K.Context -> BrowseToggles -> Maybe T.Text -> BrowseMenu ->
@@ -483,14 +487,19 @@ doctorView loc ctx errors broken = div_ [class_ "doctor-page"] $ do
         link $ pageLink ctx pg
         ul_ $ forM_ targets $ li_ . toHtml
 
-metadataView :: K.Locales -> [(T.Text, [(K.MetaField, Forest MetaEntry)])] -> Html ()
+metadataView :: K.Locales -> [(T.Text, [(K.MetaField, Maybe T.Text, Forest MetaEntry)])] ->
+                Html ()
 metadataView loc sources = div_ [class_ "metadata-page"] $ do
   h1_ [class_ "page-title"] $ toHtml $ K.loc_Metadata loc
   forM_ sources $ \(source, fields) -> section_ $ do
     h2_ $ toHtml source
-    forM_ fields $ \(field, entries) ->
+    -- the name of a custom field is a link to the pages having it
+    forM_ fields $ \(field, fieldLink, entries) ->
       fieldset_ [class_ "flex", class_ (fieldClass field)] $ do
-        legend_ $ toHtml $ fieldName loc field
+        legend_ $ case fieldLink of
+          Nothing -> toHtml $ fieldName loc field
+          Just l  -> a_ [href_ l, class_ "key", title_ (K.loc_PagesWithField loc)] $
+                       toHtml $ fieldName loc field
         ul_ [class_ "meta-list"] $ mapM_ entryTree entries
   where
     entryTree :: Tree MetaEntry -> Html ()

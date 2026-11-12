@@ -40,7 +40,8 @@ TODO
 - Search results are listed one by line, each one with an excerpt of the
   page around the first word of the query, these words in bold. A search
   shows the 12 best pages at most.
-- Browse page: the name of a custom metadata is a link to the pages having
-  it, whatever its value (`has=author` in the URL).
+- The name of a custom metadata is a link to the pages having it, whatever
+  its value (`has=author` in the browse URL): on the browse page, at the top
+  of a page, and on the metadata page (pages of the source).
 - Browse URLs read the keys of custom metadata as the pages do: a boolean
   can be `yes`, `true`, `1`, `no`, `false` or `0`.

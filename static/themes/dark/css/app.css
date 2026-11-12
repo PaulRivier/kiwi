@@ -600,6 +600,18 @@ a.archive-switch.active:hover,
   color: rgb(var(--kiwi-text));
 }
 
+/* the name of a field: a link to the pages having it */
+.page-view ul.custom-meta-list li a.field {
+  margin: 0;
+  padding: 0;
+  color: rgba(var(--kiwi-text), 0.7);
+}
+
+.page-view ul.custom-meta-list li a.field:hover {
+  color: rgb(var(--kiwi-text));
+  text-decoration: underline dotted;
+}
+
 .page-view ul.backlinks {
   justify-content: flex-end;
 }

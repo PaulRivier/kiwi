@@ -150,8 +150,12 @@ serveMetadata = do
                ++ [K.FieldAccess | admin]
       section s =
         let sub = DI.narrow idx (U.qOnly K.FieldSource s)
-        in (s, [ (f, map (fmap $ entry s sub f) $ keysForest f keys) | f <- fields
-               , let keys = DI.getFieldKeys sub f, not (null keys) ])
+        in (s, [ (f, fieldLink s f, map (fmap $ entry s sub f) $ keysForest f keys)
+               | f <- fields, let keys = DI.getFieldKeys sub f, not (null keys) ])
+      -- a custom field: the pages of the source having it
+      fieldLink s f@(K.FieldCustom _) =
+        Just $ Browse.browseUrl ctx $ Browse.addFieldToReq (Browse.sourcesReq $ S.singleton s) f
+      fieldLink _ _ = Nothing
       entry s sub f k = V.MetaEntry
         { V.metaLabel = keyLabel f k
         , V.metaCopy  = keyCopy f k

@@ -184,3 +184,15 @@ viewSpec = do
     withKiwiApp [] $ WT.runSession $ do
       resp <- get "/browse?has=nope"
       liftIO $ WT.simpleStatus resp `shouldBe` Net.status400
+
+  it "links the name of a custom metadata to the pages having it" $
+    withKiwiApp [("a.md", "title: A\nauthor: Smith\n\nText")] $ WT.runSession $ do
+      page' <- get "/page/s/a"
+      liftIO $ body page' `shouldSatisfy` T.isInfixOf
+        "<a class=\"field\" title=\"The pages with this metadata\" href=\"/browse?has=author\">author</a>"
+      meta <- get "/metadata"
+      liftIO $ body meta `shouldSatisfy` T.isInfixOf
+        "<legend><a href=\"/browse?source=s&amp;has=author\" class=\"key\" \
+        \title=\"The pages with this metadata\">author</a></legend>"
+      -- not the other fields
+      liftIO $ body meta `shouldSatisfy` T.isInfixOf "<legend>Tags</legend>"
