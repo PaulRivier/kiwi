@@ -651,11 +651,11 @@ h1.page-title {
 }
 
 .metadata-page fieldset.internal-meta legend {
-  color: rgba(var(--kiwi-internal-meta), 0.8);
+  color: rgba(var(--kiwi-internal-meta), 0.95);
 }
 
 .metadata-page fieldset.internal-meta a.key {
-  color: rgba(var(--kiwi-internal-meta), 0.7);
+  color: rgba(var(--kiwi-internal-meta), 0.85);
 }
 
 .metadata-page fieldset.internal-meta a.key:hover {
