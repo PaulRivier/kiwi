@@ -84,6 +84,7 @@ library
       Kiwi.Controller
       Kiwi.DefaultPages
       Kiwi.Edit
+      Kiwi.Git
       Kiwi.LangDetect
       Kiwi.Locales
       Kiwi.Log
@@ -128,6 +129,7 @@ test-suite kiwi-test
     , kiwi
     , lucid2
     , pandoc-types
+    , process
     , QuickCheck
     , text
     , time
@@ -141,6 +143,7 @@ test-suite kiwi-test
       Kiwi.ConfigFileSpec
       Kiwi.ControllerSpec
       Kiwi.EditSpec
+      Kiwi.GitSpec
       Kiwi.HtmlWriterSpec
       Kiwi.LangDetectSpec
       Kiwi.MetaSpec
