@@ -629,7 +629,7 @@ a.archive-switch.active:hover,
    heading of the content */
 h1.page-title {
   margin: 0.6em 0 1.2em 0;
-  font-size: 2.3em;
+  font-size: 2em;
   line-height: 1.25;
   text-align: center;
 }
@@ -637,7 +637,7 @@ h1.page-title {
 h1.page-title::after {
   content: "";
   display: block;
-  width: 4em;
+  width: 6em;
   margin: 0.35em auto 0 auto;
   border-bottom: 2px solid rgba(var(--kiwi-text), 0.4);
 }
@@ -835,7 +835,7 @@ h1.page-title::after {
 
 .document h1 {
   margin: 2.2em 0 0.6em 0;
-  font-size: 1.75em;
+  font-size: 1.7em;
   --kiwi-heading-rule: 0.4;
 }
 
@@ -878,6 +878,26 @@ h1.page-title::after {
 .document :is(h1, h2, h3, h4, h5, h6) + :is(h1, h2, h3, h4, h5, h6) {
   margin-top: 0.5em;
 }
+
+/* on hover, the markdown level of a heading (#, ##...) shown in the left
+   margin, out of the flow so that the heading does not move */
+.document :is(h1, h2, h3, h4, h5, h6) {
+  position: relative;
+}
+
+.document :is(h1, h2, h3, h4, h5, h6):hover::before {
+  position: absolute;
+  right: 100%;
+  padding-right: 0.4em;
+  white-space: nowrap;
+}
+
+.document h1:hover::before { content: "#"; }
+.document h2:hover::before { content: "##"; }
+.document h3:hover::before { content: "###"; }
+.document h4:hover::before { content: "####"; }
+.document h5:hover::before { content: "#####"; }
+.document h6:hover::before { content: "######"; }
 
 .document > :first-child {
   margin-top: 0.5em;
