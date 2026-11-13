@@ -625,11 +625,21 @@ a.archive-switch.active:hover,
   border: none;
 }
 
+/* centered, with a short centered rule below: it can not be mistaken for a
+   heading of the content */
 h1.page-title {
-  margin: 0.4em 0 1em 0;
-  padding-bottom: 4px;
-  font-size: 2em;
-  border-bottom: 1px solid rgba(var(--kiwi-text), 0.2);
+  margin: 0.6em 0 1.2em 0;
+  font-size: 2.3em;
+  line-height: 1.25;
+  text-align: center;
+}
+
+h1.page-title::after {
+  content: "";
+  display: block;
+  width: 4em;
+  margin: 0.35em auto 0 auto;
+  border-bottom: 2px solid rgba(var(--kiwi-text), 0.4);
 }
 
 
@@ -810,32 +820,35 @@ h1.page-title {
 }
 
 /* Headings: the level is given by the size, by the style for the low levels
-   (capitals, italic, grey), and by a rule below that fades with the depth.
-   More space before a heading than after, so that it goes with its section;
-   consecutive headings stay together. */
+   (capitals, italic, grey), and by a rule below that fades with the depth,
+   and fades out to the right. More space before a heading than after, so
+   that it goes with its section; consecutive headings stay together. */
 .document h1, .document h2, .document h3,
 .document h4, .document h5, .document h6 {
   line-height: 1.25;
   padding-bottom: 0.2em;
-  border-bottom: 1px solid rgba(var(--kiwi-text), var(--kiwi-heading-rule));
+  border-bottom: 1px solid;
+  border-image: linear-gradient(to right,
+                                rgba(var(--kiwi-text), var(--kiwi-heading-rule)),
+                                rgba(var(--kiwi-text), 0)) 1;
 }
 
 .document h1 {
   margin: 2.2em 0 0.6em 0;
   font-size: 1.75em;
-  --kiwi-heading-rule: 0.45;
+  --kiwi-heading-rule: 0.4;
 }
 
 .document h2 {
   margin: 1.9em 0 0.5em 0;
   font-size: 1.4em;
-  --kiwi-heading-rule: 0.32;
+  --kiwi-heading-rule: 0.25;
 }
 
 .document h3 {
   margin: 1.6em 0 0.4em 0;
   font-size: 1.15em;
-  --kiwi-heading-rule: 0.22;
+  --kiwi-heading-rule: 0.20;
 }
 
 .document h4 {
@@ -859,7 +872,7 @@ h1.page-title {
   font-size: 0.9em;
   font-weight: 600;
   color: rgba(var(--kiwi-text), 0.7);
-  --kiwi-heading-rule: 0.07;
+  --kiwi-heading-rule: 0.05;
 }
 
 .document :is(h1, h2, h3, h4, h5, h6) + :is(h1, h2, h3, h4, h5, h6) {
