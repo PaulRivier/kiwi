@@ -148,6 +148,30 @@ editSpec = do
                     "/save-page" params
     liftIO $ status same `shouldBe` 200
 
+  let onRepo kiwiLines test = withGit $
+        withKiwiConfig kiwiLines [("bob", "secret", ["family"])] pages $ \cd _ app -> do
+          git cd ["init", "-q"]
+          git cd ["add", "."]
+          git cd ["commit", "-q", "-m", "init"]
+          WT.runSession (test cd) app
+
+  it "commits a saved page in its git repository" $ onRepo [] $ \cd -> do
+    _ <- login "bob"
+    h <- hashOf cd "p.md"
+    saved <- save h "title: New\n\nBye"
+    liftIO $ status saved `shouldBe` 200
+    liftIO $ gitOut cd ["log", "-1", "--format=%an <%ae>|%cn <%ce>|%s"]
+      `shouldReturn` "bob <>|Kiwi <>|Edit s:p (kiwi kiwi)\n"
+    liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""
+
+  it "does not commit a saved page with git-commit: no" $ onRepo ["git-commit: no"] $ \cd -> do
+    _ <- login "bob"
+    h <- hashOf cd "p.md"
+    saved <- save h "title: New\n\nBye"
+    liftIO $ status saved `shouldBe` 200
+    liftIO $ gitOut cd ["rev-list", "--count", "HEAD"] `shouldReturn` "1\n"
+    liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` " M s/pages/p.md\n"
+
   it "previews the content of a text, relative to its page" $ onKiwi $ \_ -> do
     _ <- login "bob"
     preview <- post "/preview" [ ("source", "s"), ("id", "p")

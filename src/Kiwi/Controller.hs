@@ -28,7 +28,7 @@ module Kiwi.Controller
 import           Control.Concurrent (forkIO)
 import           Control.Concurrent.MVar (modifyMVar_, readMVar, withMVar)
 import           Control.Exception (IOException, SomeException, fromException, try)
-import           Control.Monad (forM_, unless)
+import           Control.Monad (forM_, unless, when)
 import           Control.Monad.Except (ExceptT (..), liftEither, runExceptT, withExceptT)
 import           Control.Monad.Reader
 import           Crypto.Hash (SHA1, hashlazy)
@@ -60,6 +60,7 @@ import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
+import qualified Kiwi.Git as Git
 import           Kiwi.Meta (splitPage)
 import           Kiwi.Pandoc (pageDoc, embeddedDoc)
 import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, stripAccents,
@@ -480,8 +481,9 @@ sameOrigin = do
 -- | Saves the text of a page sent by its editor (see 'Kiwi.Edit.editedText'),
 -- when its file has not changed since the edition (same hash), and when the
 -- page can be loaded, with an id that is not the one of another page. The
--- pages are then reloaded. The check, the write and the reload hold the
--- lock of the reloads. The answer is the URL of the page (its id may change),
+-- file is then committed when it is in a git repository (unless git-commit
+-- is no; a failure of git is only logged), and the pages are reloaded. The
+-- check, the write, the commit and the reload hold the lock of the reloads. The answer is the URL of the page (its id may change),
 -- with the keys that the user can not change in the Kiwi-Ignored-Keys header,
 -- if any; 409 when the file changed, 400 when the text can not be saved.
 serveSavePage :: K.PageUID -> T.Text -> T.Text -> ActM ()
@@ -498,6 +500,7 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
       Edit.writePageFile path text
     liftIO $ do
       K.logger ss L.Info $ T.pack $ concat [ "page saved by ", T.unpack user, ": ", path ]
+      when (K.gitCommit ss) $ commitPage ss user path newUid
       DB.reloadPages ss
     return (newUid, ignored)
   case result of
@@ -512,6 +515,17 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
       status Net.status400
       Scotty.text $ TL.pack e
     Left (Edit.SaveFailed e) -> serveFailure $ T.pack e
+
+-- | Commits the file of a page saved by this user, when it is in a git
+-- repository; a failure is logged
+commitPage :: K.ServerState -> T.Text -> FilePath -> K.PageUID -> IO ()
+commitPage ss user path (source, pid) = do
+  let message = T.concat [ "Edit ", source, ":", pid, " (kiwi ", K.kiwiName ss, ")" ]
+  r <- Git.commitFile path user message
+  case r of
+    Right Git.Committed -> K.logger ss L.Info $ T.pack $ "page committed: " ++ path
+    Right _ -> return ()
+    Left e -> K.logger ss L.Warn $ T.pack $ concat [ "page not committed: ", path, ": ", e ]
 
 -- | Preview of the content of a text sent by the editor of a page, as the
 -- content of the page (links relative to its folder): an HTML fragment, or

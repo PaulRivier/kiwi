@@ -1,15 +1,12 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Kiwi.GitSpec (gitSpec) where
 
 import           Control.Monad (when)
 import qualified System.Directory as D
 import qualified System.FilePath as FP
-import qualified System.Process as Proc
 import           Test.Hspec
 
 import           Kiwi.Git
-import           TestUtils (withContentDir)
+import           TestUtils (git, gitOut, withContentDir, withGit)
 
 gitSpec :: Spec
 gitSpec = do
@@ -56,20 +53,8 @@ gitSpec = do
 -- | Runs the test in a new temporary folder, a git repository or not
 -- (pending when git is not installed)
 withRepo :: Bool -> (FilePath -> IO ()) -> IO ()
-withRepo repo test = D.findExecutable "git" >>= \case
-  Nothing -> pendingWith "git is not installed"
-  Just _ -> withContentDir $ \cd -> do
-    let dir = cd FP.</> "repo"
-    D.createDirectory dir
-    when repo $ git dir ["init", "-q"]
-    test dir
-
-git :: FilePath -> [String] -> IO ()
-git dir args = () <$ gitOut dir args
-
--- | Output of git in this folder, with an identity for the commits of the
--- tests
-gitOut :: FilePath -> [String] -> IO String
-gitOut dir args = Proc.readCreateProcess
-  (Proc.proc "git" (["-c", "user.name=test", "-c", "user.email=test@test"] ++ args))
-    { Proc.cwd = Just dir } ""
+withRepo repo test = withGit $ withContentDir $ \cd -> do
+  let dir = cd FP.</> "repo"
+  D.createDirectory dir
+  when repo $ git dir ["init", "-q"]
+  test dir

@@ -1,5 +1,5 @@
 module TestUtils (defMeta, display, load, loadIn, mkPage, mkPagesDB, mkPagesDBWith, withContentDir, withKiwiApp,
-                  withKiwiAccounts, withKiwiState) where
+                  withKiwiAccounts, withKiwiState, withKiwiConfig, withGit, git, gitOut) where
 
 import           Control.Exception (bracket, try)
 import           Control.Monad (forM_)
@@ -8,6 +8,8 @@ import qualified Data.Time as Time
 import qualified Network.Wai as Wai
 import qualified System.Directory as D
 import qualified System.FilePath as FP
+import qualified System.Process as Proc
+import           Test.Hspec (pendingWith)
 import           System.IO (hPutStrLn, stderr)
 import           System.IO.Error (isAlreadyExistsError)
 
@@ -107,7 +109,12 @@ withKiwiAccounts accounts' files test = withKiwiState accounts' files $ \_ _ -> 
 -- | 'withKiwiAccounts', with the content folder and the state of the kiwi
 withKiwiState :: [(T.Text, T.Text, [T.Text])] -> [(FilePath, String)] ->
                  (FilePath -> ServerState -> Wai.Application -> IO a) -> IO a
-withKiwiState accounts' files test = withContentDir $ \cd -> do
+withKiwiState = withKiwiConfig []
+
+-- | 'withKiwiState', with more lines in the [kiwi] section of its config
+withKiwiConfig :: [T.Text] -> [(T.Text, T.Text, [T.Text])] -> [(FilePath, String)] ->
+                  (FilePath -> ServerState -> Wai.Application -> IO a) -> IO a
+withKiwiConfig kiwiLines accounts' files test = withContentDir $ \cd -> do
   let kiwiDir' = FP.takeDirectory cd
       account (l, pass, groups) = case Auth.hashPassword "kiwi-test-salt00" pass of
         Just hash -> return $ Account l "kiwi-test-salt00" hash groups
@@ -115,11 +122,25 @@ withKiwiState accounts' files test = withContentDir $ \cd -> do
   forM_ files $ \(name, c) -> writeFile (cd FP.</> "s" FP.</> "pages" FP.</> name) c
   accs <- mapM account accounts'
   mapM_ (hPutStrLn stderr) =<< Auth.dumpAccounts accs (kiwiDir' FP.</> "_accounts")
-  conf <- either fail return $ Conf.parseConfig $ T.unlines
-    [ "[kiwi]", "content-directory: content", "port: 3456"
-    , "[metadata-default]", "access: public"
+  conf <- either fail return $ Conf.parseConfig $ T.unlines $
+    [ "[kiwi]", "content-directory: content", "port: 3456" ] ++ kiwiLines ++
+    [ "[metadata-default]", "access: public"
     , "[metadata zone]", "type: text"
     , "[metadata author]", "type: text" ]
   ss <- initServerState (kiwiDir' FP.</> "kiwi.ini") conf (\_ _ -> return ())
   cache <- U.initWAICaching
   kiwiApp ss cache >>= test cd ss
+
+-- | Runs the test when git is installed, else marks it pending
+withGit :: IO () -> IO ()
+withGit test = D.findExecutable "git" >>= maybe (pendingWith "git is not installed") (const test)
+
+git :: FilePath -> [String] -> IO ()
+git dir args = () <$ gitOut dir args
+
+-- | Output of git in this folder, with an identity for the commits of the
+-- tests
+gitOut :: FilePath -> [String] -> IO String
+gitOut dir args = Proc.readCreateProcess
+  (Proc.proc "git" (["-c", "user.name=test", "-c", "user.email=test@test"] ++ args))
+    { Proc.cwd = Just dir } ""
