@@ -1,4 +1,25 @@
-# Changelog for kiwi
+# ChangeLog for Kiwi
+
+## v0.4.1.0 - 2026-11-13
+
+- **Edit pages in the browser**, with a markdown editor (EasyMDE, embedded:
+  nothing loaded from elsewhere), a toolbar and a preview rendered by Kiwi.
+  A pen in the navigation bar opens the editor, and a small pen in the
+  margin of a block opens it at the line of this block. The file is written
+  atomically, with a normalized metadata header (one line by key, fixed
+  order, sorted tags), and the pages are reloaded. A save is refused when
+  the file has changed since the editor was opened, or when the page would
+  not load.
+- **Access rights per group**: `family` or `family:r` (read), `family:w`
+  (read and edit the page, except its `access`, `id`, `archive`,
+  `images-dir` and `files-dir` metadata), `family:a` (edit everything).
+  `public` can only read. Existing access lists keep their meaning.
+- **Pages saved from the browser are committed** when their file is in a
+  git repository (and not ignored there): the file alone, with the login of
+  the user as author. New `git-commit` setting in the `[kiwi]` section
+  (`yes` by default, `no` to disable). A failure of git is logged, the page
+  is saved anyway.
+- The local editor button has its own icon; the pen is the browser editor.
 
 ## v0.4.1.0 - 2026-11-12
 
