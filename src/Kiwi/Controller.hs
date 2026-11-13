@@ -28,10 +28,8 @@ module Kiwi.Controller
 import           Control.Concurrent (forkIO)
 import           Control.Concurrent.MVar (modifyMVar_, readMVar, withMVar)
 import           Control.Exception (IOException, SomeException, fromException, try)
-import           Control.Monad (forM_, unless, when)
-import           Control.Monad.Except (ExceptT (..), liftEither, runExceptT, throwError,
-                                       withExceptT)
-import           Data.Bifunctor (first)
+import           Control.Monad (forM_, unless)
+import           Control.Monad.Except (ExceptT (..), liftEither, runExceptT, withExceptT)
 import           Control.Monad.Reader
 import           Crypto.Hash (SHA1, hashlazy)
 import qualified Data.ByteString as BS
@@ -63,7 +61,7 @@ import qualified Kiwi.Log as L
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
 import           Kiwi.Meta (splitPage)
-import           Kiwi.Pandoc (pageDoc, embeddedDoc, textPageUID)
+import           Kiwi.Pandoc (pageDoc, embeddedDoc)
 import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, stripAccents,
                               excerpt)
 import           Kiwi.PagesDB (brokenLinks)
@@ -479,11 +477,6 @@ sameOrigin = do
     Nothing -> True
     Just o  -> any (\h -> o `elem` ["http://" <> h, "https://" <> h]) hosts
 
--- | Why a page could not be saved
-data SaveFailure = SaveConflict         -- ^ the file changed since its edition
-                 | SaveInvalid String   -- ^ the text can not be saved
-                 | SaveFailed String    -- ^ error of the server
-
 -- | Saves the text of a page sent by its editor (see 'Kiwi.Edit.editedText'),
 -- when its file has not changed since the edition (same hash), and when the
 -- page can be loaded, with an id that is not the one of another page. The
@@ -498,13 +491,10 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
   let path = K.pageAbsoluteFSPath p
   result <- liftIO $ withMVar (K.pagesDBLock ss) $ \_ -> runExceptT $ do
     db <- liftIO $ readIORef (K.pagesDB ss)
-    (bytes, fileText) <- withExceptT SaveFailed $ ExceptT $ readPageFile path
-    when (Edit.fileHash bytes /= hash) $ throwError SaveConflict
-    (text, ignored) <- invalid $ Edit.editedText (K.customMetaConfig db) level fileText sent
-    newUid <- invalid $ textPageUID (K.contentDir ss) db path text
-    when (newUid /= uid && isJust (findPage db newUid)) $
-      throwError $ SaveInvalid "the id is the one of another page"
-    withExceptT (\e -> SaveFailed $ show (e :: IOException)) $ ExceptT $ try $
+    file <- withExceptT Edit.SaveFailed $ ExceptT $ readPageFile path
+    (text, ignored, newUid) <- liftEither $
+      Edit.checkSave (K.contentDir ss) db uid level hash path file sent
+    withExceptT (\e -> Edit.SaveFailed $ show (e :: IOException)) $ ExceptT $ try $
       Edit.writePageFile path text
     liftIO $ do
       K.logger ss L.Info $ T.pack $ concat [ "page saved by ", T.unpack user, ": ", path ]
@@ -515,16 +505,13 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
       unless (null ignored) $
         setHeader "Kiwi-Ignored-Keys" $ TL.fromStrict $ T.intercalate ", " ignored
       Scotty.text $ TL.fromStrict $ Url.pageUIDUrl newUid
-    Left SaveConflict -> do
+    Left Edit.SaveConflict -> do
       status Net.status409
       Scotty.text "the page has changed since its edition"
-    Left (SaveInvalid e) -> do
+    Left (Edit.SaveInvalid e) -> do
       status Net.status400
       Scotty.text $ TL.pack e
-    Left (SaveFailed e) -> serveFailure $ T.pack e
-  where
-    invalid :: Either String a -> ExceptT SaveFailure IO a
-    invalid = liftEither . first SaveInvalid
+    Left (Edit.SaveFailed e) -> serveFailure $ T.pack e
 
 -- | Preview of the content of a text sent by the editor of a page, as the
 -- content of the page (links relative to its folder): an HTML fragment, or

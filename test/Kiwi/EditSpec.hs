@@ -38,6 +38,22 @@ editSpec = do
     editedText [] AccessWrite file "not a header\n\nBye"
       `shouldBe` Left "invalid metadata header, line 1"
 
+  it "checks a page to save: same file, valid text, id of no other page" $ do
+    let db = mkPagesDB [mkPage ("src", "other") [] [] False 1, mkPage ("src", "x") [] [] False 1]
+        bytes = TE.encodeUtf8 file
+        check uid hash = checkSave "/k/content" db uid AccessAdmin hash
+                           "/k/content/src/pages/p.md" (bytes, file)
+    check ("src", "x") (fileHash bytes) "title: New\nid: x\n\nBye"
+      `shouldBe` Right ("title: New\nid: x\n\nBye\n", [], ("src", "x"))
+    -- without id, the id of the path
+    check ("src", "x") (fileHash bytes) "title: New\n\nBye"
+      `shouldBe` Right ("title: New\n\nBye\n", [], ("src", "p"))
+    check ("src", "x") "0000" "title: New\nid: x\n\nBye" `shouldBe` Left SaveConflict
+    check ("src", "x") (fileHash bytes) "not a header\n\nBye"
+      `shouldBe` Left (SaveInvalid "invalid metadata header, line 1")
+    check ("src", "x") (fileHash bytes) "title: New\nid: other\n\nBye"
+      `shouldBe` Left (SaveInvalid "the id is the one of another page")
+
   -- requests to a kiwi with accounts: ann (admin), bob (family), joe (friends)
   let pages = [ ("p.md", "title: Page\naccess: family:w, friends, public\n\nHello\n\nWorld")
               , ("q.md", "title: Other\naccess: family:w\n\nQ")
