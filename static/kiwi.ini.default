@@ -23,6 +23,9 @@ toc: on
 # the session cookie will then only be sent over HTTPS connections.
 # Keep to no if you access kiwi with plain HTTP, or login will not work.
 secure-cookie: no
+# When a page saved from the browser is in a git repository (and not ignored
+# there), kiwi commits it: yes (default) | no
+git-commit: yes
 
 # built-in metadata default values
 [metadata-default]

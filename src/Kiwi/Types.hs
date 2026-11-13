@@ -92,6 +92,8 @@ data ServerState =
               , etags         :: MVar ETags
               , tocSetting    :: TocSetting
               , secureCookie  :: Bool
+              , gitCommit     :: Bool  -- ^ commit the pages saved in a
+                                       -- git repository
               , logger        :: Logger
               }
 

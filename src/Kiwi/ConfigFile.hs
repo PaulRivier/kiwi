@@ -31,6 +31,7 @@ data KiwiConfig = KiwiConfig
   , sourcesConfig :: [K.SourceConfig]
   , toc :: K.TocSetting
   , secureCookie :: Bool
+  , gitCommit :: Bool  -- ^ commit the pages saved in a git repository
   }
   
 
@@ -60,6 +61,8 @@ configParser = do
     lang'  <- fieldDefOf "ui-lang" K.parseUILang K.UI_English
     toc' <- fieldDefOf "toc" K.parseTocSetting K.TocOn
     secureCookie' <- fieldFlagDef "secure-cookie" False
+    -- empty: the default
+    gitCommit' <- fieldDefOf "git-commit" (flagOr True "git-commit") True
     return KiwiConfig
       { name = name'
       , contentDir = contentDir'
@@ -72,6 +75,7 @@ configParser = do
       , sourcesConfig = toList sourcesConfig'
       , toc = toc'
       , secureCookie = secureCookie'
+      , gitCommit = gitCommit'
       }
 
 
@@ -104,6 +108,17 @@ accessList t = case Meta.parseAccess t of
   (access, []) -> Right access
   (_, invalid) -> Left $ "invalid access: " ++ T.unpack (T.intercalate ", " invalid)
                   ++ " (expected GROUP, GROUP:w or GROUP:a; public can only read)"
+
+-- | A yes/no value (true/false too, any case), or this default when empty
+flagOr :: Bool -> String -> T.Text -> Either String Bool
+flagOr def key t = case T.toLower (T.strip t) of
+  ""      -> Right def
+  "yes"   -> Right True
+  "true"  -> Right True
+  "no"    -> Right False
+  "false" -> Right False
+  _       -> Left $ "invalid " ++ key ++ " value " ++ show (T.strip t)
+                    ++ ", allowed values: yes, no"
 
 trim :: String -> String
 trim = T.unpack . T.strip . T.pack

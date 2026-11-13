@@ -235,6 +235,7 @@ initServerState cfp conf logger' = do
     , etags        = etags'
     , tocSetting   = Conf.toc conf
     , secureCookie = Conf.secureCookie conf
+    , gitCommit    = Conf.gitCommit conf
     , logger       = logger'
   }
   where
