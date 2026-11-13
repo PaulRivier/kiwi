@@ -28,7 +28,10 @@ module Kiwi.Controller
 import           Control.Concurrent (forkIO)
 import           Control.Concurrent.MVar (modifyMVar_, readMVar, withMVar)
 import           Control.Exception (IOException, SomeException, fromException, try)
-import           Control.Monad (forM_, unless)
+import           Control.Monad (forM_, unless, when)
+import           Control.Monad.Except (ExceptT (..), liftEither, runExceptT, throwError,
+                                       withExceptT)
+import           Data.Bifunctor (first)
 import           Control.Monad.Reader
 import           Crypto.Hash (SHA1, hashlazy)
 import qualified Data.ByteString as BS
@@ -493,29 +496,20 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
   ss <- asksK id
   user <- maybe "" K.loginUser <$> asksK (K.login . K.requestState)
   let path = K.pageAbsoluteFSPath p
-  result <- liftIO $ withMVar (K.pagesDBLock ss) $ \_ -> do
-    db <- readIORef (K.pagesDB ss)
-    fileE <- readPageFile path
-    case fileE of
-      Left e -> return $ Left $ SaveFailed e
-      Right (bytes, fileText)
-        | Edit.fileHash bytes /= hash -> return $ Left SaveConflict
-        | otherwise -> case Edit.editedText (K.customMetaConfig db) level fileText sent of
-            Left e -> return $ Left $ SaveInvalid e
-            Right (text, ignored) -> case textPageUID (K.contentDir ss) db path text of
-              Left e -> return $ Left $ SaveInvalid e
-              Right newUid
-                | newUid /= uid && isJust (findPage db newUid) ->
-                    return $ Left $ SaveInvalid "the id is the one of another page"
-                | otherwise -> do
-                    w <- try $ Edit.writePageFile path text
-                    case w of
-                      Left e -> return $ Left $ SaveFailed $ show (e :: IOException)
-                      Right () -> do
-                        K.logger ss L.Info $ T.pack $ concat
-                          [ "page saved by ", T.unpack user, ": ", path ]
-                        DB.reloadPages ss
-                        return $ Right (newUid, ignored)
+  result <- liftIO $ withMVar (K.pagesDBLock ss) $ \_ -> runExceptT $ do
+    db <- liftIO $ readIORef (K.pagesDB ss)
+    (bytes, fileText) <- withExceptT SaveFailed $ ExceptT $ readPageFile path
+    when (Edit.fileHash bytes /= hash) $ throwError SaveConflict
+    (text, ignored) <- invalid $ Edit.editedText (K.customMetaConfig db) level fileText sent
+    newUid <- invalid $ textPageUID (K.contentDir ss) db path text
+    when (newUid /= uid && isJust (findPage db newUid)) $
+      throwError $ SaveInvalid "the id is the one of another page"
+    withExceptT (\e -> SaveFailed $ show (e :: IOException)) $ ExceptT $ try $
+      Edit.writePageFile path text
+    liftIO $ do
+      K.logger ss L.Info $ T.pack $ concat [ "page saved by ", T.unpack user, ": ", path ]
+      DB.reloadPages ss
+    return (newUid, ignored)
   case result of
     Right (newUid, ignored) -> do
       unless (null ignored) $
@@ -528,6 +522,9 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
       status Net.status400
       Scotty.text $ TL.pack e
     Left (SaveFailed e) -> serveFailure $ T.pack e
+  where
+    invalid :: Either String a -> ExceptT SaveFailure IO a
+    invalid = liftEither . first SaveInvalid
 
 -- | Preview of the content of a text sent by the editor of a page, as the
 -- content of the page (links relative to its folder): an HTML fragment, or
