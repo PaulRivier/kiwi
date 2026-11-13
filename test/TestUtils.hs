@@ -1,4 +1,4 @@
-module TestUtils (defMeta, load, loadIn, mkPage, mkPagesDB, mkPagesDBWith, withContentDir, withKiwiApp,
+module TestUtils (defMeta, display, load, loadIn, mkPage, mkPagesDB, mkPagesDBWith, withContentDir, withKiwiApp,
                   withKiwiAccounts, withKiwiState) where
 
 import           Control.Exception (bracket, try)
@@ -15,7 +15,8 @@ import qualified Kiwi.Auth as Auth
 import qualified Kiwi.ConfigFile as Conf
 import qualified Kiwi.PagesDB as DB
 import           Kiwi.Meta (emptyMeta)
-import           Kiwi.Pandoc (loadPage)
+import           Kiwi.Pandoc (loadPage, pageDoc)
+import qualified Text.Pandoc.Definition as PD
 import           Kiwi.Server (initServerState, kiwiApp)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
@@ -57,6 +58,13 @@ mkPagesDBWith :: [CustomMetaConfig] -> [Page] -> PagesDB
 mkPagesDBWith cmc pages = let db = DB.emptyPagesDB defMeta cmc []
                   in db { pagesIndex = DI.insertMany (pagesIndex db) pages }
 
+
+-- | Document of a page content, as displayed (see 'pageDoc')
+display :: T.Text -> PD.Pandoc
+display body =
+  either error id $ pageDoc "/k/content"
+    (mkPage ("src", "p") [] [] False 1) { pageAbsoluteFSPath = "/k/content/src/pages/p.md"
+                                        , pageBody = body }
 
 -- | Load a page from source "src", located in pages subfolder "sub"
 load :: T.Text -> PandocPage

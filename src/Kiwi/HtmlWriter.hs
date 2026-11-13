@@ -11,6 +11,7 @@
 module Kiwi.HtmlWriter
   ( writeHtml5
   , pageTargetAttrs
+  , lineKey
   ) where
 
 import           Control.Monad (forM_, unless)
@@ -53,6 +54,13 @@ pageIdKey = "kiwi-page-id"
 pageTargetAttrs :: PageUID -> [(T.Text, T.Text)]
 pageTargetAttrs (s, i) = [(pageSourceKey, s), (pageIdKey, i)]
 
+-- | Key of the attribute that holds the first line of a top-level block in
+-- the content, from 1 (see 'Kiwi.Pandoc.pageDoc'), rendered as "data-line".
+-- A block without attributes is wrapped in a div with only this attribute:
+-- the div is not rendered, its block gets the attribute.
+lineKey :: T.Text
+lineKey = "kiwi-line"
+
 -- | Class of the links to pages that do not exist
 brokenLinkClass :: T.Text
 brokenLinkClass = "kiwi-link-broken"
@@ -76,7 +84,7 @@ attrs :: PD.Attr -> [Attributes]
 attrs (ident, classes, kvs) =
   [id_ ident | not (T.null ident)]
     ++ [class_ (T.unwords classes) | not (null classes)]
-    ++ [makeAttributes k v | (k, v) <- kvs]
+    ++ [makeAttributes (if k == lineKey then "data-line" else k) v | (k, v) <- kvs]
 
 showT :: Show a => a -> T.Text
 showT = T.pack . show
@@ -92,28 +100,36 @@ blocksToHtml :: [PD.Block] -> W ()
 blocksToHtml = mapM_ blockToHtml
 
 blockToHtml :: PD.Block -> W ()
-blockToHtml blk = case blk of
+blockToHtml = blockWith []
+
+-- | A block, with these attributes added to its element (a 'PD.Plain' has none)
+blockWith :: [Attributes] -> PD.Block -> W ()
+blockWith ex blk = case blk of
+  PD.Div ("", [], [(k, l)]) [b] | k == lineKey -> blockWith (ex ++ [data_ "line" l]) b
   PD.Plain ils -> inlinesToHtml ils
   -- an image alone in its paragraph is a figure, captioned by its description
   -- (the image then gets an empty alt: the caption already describes it)
-  PD.Para [PD.Image attr desc target] -> figure_ $ do
+  PD.Para [PD.Image attr desc target] -> figure_ ex $ do
     imageToHtml attr "" target
     unless (null desc) $ figcaption_ (inlinesToHtml desc)
-  PD.Para ils -> p_ (inlinesToHtml ils)
+  PD.Para ils -> p_ ex (inlinesToHtml ils)
   PD.LineBlock lns ->
-    div_ [class_ "line-block"] $
+    div_ (class_ "line-block" : ex) $
       sequence_ (List.intersperse (br_ []) (map inlinesToHtml lns))
-  PD.CodeBlock attr code -> pre_ (code_ (attrs attr) (toHtml code))
+  -- the line of the block goes to its pre element
+  PD.CodeBlock (i, cs, kvs) code ->
+    let (line, kvs') = List.partition ((== lineKey) . fst) kvs
+    in pre_ (ex ++ [data_ "line" l | (_, l) <- line]) (code_ (attrs (i, cs, kvs')) (toHtml code))
   PD.RawBlock fmt raw -> rawToHtml fmt raw
-  PD.BlockQuote bs -> blockquote_ (blocksToHtml bs)
+  PD.BlockQuote bs -> blockquote_ ex (blocksToHtml bs)
   PD.OrderedList (start, _, _) items ->
-    ol_ [start_ (showT start) | start /= 1] (mapM_ (li_ . blocksToHtml) items)
-  PD.BulletList items -> ul_ (mapM_ (li_ . blocksToHtml) items)
-  PD.DefinitionList items -> dl_ (mapM_ defItemToHtml items)
-  PD.Header lvl attr ils -> headerTag lvl (attrs attr) (inlinesToHtml ils)
-  PD.HorizontalRule -> hr_ []
+    ol_ ([start_ (showT start) | start /= 1] ++ ex) (mapM_ (li_ . blocksToHtml) items)
+  PD.BulletList items -> ul_ ex (mapM_ (li_ . blocksToHtml) items)
+  PD.DefinitionList items -> dl_ ex (mapM_ defItemToHtml items)
+  PD.Header lvl attr ils -> headerTag lvl (attrs attr ++ ex) (inlinesToHtml ils)
+  PD.HorizontalRule -> hr_ ex
   PD.Table attr caption colspecs thead tbodies tfoot ->
-    table_ (attrs attr) $ do
+    table_ (attrs attr ++ ex) $ do
       captionToHtml caption_ caption
       colgroupToHtml colspecs
       tableHeadToHtml aligns thead
@@ -121,8 +137,8 @@ blockToHtml blk = case blk of
       tableFootToHtml aligns tfoot
     where aligns = map fst colspecs
   PD.Figure attr caption bs ->
-    figure_ (attrs attr) (blocksToHtml bs >> captionToHtml figcaption_ caption)
-  PD.Div attr bs -> div_ (attrs attr) (blocksToHtml bs)
+    figure_ (attrs attr ++ ex) (blocksToHtml bs >> captionToHtml figcaption_ caption)
+  PD.Div attr bs -> div_ (attrs attr ++ ex) (blocksToHtml bs)
 
 headerTag :: Int -> [Attributes] -> W () -> W ()
 headerTag 1 = h1_

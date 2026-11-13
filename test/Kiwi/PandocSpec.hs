@@ -233,7 +233,12 @@ loadPageSpec = do
     pandocBody (load c) `shouldBe` body
     pandocImagesDir (load c) `shouldBe` "pics"
     pandocFilesDir (load c) `shouldBe` "sub"
-    pageDoc "/k/content" page `shouldBe` Right (pandocDoc $ load c)
+    -- with the lines of the top-level blocks (a paragraph: in a div)
+    let noLines (PD.Pandoc m bs) = PD.Pandoc m (concatMap unwrap bs)
+        unwrap (PD.Div ("", [], [("kiwi-line", _)]) [b]) = [b]
+        unwrap b = [b]
+    fmap noLines (pageDoc "/k/content" page) `shouldBe` Right (pandocDoc $ load c)
+    fmap (\(PD.Pandoc _ bs) -> length bs) (pageDoc "/k/content" page) `shouldBe` Right 1
     pagePath "/k/content" "/k/content/src/pages/sub/p.md" `shouldBe` ("src", "sub/p")
 
 metaDataSpec :: Spec

@@ -22,6 +22,25 @@ htmlWriterSpec = do
         , "<a href=\"/page/src/sub:Gone\" class=\"kiwi-link-page kiwi-link-broken\">b</a> "
         , "<a href=\"http://e.org\" class=\"kiwi-link-external\" target=\"_blank\">c</a></p>" ]
 
+  it "gives the top-level blocks of a displayed page their line in the content" $
+    TL.toStrict (renderText $ writeHtml5 (const True) $ display $ T.unlines
+      [ "# Title", "", "Para one", "line two", "", "- a", "", "  > q", "- b", ""
+      , "```", "code", "```", "", "> quote", ">", "> more", "", "| a |", "|---|", "| 1 |"
+      , "", "A[^n].", "", "[^n]: Note.", "", "***" ])
+      `shouldBe` T.concat
+        [ "<h1 id=\"title\" data-line=\"1\">Title</h1>"
+        , "<p data-line=\"3\">Para one\nline two</p>"
+        , "<ul data-line=\"6\"><li><p>a</p><blockquote><p>q</p></blockquote></li>"
+        , "<li><p>b</p></li></ul>"
+        , "<pre data-line=\"11\"><code>code</code></pre>"
+        , "<blockquote data-line=\"15\"><p>quote</p><p>more</p></blockquote>"
+        , "<table data-line=\"19\"><thead><tr><th scope=\"col\">a</th></tr></thead>"
+        , "<tbody><tr><td>1</td></tr></tbody></table>"
+        , "<p data-line=\"23\">A<a href=\"#fn1\" id=\"fnref1\" class=\"footnote-ref\">1</a>.</p>"
+        , "<hr data-line=\"27\">"
+        , "<section class=\"footnotes\"><ol><li id=\"fn1\"><p>Note. "
+        , "<a href=\"#fnref1\" class=\"footnote-back\">↑</a></p></li></ol></section>" ]
+
   it "renders footnotes as numbered references and a list at the end" $
     html "t: t\n\nA[^x] and B[^y].\n\n[^x]: Note x.\n\n[^y]: Note y."
       `shouldBe` T.concat
