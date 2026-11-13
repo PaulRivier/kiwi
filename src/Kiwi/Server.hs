@@ -7,17 +7,15 @@ module Kiwi.Server
     ) where
 
 
-import           Control.Concurrent (forkIO)
 import           Control.Concurrent.QSem (newQSem)
 import           Control.Concurrent.MVar (newMVar, withMVar)
-import           Control.Exception (IOException, SomeException, evaluate, try)
-import           Control.Monad (when, forM_, void)
+import           Control.Exception (IOException, SomeException, try)
+import           Control.Monad (when, forM_)
 import           Control.Monad.Reader
-import           Data.IORef (newIORef, readIORef, atomicWriteIORef)
+import           Data.IORef (newIORef, readIORef)
 import           Data.List (stripPrefix, isInfixOf)
 import           Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as M
-import qualified Data.SearchEngine as SE
 import qualified Data.Text as T
 import qualified Network.Wai as Wai
 import           Data.String (fromString)
@@ -45,11 +43,9 @@ import qualified Kiwi.PagesDB as DB
 import           Kiwi.Theme (serveTheme)
 import           Kiwi.Types
 import           Kiwi.Utils (isDotFile, timeIO)
-import qualified Utils.DocIndex as DI
 
 
-pagesFSDir, imagesFSDir, filesFSDir :: FilePath
-pagesFSDir = "pages"
+imagesFSDir, filesFSDir :: FilePath
 filesFSDir = "files"
 imagesFSDir = "images"
 
@@ -62,7 +58,7 @@ kiwiServer cfp c logLevel cache onReload = do
   let logger' = L.mkLogger logLevel (Conf.name c)
   (ss, t) <- timeIO $ initServerState cfp c logger'
   onReload $ reloadKiwi ss
-  nb <- pagesCount <$> readIORef (pagesDB ss)
+  nb <- DB.pagesCount <$> readIORef (pagesDB ss)
   logger' L.Info $ T.pack $ concat [ nb, " pages loaded in ", printf "%.2f" t
                                    , "s, listening on ", maybe "port " (++ ":") (Conf.bind c)
                                    , show (Conf.port c) ]
@@ -129,6 +125,17 @@ kiwiRoute ss cache = do
       source <- formParam "page-source"
       pId <- formParam "page-id"
       serveEditPage ed (source, pId)
+  -- edition of the pages in the browser, with the write right
+  get "/edit/:source/:pId" $ withLogin $ do
+    source <- pathParam "source"
+    pId <- pathParam "pId"
+    line <- queryParamMaybe "line"
+    serveEditor (source, pId) line
+  post "/save-page" $ withLogin $ do
+    (uid, sent) <- editParams
+    hash <- formParam "hash"
+    serveSavePage uid hash sent
+  post "/preview" $ withLogin $ editParams >>= uncurry servePreview
   get  "/login" $ withLogin serveLogin
   post "/login" $ logUserIn
   post "/logout" $ logUserOut
@@ -141,6 +148,11 @@ kiwiRoute ss cache = do
   notFound $ withLogin serveNotFound
 
   where
+    editParams = do
+      source <- formParam "source"
+      pId <- formParam "id"
+      sent <- formParam "text"
+      return ((source, pId), sent)
     filesParts cd src = [ ( concat ["image/", src, "/"]
                           , FP.joinPath [cd, src, imagesFSDir] )
                         , ( concat ["file/", src, "/"]
@@ -174,27 +186,7 @@ reloadKiwi ss = do
 -- can not overwrite each other. Readers are never blocked.
 updateDB :: ServerState -> IO ()
 updateDB ss = do
-  let dbR = pagesDB ss
-      lock = pagesDBLock ss
-      cd = contentDir ss
-      logger' = logger ss
-  withMVar lock $ \_ -> do
-    db' <- readIORef dbR
-    (db, t) <- timeIO $ DB.updatePagesDB logger' cd pagesFSDir db'
-    atomicWriteIORef dbR db
-    warmUpSearchEngine (searchEngine db)
-    logger' L.Info $ T.pack $ concat [ "pages reloaded in ", printf "%.2f" t
-                                     , "s, ", pagesCount db, " pages" ]
-
-
-pagesCount :: PagesDB -> String
-pagesCount = show . M.size . DI.store . pagesIndex
-
-
--- | Evaluate the search engine in a thread, so that the first search after
--- a load does not wait for it
-warmUpSearchEngine :: PageSearchEngine -> IO ()
-warmUpSearchEngine se = void $ forkIO $ void $ evaluate $ SE.invariant se
+  withMVar (pagesDBLock ss) $ \_ -> DB.reloadPages ss
 
 
 initServerState :: FP.FilePath -> Conf.KiwiConfig -> L.Logger -> IO ServerState
@@ -217,11 +209,11 @@ initServerState cfp conf logger' = do
   sem <- newQSem 3
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"
   sessM <- newMVar sess
-  db <- DB.updatePagesDB logger' contentDir' pagesFSDir
+  db <- DB.updatePagesDB logger' contentDir' DB.pagesFSDir
           (DB.emptyPagesDB (Conf.defaultMeta conf)
                            (Conf.customMetaConfig conf)
                            (Conf.sourcesConfig conf))
-  warmUpSearchEngine (searchEngine db)
+  DB.warmUpSearchEngine (searchEngine db)
   dbR <- newIORef db
   dbLock <- newMVar ()
   etags' <- newMVar M.empty

@@ -7,6 +7,8 @@ module Kiwi.View
   , PagesListing (..)
   , renderSearchResults
   , renderDoc
+  , renderEditor
+  , renderPreview
   , MetaEntry (..)
   , renderMetadata
   , renderDoctor
@@ -51,6 +53,7 @@ data ViewCtx = ViewCtx { ctxLocales :: K.Locales
                        , ctxToc     :: K.TocSetting
                        , ctxContext :: K.Context      -- ^ navigation context
                        , ctxQuery   :: T.Text         -- ^ in the search field
+                       , ctxEditor  :: Bool           -- ^ the page has an editor
                        }
 
 getViewCtx :: ActM ViewCtx
@@ -61,13 +64,16 @@ getViewCtx = ViewCtx <$> getLocales
                      <*> asksK K.tocSetting
                      <*> asksK (K.context . K.requestState)
                      <*> pure T.empty
+                     <*> pure False
 
 getLocales :: ActM K.Locales
 getLocales = Loc.locales <$> asksK K.uiLang
 
--- | Admin actions of the navigation bar
-data Actions = PageActions K.Page  -- ^ edit (with an editor) and copy a link to
-                                   -- the page, reload
+-- | Actions of the navigation bar
+data Actions = PageActions K.Page Bool  -- ^ edit the page in the browser (with
+                                        -- the write right) or with the
+                                        -- editor (admins), copy a link to
+                                        -- it, reload
              | ReloadAction
              | NoActions           -- ^ documentation views
 
@@ -82,12 +88,28 @@ renderView title actions tocDoc content = do
 -- | A page, its document and the pages linking to it. The links of the
 -- document to the pages that do not exist (according to the predicate) are
 -- marked as broken.
-renderPage :: (K.PageUID -> Bool) -> K.Page -> PD.Pandoc -> [K.Page] -> ActM TL.Text
-renderPage pageExists p doc backlinks = do
+renderPage :: (K.PageUID -> Bool) -> K.Page -> Bool -> PD.Pandoc -> [K.Page] -> ActM TL.Text
+renderPage pageExists p canWrite doc backlinks = do
   loc <- getLocales
   ctx <- asksK (K.context . K.requestState)
-  renderView (K.pageTitle p) (PageActions p) (Just doc)
-             (pageView loc ctx pageExists p doc backlinks)
+  renderView (K.pageTitle p) (PageActions p canWrite) (Just doc)
+             (pageView loc ctx pageExists p canWrite doc backlinks)
+
+-- | Editor of a page: the text of its file, its hash, and the line where
+-- the editor starts (from 1)
+renderEditor :: K.Page -> T.Text -> T.Text -> Int -> ActM TL.Text
+renderEditor p text hash line = do
+  vctx <- getViewCtx
+  let loc = ctxLocales vctx
+  return $ renderText $
+    layout vctx { ctxEditor = True } (K.loc_Editing loc <> " : " <> K.pageTitle p)
+           NoActions Nothing $
+      editorView loc p text hash line
+
+-- | HTML of a document previewed in the editor, with the links to the pages
+-- that do not exist (according to the predicate) marked as broken
+renderPreview :: (K.PageUID -> Bool) -> PD.Pandoc -> TL.Text
+renderPreview pageExists doc = renderText $ writeHtml5 pageExists doc
 
 -- | A document embedded in kiwi (README...), with its title as heading if
 -- given
@@ -214,6 +236,10 @@ layout ctx title actions tocDoc content = do
       title_ $ toHtml title
       link_ [rel_ "icon", href_ "/static/favicon.ico"]
       link_ [rel_ "stylesheet", href_ "/static/css/app.css"]
+      -- the markdown editor (EasyMDE) runs before app.js, which uses it
+      when (ctxEditor ctx) $ do
+        link_ [rel_ "stylesheet", href_ "/static/vendor/easymde.min.css"]
+        script_ [src_ "/static/vendor/easymde.min.js", defer_ ""] T.empty
       script_ [type_ "module", src_ "/static/js/app.js"] T.empty
     body_ $ do
       loginBox ctx
@@ -231,20 +257,24 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
   a_ [ href_ (Url.inContext (ctxContext ctx) "/browse"), class_ "icon"
      , title_ (K.loc_Tags loc) ] $ icon "tags"
   div_ [class_ "nav-actions"] $ do
-    when (ctxIsAdmin ctx) $ case actions of
-      PageActions p -> do
+    case actions of
+      PageActions p canWrite -> do
         let (source, pId) = K.pageUID p
-        -- without editor, the edition is disabled
-        when (ctxCanEdit ctx) $
-          iconButton "edit-page" (K.loc_EditPage loc)
-            ([data_ "page-source" source, data_ "page-id" pId] <> alerts) "edit"
-        copyButton (K.loc_CopyLink loc) (cmLink p)
-        reload
-      ReloadAction -> reload
+        when canWrite $
+          a_ [ href_ (Url.editUrl $ K.pageUID p), class_ "icon edit-page"
+             , title_ (K.loc_EditPage loc) ] $ icon "edit"
+        -- without editor in the config, the local edition is disabled
+        when (admin && ctxCanEdit ctx) $
+          iconButton "edit-locally" (K.loc_EditLocally loc)
+            ([data_ "page-source" source, data_ "page-id" pId] <> alerts) "edit-local"
+        when (admin || canWrite) $ copyButton (K.loc_CopyLink loc) (cmLink p)
+        when admin reload
+      ReloadAction -> when admin reload
       NoActions -> mempty
     searchForm loc (ctxContext ctx) (ctxQuery ctx) False
   where
     loc = ctxLocales ctx
+    admin = ctxIsAdmin ctx
     reload = iconButton "reload" (K.loc_Reload loc) alerts "reload"
     -- texts of the alerts shown by app.js when the action fails
     alerts = [ data_ "error-session" (K.loc_ActionSession loc)
@@ -329,9 +359,11 @@ plainText = inlinesText
 
 -- * Views
 
-pageView :: K.Locales -> K.Context -> (K.PageUID -> Bool) -> K.Page -> PD.Pandoc ->
+-- | A page. With the write right, its document has the URL of its editor,
+-- to edit it from one of its blocks (see 'Kiwi.HtmlWriter.lineKey').
+pageView :: K.Locales -> K.Context -> (K.PageUID -> Bool) -> K.Page -> Bool -> PD.Pandoc ->
             [K.Page] -> Html ()
-pageView loc ctx pageExists p doc backlinks = div_ [class_ "page-view"] $ do
+pageView loc ctx pageExists p canWrite doc backlinks = div_ [class_ "page-view"] $ do
   contextBar loc [fst $ K.pageUID p]
     (linksList "tags-list" [ (prettyTag t, browseLink K.FieldTag (K.KeyText t))
                            | t <- K.pageTags p ])
@@ -349,7 +381,10 @@ pageView loc ctx pageExists p doc backlinks = div_ [class_ "page-view"] $ do
         dd_ $ sequence_ $ intersperse " "
           [ link (Browse.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
           | k <- K.cmdKeys cmd ]
-  div_ [class_ "document", pageLang] $ writeHtml5 pageExists $ linksInContext ctx doc
+  div_ ([class_ "document", pageLang] ++
+        if canWrite then [ data_ "edit-url" (Url.editUrl $ K.pageUID p)
+                         , data_ "edit-title" (K.loc_EditBlock loc) ] else []) $
+    writeHtml5 pageExists $ linksInContext ctx doc
   unless (null backlinks) $
     fieldset_ [class_ "flex backlinks"] $ do
       legend_ $ toHtml $ K.loc_Backlinks loc
@@ -361,6 +396,32 @@ pageView loc ctx pageExists p doc backlinks = div_ [class_ "page-view"] $ do
     contextReq = Browse.sourcesReq $ K.contextSources ctx
     browseLink f k = Browse.browseUrl ctx $ Browse.addToReq contextReq (f, k)
 
+
+-- | The editor of a page (see 'renderEditor'): a form, turned into a
+-- markdown editor by app.js, with the texts of its buttons and messages.
+editorView :: K.Locales -> K.Page -> T.Text -> T.Text -> Int -> Html ()
+editorView loc p text hash line =
+  form_ ([ class_ "page-editor", method_ "post", action_ "/save-page"
+         , data_ "page-url" (Url.pageUrl p), data_ "line" (T.pack $ show line)
+         , data_ "error-session" (K.loc_ActionSession loc)
+         , data_ "error-forbidden" (K.loc_ActionForbidden loc)
+         , data_ "error-failed" (K.loc_ActionFailed loc)
+         , data_ "error-conflict" (K.loc_SaveConflict loc)
+         , data_ "error-invalid" (K.loc_SaveInvalid loc)
+         , data_ "warning-ignored" (K.loc_SaveIgnored loc) ] ++
+         [ data_ ("button-" <> name) label | (name, label) <- K.loc_EditorButtons loc ]) $ do
+    h1_ [class_ "page-title"] $ do
+      span_ [class_ "editing"] $ toHtml (K.loc_Editing loc) <> " : "
+      toHtml (K.pageTitle p)
+    input_ [type_ "hidden", name_ "source", value_ source]
+    input_ [type_ "hidden", name_ "id", value_ pId]
+    input_ [type_ "hidden", name_ "hash", value_ hash]
+    -- the browser drops a newline at the start of a textarea
+    textarea_ [name_ "text", class_ "editor-text", rows_ "30"] $ toHtml ("\n" <> text)
+    div_ [class_ "editor-actions"] $ do
+      button_ [type_ "submit", class_ "save"] $ toHtml $ K.loc_Save loc
+      a_ [href_ (Url.pageUrl p), class_ "cancel"] $ toHtml $ K.loc_Cancel loc
+  where (source, pId) = K.pageUID p
 
 browseView :: K.Locales -> K.Context -> BrowseToggles -> Maybe T.Text -> BrowseMenu ->
               BrowseFilters -> PagesListing -> [K.Page] -> Html ()

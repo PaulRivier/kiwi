@@ -7,6 +7,7 @@ module Kiwi.Meta
   ( emptyMeta
   , mergeMeta
   , clearMeta
+  , metaKeys
   , keepOnlyMeta
   , sourceMeta
   , adminKeys
@@ -27,7 +28,7 @@ import           Data.Char (isAlphaNum, isSpace)
 import qualified Data.List as L
 import qualified Data.Map.Strict as M
 import           Data.Ord (Down (..))
-import           Data.Maybe (fromMaybe, mapMaybe)
+import           Data.Maybe (fromMaybe, isJust, mapMaybe)
 import qualified Data.Text as T
 
 import           Kiwi.Tags (splitMeta, splitTags, tagToSegments)
@@ -73,6 +74,16 @@ mergeMeta a b =
 -- values
 clearMeta :: [T.Text] -> MetaData -> MetaData
 clearMeta keys = filterMeta (`notElem` keys)
+
+-- | Keys of the fields of the metadata, valid or not
+metaKeys :: MetaData -> [T.Text]
+metaKeys m = nodup $
+  [ k | (k, True) <- [ ("id", isJust $ metaId m), ("title", isJust $ metaTitle m)
+                     , ("tags", isJust $ metaTags m), ("access", isJust $ metaAccess m)
+                     , ("lang", isJust $ metaLang m), ("archive", isJust $ metaArchive m)
+                     , ("images-dir", isJust $ metaImagesDir m)
+                     , ("files-dir", isJust $ metaFilesDir m) ] ]
+  ++ map cmdName (metaCustom m) ++ M.keys (metaOther m)
 
 -- | The metadata with the fields of these keys only (see 'clearMeta')
 keepOnlyMeta :: [T.Text] -> MetaData -> MetaData

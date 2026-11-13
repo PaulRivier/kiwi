@@ -8,6 +8,7 @@ module Kiwi.Pandoc
   , embeddedDoc
   , pagePath
   , linksInContext
+  , textPageUID
   , Loaded (..)
   , loadPage         -- exported for tests
   ) where
@@ -19,6 +20,7 @@ import qualified Commonmark.Extensions as CmEx
 import qualified Commonmark.Pandoc as CmP
 
 import qualified Data.ByteString as BS
+import qualified Data.List as L
 import           Data.Functor.Identity (runIdentity)
 import           Data.Typeable (Typeable)
 import           Data.Maybe (fromMaybe)
@@ -182,6 +184,17 @@ embeddedDoc name withHeader c = do
   let title = metaTitle header
   (doc, _) <- loadDoc False name "" "" "" "" content
   return (title, doc)
+
+
+-- | Id of the page of a file of the content folder, from a text of the file:
+-- fails when the page can not be loaded (see 'loadPageIO')
+textPageUID :: FP.FilePath -> PagesDB -> FP.FilePath -> T.Text -> Either String PageUID
+textPageUID contentDir' db fullPath c = do
+  let (source, relPath) = pagePath contentDir' fullPath
+      scM = L.find ((== source) . scSourceName) (sourcesConfig db)
+  p <- loadPage fullPath c source (sourceMeta scM (defaultMeta db)) (customMetaConfig db)
+                (pageSubDir relPath)
+  return (source, fromMaybe (pathToPageId relPath) $ metaId $ pandocMeta p)
 
 
 -- | Source of a page file, and its path in the pages folder, without

@@ -38,6 +38,22 @@ loc_english = Locales
   , loc_Username = "Username"
   , loc_Password = "Password"
   , loc_EditPage = "Edit this page"
+  , loc_EditLocally = "Open this page in the editor"
+  , loc_EditBlock = "Edit from here"
+  , loc_Editing = "Editing"
+  , loc_Save = "Save"
+  , loc_Cancel = "Cancel"
+  , loc_SaveConflict = "The page has changed since it was opened: keep a copy of your text, and open the editor again."
+  , loc_SaveInvalid = "The page can not be saved:"
+  , loc_SaveIgnored = "You can not change these metadata, they are left as they were:"
+  , loc_EditorButtons =
+      [ ("bold", "Bold"), ("italic", "Italic"), ("strikethrough", "Strikethrough")
+      , ("heading", "Heading"), ("quote", "Quote"), ("code", "Code")
+      , ("unordered-list", "List"), ("ordered-list", "Numbered list")
+      , ("link", "Link"), ("image", "Image"), ("table", "Table")
+      , ("horizontal-rule", "Horizontal line"), ("preview", "Preview")
+      , ("side-by-side", "Side by side"), ("fullscreen", "Full screen")
+      , ("undo", "Undo"), ("redo", "Redo"), ("guide", "CommonMark syntax") ]
   , loc_CopyLink = "Copy a link to this page"
   , loc_Reload = "Reload pages"
   , loc_ActionSession = "Your session has expired: log in again."
@@ -82,6 +98,22 @@ loc_french = Locales
   , loc_Username = "Identifiant"
   , loc_Password = "Mot de passe"
   , loc_EditPage = "Modifier cette page"
+  , loc_EditLocally = "Ouvrir cette page dans l'éditeur"
+  , loc_EditBlock = "Modifier à partir d'ici"
+  , loc_Editing = "Modification"
+  , loc_Save = "Enregistrer"
+  , loc_Cancel = "Annuler"
+  , loc_SaveConflict = "La page a changé depuis son ouverture\x00A0: gardez une copie de votre texte, et ouvrez l'éditeur à nouveau."
+  , loc_SaveInvalid = "La page ne peut pas être enregistrée\x00A0:"
+  , loc_SaveIgnored = "Vous ne pouvez pas changer ces métadonnées, elles restent inchangées\x00A0:"
+  , loc_EditorButtons =
+      [ ("bold", "Gras"), ("italic", "Italique"), ("strikethrough", "Barré")
+      , ("heading", "Titre"), ("quote", "Citation"), ("code", "Code")
+      , ("unordered-list", "Liste"), ("ordered-list", "Liste numérotée")
+      , ("link", "Lien"), ("image", "Image"), ("table", "Tableau")
+      , ("horizontal-rule", "Ligne horizontale"), ("preview", "Aperçu")
+      , ("side-by-side", "Côte à côte"), ("fullscreen", "Plein écran")
+      , ("undo", "Annuler"), ("redo", "Rétablir"), ("guide", "Syntaxe CommonMark") ]
   , loc_CopyLink = "Copier un lien vers cette page"
   , loc_Reload = "Recharger les pages"
   , loc_ActionSession = "Votre session a expiré\x00A0: reconnectez-vous."

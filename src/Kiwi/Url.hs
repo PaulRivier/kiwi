@@ -2,6 +2,7 @@
 module Kiwi.Url
   ( pageUrl
   , pageUIDUrl
+  , editUrl
   , urlEncodeText
   , urlDecodeText
   , pageUIDLink
@@ -25,6 +26,10 @@ pageUrl = pageUIDUrl . pageUID
 -- | URL of a page, from its source and id, each one encoded
 pageUIDUrl :: PageUID -> T.Text
 pageUIDUrl (s, i) = T.concat ["/page/", urlEncodeText s, "/", urlEncodeText i]
+
+-- | URL of the editor of a page (see 'pageUIDUrl')
+editUrl :: PageUID -> T.Text
+editUrl (s, i) = T.concat ["/edit/", urlEncodeText s, "/", urlEncodeText i]
 
 -- | Query parameters of the navigation context: "source" for each source,
 -- as on the browse page, and "archive=yes" in the archives

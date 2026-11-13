@@ -43,7 +43,7 @@ viewSpec = do
   it "sets the lang of the page on its title and document" $ do
     let p = (page "Titre") { pageLang = French }
         html = TL.toStrict $ renderText $
-               V.pageView (Loc.locales UI_English) noContext (const True) p
+               V.pageView (Loc.locales UI_English) noContext (const True) p False
                           (PD.Pandoc mempty []) []
     html `shouldSatisfy` T.isInfixOf "<h1 class=\"page-title\" lang=\"fr\">Titre</h1>"
     html `shouldSatisfy` T.isInfixOf "<div class=\"document\" lang=\"fr\">"

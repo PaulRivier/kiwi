@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiWayIf #-}
+
 module Kiwi.Controller
   ( servePage
   , serveBrowseAll
@@ -7,6 +9,9 @@ module Kiwi.Controller
   , serveReadme
   , serveCommonMark
   , serveEditPage
+  , serveEditor
+  , serveSavePage
+  , servePreview
   , serveLogin
   , logUserIn
   , logUserOut
@@ -21,9 +26,9 @@ module Kiwi.Controller
   ) where
 
 import           Control.Concurrent (forkIO)
-import           Control.Concurrent.MVar (modifyMVar_, readMVar)
+import           Control.Concurrent.MVar (modifyMVar_, readMVar, withMVar)
 import           Control.Exception (IOException, SomeException, fromException, try)
-import           Control.Monad (forM_)
+import           Control.Monad (forM_, unless)
 import           Control.Monad.Reader
 import           Crypto.Hash (SHA1, hashlazy)
 import qualified Data.ByteString as BS
@@ -48,14 +53,18 @@ import qualified Text.Pandoc.Definition as PD
 import qualified Network.Wai as Wai
 import           Web.Scotty.Trans (ScottyException (..), formParam, queryParams, redirect,
                                    request, setHeader, status, html)
+import qualified Web.Scotty.Trans as Scotty
 
 import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
 import qualified Kiwi.DefaultPages as DP
-import           Kiwi.Pandoc (pageDoc, embeddedDoc)
+import qualified Kiwi.Edit as Edit
+import           Kiwi.Meta (splitPage)
+import           Kiwi.Pandoc (pageDoc, embeddedDoc, textPageUID)
 import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, stripAccents,
                               excerpt)
 import           Kiwi.PagesDB (brokenLinks)
+import qualified Kiwi.PagesDB as DB
 import qualified Kiwi.Types as K
 import qualified Kiwi.View as V
 import qualified Kiwi.Auth as Auth
@@ -74,10 +83,12 @@ servePage pgId = do
       cd <- asksK K.contentDir
       -- the page was parsed when loaded, so this should not fail
       doc <- orRenderError (K.pageAbsoluteFSPath p) $ pageDoc cd p
+      level <- accessLevel p
       let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
           -- links to the pages the user can not read are shown as broken
           pageExists = isJust . findPage db
-      r <- V.renderPage pageExists p doc backLinkPages
+      r <- V.renderPage pageExists p (maybe False (>= K.AccessWrite) level) doc
+                        backLinkPages
       htmlETag db r
     Nothing -> serveNotFound
 
@@ -396,6 +407,142 @@ serveEditPage (cmd, args) pgId = do
       html "ok"
       
 
+-- | Right of the user of the request on the page, if any
+accessLevel :: K.Page -> ActM (Maybe K.AccessLevel)
+accessLevel p = (`Auth.pageAccessLevel` p) <$> asksK (K.login . K.requestState)
+
+-- | Runs the action on the page and the right of the user, when the user can
+-- edit it (write right). A page that the user can not read is not found,
+-- as on its view (the archive mode does not matter).
+withEditablePage :: K.PageUID -> (K.Page -> K.AccessLevel -> ActM ()) -> ActM ()
+withEditablePage uid run = do
+  db <- getDB
+  case findPage db uid of
+    Nothing -> serveNotFound
+    Just p -> do
+      levelM <- accessLevel p
+      case levelM of
+        Nothing -> serveNotFound
+        Just level | level >= K.AccessWrite -> run p level
+                   | otherwise -> serveForbidden
+
+-- | Text and bytes of a page file
+readPageFile :: FP.FilePath -> IO (Either String (BS.ByteString, T.Text))
+readPageFile path = do
+  r <- try $ BS.readFile path
+  return $ case r of
+    Left e -> Left $ "unable to read " ++ path ++ ": " ++ show (e :: IOException)
+    Right bytes -> either (const $ Left $ path ++ " is not a valid UTF-8 file")
+                          (\t -> Right (bytes, t)) (TE.decodeUtf8' bytes)
+
+-- | Editor of a page, for a user with the write right, at the given line of
+-- its content, if any (see 'Kiwi.Edit.editorText'). The text is read from
+-- the file, with its hash, to detect a change of the file at its save.
+serveEditor :: K.PageUID -> Maybe Int -> ActM ()
+serveEditor uid lineM = withEditablePage uid $ \p level -> do
+  cmc <- K.customMetaConfig <$> getDB
+  fileE <- liftIO $ readPageFile (K.pageAbsoluteFSPath p)
+  case fileE >>= \(bytes, t) -> (,) (Edit.fileHash bytes) <$> Edit.editorText cmc level t of
+    Left e -> serveFailure $ T.pack e
+    Right (hash, (text, offset)) -> do
+      r <- V.renderEditor p text hash (maybe 1 (+ offset) lineM)
+      -- the text of the file is not kept by the browser
+      setHeader "Cache-Control" "no-store"
+      html r
+
+-- | Largest text of a page that can be saved or previewed, in characters
+maxPageLength :: Int
+maxPageLength = 1000000
+
+-- | Runs the action when the request comes from a page of kiwi (see
+-- 'sameOrigin') and its text is not too long, or answers 403 or 413
+withEditRequest :: T.Text -> ActM () -> ActM ()
+withEditRequest text run = do
+  same <- sameOrigin
+  if | not same -> do status Net.status403
+                      Scotty.text "forbidden origin"
+     | T.length text > maxPageLength -> do status Net.status413
+                                           Scotty.text "the page is too long"
+     | otherwise -> run
+
+-- | Whether the Origin header of the request, if any (browsers send it with
+-- their POST requests), has the host of the request, or the one forwarded by
+-- a reverse proxy
+sameOrigin :: ActM Bool
+sameOrigin = do
+  headers <- Wai.requestHeaders <$> request
+  let hosts = mapMaybe (`lookup` headers) ["Host", "X-Forwarded-Host"]
+  return $ case lookup "Origin" headers of
+    Nothing -> True
+    Just o  -> any (\h -> o `elem` ["http://" <> h, "https://" <> h]) hosts
+
+-- | Why a page could not be saved
+data SaveFailure = SaveConflict         -- ^ the file changed since its edition
+                 | SaveInvalid String   -- ^ the text can not be saved
+                 | SaveFailed String    -- ^ error of the server
+
+-- | Saves the text of a page sent by its editor (see 'Kiwi.Edit.editedText'),
+-- when its file has not changed since the edition (same hash), and when the
+-- page can be loaded, with an id that is not the one of another page. The
+-- pages are then reloaded. The check, the write and the reload hold the
+-- lock of the reloads. The answer is the URL of the page (its id may change),
+-- with the keys that the user can not change in the Kiwi-Ignored-Keys header,
+-- if any; 409 when the file changed, 400 when the text can not be saved.
+serveSavePage :: K.PageUID -> T.Text -> T.Text -> ActM ()
+serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest sent $ do
+  ss <- asksK id
+  user <- maybe "" K.loginUser <$> asksK (K.login . K.requestState)
+  let path = K.pageAbsoluteFSPath p
+  result <- liftIO $ withMVar (K.pagesDBLock ss) $ \_ -> do
+    db <- readIORef (K.pagesDB ss)
+    fileE <- readPageFile path
+    case fileE of
+      Left e -> return $ Left $ SaveFailed e
+      Right (bytes, fileText)
+        | Edit.fileHash bytes /= hash -> return $ Left SaveConflict
+        | otherwise -> case Edit.editedText (K.customMetaConfig db) level fileText sent of
+            Left e -> return $ Left $ SaveInvalid e
+            Right (text, ignored) -> case textPageUID (K.contentDir ss) db path text of
+              Left e -> return $ Left $ SaveInvalid e
+              Right newUid
+                | newUid /= uid && isJust (findPage db newUid) ->
+                    return $ Left $ SaveInvalid "the id is the one of another page"
+                | otherwise -> do
+                    w <- try $ Edit.writePageFile path text
+                    case w of
+                      Left e -> return $ Left $ SaveFailed $ show (e :: IOException)
+                      Right () -> do
+                        K.logger ss L.Info $ T.pack $ concat
+                          [ "page saved by ", T.unpack user, ": ", path ]
+                        DB.reloadPages ss
+                        return $ Right (newUid, ignored)
+  case result of
+    Right (newUid, ignored) -> do
+      unless (null ignored) $
+        setHeader "Kiwi-Ignored-Keys" $ TL.fromStrict $ T.intercalate ", " ignored
+      Scotty.text $ TL.fromStrict $ Url.pageUIDUrl newUid
+    Left SaveConflict -> do
+      status Net.status409
+      Scotty.text "the page has changed since its edition"
+    Left (SaveInvalid e) -> do
+      status Net.status400
+      Scotty.text $ TL.pack e
+    Left (SaveFailed e) -> serveFailure $ T.pack e
+
+-- | Preview of the content of a text sent by the editor of a page, as the
+-- content of the page (links relative to its folder): an HTML fragment, or
+-- 400 with the reason when the header of the text is invalid
+servePreview :: K.PageUID -> T.Text -> ActM ()
+servePreview uid sent = withEditablePage uid $ \p _ -> withEditRequest sent $ do
+  db <- getRestrictedDB
+  cd <- asksK K.contentDir
+  case splitPage (K.customMetaConfig db) sent >>= \(_, content) ->
+         pageDoc cd p { K.pageBody = content } of
+    Left e -> do
+      status Net.status400
+      Scotty.text $ TL.pack e
+    Right doc -> html $ V.renderPreview (isJust . findPage db) doc
+
 serveLogin :: ActM ()
 serveLogin = do
   r <- V.renderLoginForm False
@@ -472,12 +619,16 @@ serveError e = case fromException e of
   Just (QueryParameterNotFound k) -> missing k
   Just (FormFieldNotFound k) -> missing k
   Just (FailedToParseParameter k _ _) -> serveBadRequest $ "invalid value for " <> k
-  _ -> do
-    logMsg L.Error $ "request failed: " <> Auth.sanitizeLogText (T.pack $ show e)
-    r <- V.renderServerError
-    status Net.status500
-    html r
+  _ -> serveFailure $ T.pack $ show e
   where missing k = serveBadRequest $ "missing parameter: " <> k
+
+-- | An error of the server (500): it is logged, and not detailed on the page
+serveFailure :: T.Text -> ActM ()
+serveFailure e = do
+  logMsg L.Error $ "request failed: " <> Auth.sanitizeLogText e
+  r <- V.renderServerError
+  status Net.status500
+  html r
 
 
 -- | 403 for a logged in user without the right, 401 for an anonymous one,

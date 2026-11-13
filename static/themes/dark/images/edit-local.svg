@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <title>open in the editor</title>
+  <!-- a window, and an arrow leaving it -->
+  <path d="M 44,18 H 20 a 6,6 0 0 0 -6,6 v 56 a 6,6 0 0 0 6,6 h 56 a 6,6 0 0 0 6,-6 V 56"
+        style="fill:none;stroke:#ffffff;stroke-width:8;stroke-linecap:round;stroke-linejoin:round" />
+  <path d="M 46,54 84,16 M 60,14 h 26 v 26"
+        style="fill:none;stroke:#ffffff;stroke-width:8;stroke-linecap:round;stroke-linejoin:round" />
+</svg>

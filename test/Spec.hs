@@ -6,6 +6,7 @@ import           Kiwi.AuthSpec (passwordSpec, accountsSpec, sessionsSpec, readab
 import           Kiwi.BrowseSpec (browseReqSpec)
 import           Kiwi.ConfigFileSpec (configSpec)
 import           Kiwi.ControllerSpec (metaIndexSpec)
+import           Kiwi.EditSpec (editSpec)
 import           Kiwi.HtmlWriterSpec (htmlWriterSpec)
 import           Kiwi.LangDetectSpec (langDetectSpec)
 import           Kiwi.MetaSpec (metaSpec)
@@ -36,3 +37,4 @@ main = hspec $ do
   describe "Kiwi.PagesDB.updatePagesDB" pagesDBSpec
   describe "Kiwi.HtmlWriter" htmlWriterSpec
   describe "Kiwi.View and Kiwi.Server" viewSpec
+  describe "Kiwi.Edit and the page editor" editSpec

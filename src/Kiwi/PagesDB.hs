@@ -2,32 +2,64 @@
 
 module Kiwi.PagesDB
   ( updatePagesDB
+  , reloadPages
+  , pagesFSDir
+  , pagesCount
+  , warmUpSearchEngine
   , emptyPagesDB
   , brokenLinks
   ) where
 
-import           Control.Concurrent (getNumCapabilities)
+import           Control.Concurrent (forkIO, getNumCapabilities)
 import           Control.Concurrent.Async (mapConcurrently)
-import           Control.Exception (IOException, try)
-import           Control.Monad (forM_, unless, when)
+import           Control.Exception (IOException, evaluate, try)
+import           Control.Monad (forM_, unless, void, when)
+import           Data.IORef (atomicWriteIORef, readIORef)
 import           Data.List (find, partition, sortOn)
 import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe, isNothing)
 import           Data.SearchEngine (insertDocs, deleteDoc)
+import qualified Data.SearchEngine as SE
 import qualified Data.Set as S
 import qualified Data.Text as T
 -- import qualified Data.Time.Calendar as Cal
 -- import qualified Data.Time.Clock as C
 import qualified System.Directory as D
 import qualified System.FilePath as FP
+import           Text.Printf (printf)
 
 import qualified Kiwi.Log as L
 import           Kiwi.Search
 import           Kiwi.Types
 import           Kiwi.Pandoc (Loaded (..), loadPageIO, pagePath)
 import           Kiwi.Tags (tagSubSegments, segmentsToTag)
-import           Kiwi.Utils (traverseDir, nodup, isDotFile, isValidMdFilename)
+import           Kiwi.Utils (traverseDir, nodup, isDotFile, isValidMdFilename, timeIO)
 import qualified Utils.DocIndex as DI
+
+-- | Folder of the pages, in a source folder
+pagesFSDir :: FP.FilePath
+pagesFSDir = "pages"
+
+-- | Reloads the pages of the kiwi (see 'updatePagesDB'). The caller holds
+-- 'pagesDBLock', so that two reloads (or a reload and a page save) can not
+-- overwrite each other; readers are never blocked.
+reloadPages :: ServerState -> IO ()
+reloadPages ss = do
+  db' <- readIORef (pagesDB ss)
+  (db, t) <- timeIO $ updatePagesDB (logger ss) (contentDir ss) pagesFSDir db'
+  atomicWriteIORef (pagesDB ss) db
+  warmUpSearchEngine (searchEngine db)
+  logger ss L.Info $ T.pack $ concat [ "pages reloaded in ", printf "%.2f" t
+                                     , "s, ", pagesCount db, " pages" ]
+
+pagesCount :: PagesDB -> String
+pagesCount = show . M.size . DI.store . pagesIndex
+
+-- | Evaluate the search engine in a thread, so that the first search after
+-- a load does not wait for it
+warmUpSearchEngine :: PageSearchEngine -> IO ()
+warmUpSearchEngine se = void $ forkIO $ void $ evaluate $ SE.invariant se
+
 
 -- | Loads the files of the pages that are new or modified since they were
 -- loaded, and removes the pages of the files that are gone, or reloaded. A

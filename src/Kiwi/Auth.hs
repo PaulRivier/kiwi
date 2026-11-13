@@ -22,6 +22,7 @@ module Kiwi.Auth
   , verifyLogin          -- exported for tests
   , hashPassword
   , isAdmin
+  , pageAccessLevel
   , readableQuery
   , randomText
   , loadAccounts
@@ -305,6 +306,16 @@ loginIsAdmin :: Maybe Login -> Bool
 loginIsAdmin loginM = case loginM of
   Nothing -> False
   Just l -> elem "admin" (loginGroups l)
+
+-- | Right of the user on the page, if any: the highest one of their groups
+-- in the access of the page ("public" for everyone), every right for admins
+pageAccessLevel :: Maybe Login -> Page -> Maybe AccessLevel
+pageAccessLevel loginM p
+  | loginIsAdmin loginM = Just AccessAdmin
+  | otherwise = case [ l | (g, l) <- pageAccess p, g `elem` groups ] of
+      [] -> Nothing
+      ls -> Just (maximum ls)
+  where groups = "public" : maybe [] loginGroups loginM
 
 -- | The pages the user can read, archived or not: "public" ones for anonymous
 -- users, those of their groups too once logged in, all of them for admins

@@ -500,7 +500,20 @@ data Locales = Locales
   , loc_Logout :: T.Text
   , loc_Username :: T.Text
   , loc_Password :: T.Text
-  , loc_EditPage :: T.Text
+  , loc_EditPage :: T.Text      -- ^ in the browser
+  , loc_EditLocally :: T.Text   -- ^ with the editor of the config
+  , loc_EditBlock :: T.Text     -- ^ the pencil of a block of the page
+  , loc_Editing :: T.Text       -- ^ before the title of the page, in the editor
+  , loc_Save :: T.Text
+  , loc_Cancel :: T.Text
+  -- | save failures: the page changed meanwhile, the text can not be saved
+  -- (followed by the reason), metadata that the user can not change (followed
+  -- by their keys)
+  , loc_SaveConflict :: T.Text
+  , loc_SaveInvalid :: T.Text
+  , loc_SaveIgnored :: T.Text
+  -- | titles of the buttons of the editor toolbar, by name
+  , loc_EditorButtons :: [(T.Text, T.Text)]
   , loc_CopyLink :: T.Text
   , loc_Reload :: T.Text
   -- | alerts of the admin actions (app.js): session expired (401), no right
