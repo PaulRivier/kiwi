@@ -25,6 +25,7 @@ extra-source-files:
     static/themes/**/*.js
     static/themes/**/*.svg
     static/themes/**/*.ico
+    static/themes/**/*.txt
 
 source-repository head
   type: git

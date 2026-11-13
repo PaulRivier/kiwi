@@ -1074,3 +1074,159 @@ dialog.lightbox img {
   max-width: 95vw;
   max-height: 95vh;
 }
+
+
+/* Edition of a page (app.js) */
+
+/* pencil in the right margin of the block under the mouse: opens the editor
+   at its line */
+.document[data-edit-url] {
+  position: relative;
+}
+
+.document a.edit-block {
+  position: absolute;
+  left: calc(100% + 6px);
+  margin-top: 0.3em;
+}
+
+.document a.edit-block img {
+  width: 16px;
+  height: 16px;
+  opacity: 0.3;
+}
+
+.document a.edit-block:hover img {
+  opacity: 1;
+}
+
+/* no room in the margin, and no mouse on touch screens */
+@media (max-width: 860px), (hover: none) {
+  .document a.edit-block {
+    display: none;
+  }
+}
+
+form.page-editor .page-title .editing {
+  color: rgba(var(--kiwi-text), 0.5);
+}
+
+/* the text, before the editor replaces it, or without script */
+form.page-editor textarea.editor-text {
+  width: 100%;
+  background-color: rgb(var(--kiwi-bg));
+  color: rgb(var(--kiwi-text));
+  font: 0.95em ui-monospace, monospace;
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 12px 0 24px;
+}
+
+.editor-actions a.cancel {
+  color: rgba(var(--kiwi-text), 0.7);
+}
+
+.editor-actions a.cancel:hover {
+  color: rgb(var(--kiwi-text));
+}
+
+.editor-actions button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+/* the markdown editor (EasyMDE), in the colors of the theme */
+.EasyMDEContainer .CodeMirror {
+  background-color: rgba(var(--kiwi-text), 0.03);
+  color: rgb(var(--kiwi-text));
+  border-color: rgba(var(--kiwi-text), 0.3);
+  font: 0.95em ui-monospace, monospace;
+}
+
+.EasyMDEContainer .CodeMirror-cursor {
+  border-left-color: rgb(var(--kiwi-text));
+}
+
+.EasyMDEContainer .CodeMirror-selected,
+.EasyMDEContainer .CodeMirror-focused .CodeMirror-selected,
+.EasyMDEContainer .CodeMirror-line::selection,
+.EasyMDEContainer .CodeMirror-line > span::selection,
+.EasyMDEContainer .CodeMirror-line > span > span::selection {
+  background: rgba(var(--kiwi-primary), 0.45);
+}
+
+.EasyMDEContainer .cm-s-easymde .cm-link,
+.EasyMDEContainer .cm-s-easymde .cm-url {
+  color: rgb(var(--kiwi-page-link));
+}
+
+.EasyMDEContainer .cm-s-easymde .cm-comment {
+  background: rgba(var(--kiwi-text), 0.08);
+  color: rgb(var(--kiwi-code));
+}
+
+.EasyMDEContainer .cm-s-easymde .cm-header-1 { font-size: 1.5em; }
+.EasyMDEContainer .cm-s-easymde .cm-header-2 { font-size: 1.3em; }
+.EasyMDEContainer .cm-s-easymde .cm-header-3 { font-size: 1.15em; }
+.EasyMDEContainer .cm-s-easymde :is(.cm-header-4, .cm-header-5, .cm-header-6) {
+  font-size: 1em;
+}
+
+.EasyMDEContainer .cm-s-easymde .cm-quote {
+  color: rgba(var(--kiwi-text), 0.75);
+}
+
+.EasyMDEContainer .CodeMirror-fullscreen,
+.editor-toolbar.fullscreen {
+  background: rgb(var(--kiwi-bg));
+}
+
+.editor-toolbar.fullscreen::before,
+.editor-toolbar.fullscreen::after {
+  background: none;
+}
+
+.editor-toolbar {
+  border-color: rgba(var(--kiwi-text), 0.3);
+}
+
+.editor-toolbar button {
+  color: rgba(var(--kiwi-text), 0.8);
+}
+
+.editor-toolbar button.active,
+.editor-toolbar button:hover {
+  background: rgba(var(--kiwi-text), 0.1);
+  border-color: rgba(var(--kiwi-text), 0.3);
+}
+
+.editor-toolbar button.italic {
+  font-style: italic;
+}
+
+.editor-toolbar button.strikethrough {
+  text-decoration: line-through !important;
+}
+
+.editor-toolbar i.separator {
+  border-left-color: rgba(var(--kiwi-text), 0.3);
+  border-right: none;
+}
+
+.editor-statusbar {
+  color: rgba(var(--kiwi-text), 0.5);
+}
+
+.editor-preview,
+.editor-preview-side {
+  background: rgb(var(--kiwi-bg));
+  border-color: rgba(var(--kiwi-text), 0.3);
+}
+
+.editor-preview pre {
+  background: none;
+}

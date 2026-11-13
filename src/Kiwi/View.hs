@@ -235,11 +235,12 @@ layout ctx title actions tocDoc content = do
       meta_ [name_ "description", content_ "Kiwi is a powerful personal wiki system"]
       title_ $ toHtml title
       link_ [rel_ "icon", href_ "/static/favicon.ico"]
-      link_ [rel_ "stylesheet", href_ "/static/css/app.css"]
-      -- the markdown editor (EasyMDE) runs before app.js, which uses it
+      -- the markdown editor (EasyMDE) runs before app.js, which uses it; its
+      -- styles come first, the theme overrides them
       when (ctxEditor ctx) $ do
         link_ [rel_ "stylesheet", href_ "/static/vendor/easymde.min.css"]
         script_ [src_ "/static/vendor/easymde.min.js", defer_ ""] T.empty
+      link_ [rel_ "stylesheet", href_ "/static/css/app.css"]
       script_ [type_ "module", src_ "/static/js/app.js"] T.empty
     body_ $ do
       loginBox ctx
