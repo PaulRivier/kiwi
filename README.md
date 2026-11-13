@@ -140,9 +140,10 @@ read at startup: restart Kiwi after changing it.
 
 `ui-lang` (english or french) only sets the language of the web
 interface, see [Full-text search](#full-text-search) for the language
-of the pages. Without `editor`, pages can not be opened in an editor
-from the web interface (see [Edit file from
-browser](#edit-file-from-browser)).
+of the pages. Without `editor`, pages can not be opened in your local
+editor from the web interface (see [Edit file with your local
+editor](#edit-file-with-your-local-editor)); the editor of the browser
+does not need it.
 
 `bind` is the address Kiwi listens on. With `bind: 127.0.0.1` (the value
 of a new *kiwi.ini*), only the computer running Kiwi can reach it: use it
@@ -538,9 +539,38 @@ searches the words *chocolate* and *banana*. Case and accents don't
 matter.
 
 
-# Edit file from browser
+# Edit pages in the browser
 
-If you have set your editor in kiwi.ini, you can click on the pen
+The users with the write right on a page (see [Accounts and
+access](#accounts-and-access)) see a pen in the navigation bar: it
+opens the page in a markdown editor, with a toolbar, a preview and a
+side by side view. On a computer, a small pen also appears in the right
+margin of the block under the mouse: it opens the editor at the line of
+this block.
+
+The editor shows the whole file, its metadata header included, written
+in a normalized form: one line by key, in a fixed order (title, id,
+tags, access, lang, archive, images-dir, files-dir, the custom
+metadata, then the other keys), the tags sorted. With the write right,
+the *access*, *id*, *archive*, *images-dir* and *files-dir* metadata
+are not shown, and are kept as they are in the file when the page is
+saved; with the admin right, everything can be changed.
+
+When the page is saved, Kiwi writes the file (atomically, with its
+former permissions), and reloads the pages. The save is refused when
+the file has changed since the editor was opened (by another editor or
+another user): keep a copy of your text, and open the editor again. It
+is also refused when the page could not be loaded (an invalid header),
+or when its new id is the one of another page. Until it is saved, the
+text is kept as a draft in your browser, for this version of the file.
+
+The save and preview requests from the pages of another site are
+refused: behind a reverse proxy, keep the `Host` header of the requests
+(or set `X-Forwarded-Host`).
+
+# Edit file with your local editor
+
+If you have set your editor in kiwi.ini, you can click on the open
 picture to open your document in your editor. This button is only shown
 to admins, and only when `editor` is set.
 
@@ -555,8 +585,9 @@ the file is saved to see the changes.
 
 Clicking on the chain link will copy a link to current page to your
 clipboard, so that it is easier for you to link between your
-documents. This button is only shown to admins, and the browser only
-allows it over HTTPS or on localhost.
+documents. This button is only shown to admins and to the users with the
+write right on the page, and the browser only allows it over HTTPS or on
+localhost.
 
 # Accounts and access
 
