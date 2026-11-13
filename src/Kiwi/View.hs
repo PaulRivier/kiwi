@@ -336,20 +336,19 @@ pageView loc ctx pageExists p doc backlinks = div_ [class_ "page-view"] $ do
     (linksList "tags-list" [ (prettyTag t, browseLink K.FieldTag (K.KeyText t))
                            | t <- K.pageTags p ])
     (K.contextArchive ctx)
-  -- the name of a field is a link to the pages having it
+  h1_ [class_ "page-title", pageLang] $ toHtml $ K.pageTitle p
+  -- custom metadata as a two-column table: the names of the fields (links to
+  -- the pages having them), then their values
   unless (null $ K.pageCustomMeta p) $
-    fieldset_ [class_ "flex page-meta"] $ do
-      legend_ $ toHtml $ K.loc_Metadata loc
-      ul_ [class_ "custom-meta-list"] $ forM_ (K.pageCustomMeta p) $ \cmd -> li_ $ do
-        a_ [ class_ "field", title_ (K.loc_PagesWithField loc)
-           , href_ $ Browse.browseUrl ctx $ Browse.addFieldToReq contextReq
-                                              (K.FieldCustom $ K.cmdName cmd) ] $
+    fieldset_ [class_ "flex page-meta"] $
+      dl_ [class_ "page-meta-list"] $ forM_ (K.pageCustomMeta p) $ \cmd -> do
+        dt_ $ a_ [ class_ "field", title_ (K.loc_PagesWithField loc)
+                 , href_ $ Browse.browseUrl ctx $ Browse.addFieldToReq contextReq
+                                                    (K.FieldCustom $ K.cmdName cmd) ] $
           toHtml $ K.cmdName cmd
-        " – "
-        sequence_ $ intersperse " "
+        dd_ $ sequence_ $ intersperse " "
           [ link (Browse.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
           | k <- K.cmdKeys cmd ]
-  h1_ [class_ "page-title", pageLang] $ toHtml $ K.pageTitle p
   div_ [class_ "document", pageLang] $ writeHtml5 pageExists $ linksInContext ctx doc
   unless (null backlinks) $
     fieldset_ [class_ "flex backlinks"] $ do

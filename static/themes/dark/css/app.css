@@ -583,53 +583,55 @@ a.archive-switch.active:hover,
   margin: 0;
 }
 
-.page-view ul.custom-meta-list {
-  margin: 0 0 0.4em 0;
-  padding: 0;
-  list-style: none;
+/* custom metadata, below the title: a frame holding a two-column table,
+   the names of the fields (links to the pages having them) on the left, their
+   values on the right, both aligned to the left */
+.page-view fieldset.page-meta {
+  margin: 0 0 20px 0;
+  padding: 0.4em 12px;
 }
 
-.page-view ul.custom-meta-list li {
-  margin-top: 0.1em;
-  color: rgba(var(--kiwi-text), 0.7);
+.page-view dl.page-meta-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25em 1.5em;
+  margin: 0;
 }
 
-.page-view ul.custom-meta-list li a {
-  margin: 0 0.2em;
-  padding: 0 0.2em;
-  color: rgba(var(--kiwi-text), 0.5);
+.page-view dl.page-meta-list dt,
+.page-view dl.page-meta-list dd {
+  margin: 0;
+}
+
+.page-view dl.page-meta-list a {
+  color: rgba(var(--kiwi-text), 0.55);
   text-decoration: none;
 }
 
-.page-view ul.custom-meta-list li a:hover {
+.page-view dl.page-meta-list dd a {
+  margin-right: 0.8em;
+}
+
+.page-view dl.page-meta-list a:hover {
   color: rgb(var(--kiwi-text));
 }
 
-/* the name of a field: a link to the pages having it */
-.page-view ul.custom-meta-list li a.field {
-  margin: 0;
-  padding: 0;
-  color: rgba(var(--kiwi-text), 0.7);
+.page-view dl.page-meta-list a.field {
+  color: rgba(var(--kiwi-text), 0.8);
 }
 
-.page-view ul.custom-meta-list li a.field:hover {
-  color: rgb(var(--kiwi-text));
+.page-view dl.page-meta-list a.field:hover {
   text-decoration: underline dotted;
 }
 
-/* custom metadata (before the title) and backlinks (after the document),
-   each one in a frame with a legend */
-.page-view fieldset.page-meta {
-  margin: 0 0 12px 0;
+/* the title close to the metadata that follow it */
+.page-view h1.page-title:has(+ fieldset.page-meta) {
+  margin-bottom: 0.5em;
 }
 
-.page-view fieldset.page-meta legend,
+/* backlinks, after the document, in a frame with a legend */
 .page-view fieldset.backlinks legend {
   color: rgba(var(--kiwi-text), 0.6);
-}
-
-.page-view fieldset.page-meta ul.custom-meta-list {
-  margin: 0.2em 0 0.5em 0;
 }
 
 .page-view fieldset.backlinks {
