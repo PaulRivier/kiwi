@@ -18,6 +18,8 @@ module Kiwi.Types
   , PagesDB(..)
   , MetaField(..)
   , MetaData(..)
+  , AccessLevel(..)
+  , Access
   , Page(..)
   , PageUID
   , TagId
@@ -194,7 +196,7 @@ data MetaData =
   MetaData { metaId :: Maybe T.Text
            , metaTitle :: Maybe T.Text
            , metaTags  :: Maybe [TagId]
-           , metaAccess :: Maybe [T.Text]
+           , metaAccess :: Maybe Access
            , metaLang  :: Maybe LangSetting
            , metaArchive :: Maybe Bool
            , metaImagesDir :: Maybe T.Text  -- ^ folder of the "image:" links
@@ -205,6 +207,15 @@ data MetaData =
            , metaOther :: M.Map T.Text [T.Text]
            }
   deriving (Eq, Show)
+
+
+-- | Right of a group on a page: read, write (content and metadata, except
+-- those of 'Kiwi.Meta.adminKeys'), admin (everything)
+data AccessLevel = AccessRead | AccessWrite | AccessAdmin
+  deriving (Eq, Ord, Show, Enum, Bounded)
+
+-- | Groups that can read a page, with their right (see 'Kiwi.Meta.parseAccess')
+type Access = [(T.Text, AccessLevel)]
 
 
 -- | The document is not kept, it is parsed again from the content to be
@@ -221,7 +232,7 @@ data Page =
        , pageTitle :: !T.Text
        , pageTags :: ![TagId]
        , pageLang :: !Lang
-       , pageAccess :: ![T.Text]
+       , pageAccess :: !Access
        , pageLinks :: ![PageUID]
        , pageArchive :: !Bool  -- ^ only in the archives navigation
        , pageCustomMeta :: ![CustomMetaData]
@@ -264,7 +275,7 @@ data CustomMetaConfig =
 data SourceConfig = 
   SourceConfig { scSourceName :: T.Text
                , scRootTag :: TagSegments
-               , scAccess :: Maybe [T.Text]  -- ^ default access of the pages
+               , scAccess :: Maybe Access  -- ^ default access of the pages
                , scLang :: Maybe LangSetting  -- ^ default lang of the pages
                }
 

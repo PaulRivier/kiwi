@@ -173,7 +173,7 @@ folder in *content* :
   this tag, *flower* becomes *botanic > flower*. This keeps the tags
   of a very specific source out of your way when browsing.
 * **access** : default access of the pages of this source, comma
-  separated groups. It replaces the access of the `[metadata-default]`
+  separated groups, with their rights (`family:w`). It replaces the access of the `[metadata-default]`
   section for these pages, and a page with its own *access* header
   keeps it.
 * **lang** : default language of the pages of this source, also used
@@ -278,7 +278,9 @@ Some metadata keys are reserved by kiwi :
 * **tags** : powerful tags, see below (optional)
 * **lang** : language of the content, for full-text search and for the
   `lang` attribute of the page in HTML (optional)
-* **access** : access restriction, comma separated allowed groups (optional)
+* **access** : access restriction, comma separated allowed groups,
+  with their rights, see [Accounts and access](#accounts-and-access)
+  (optional)
 * **archive** : `yes` to archive the page, see below (optional)
 * **images-dir** : if you want to include many images in your document
   from one of your images subfolder, set it here, and Kiwi will look
@@ -298,8 +300,9 @@ overridden by page headers. These fields are :
 
 When pages are loaded, Kiwi logs a warning for the unknown metadata
 keys (a typo, or custom metadata not declared in *kiwi.ini*), and for
-the invalid values (`archive: maybe`, an unknown `lang`, a custom
-metadata value not matching its type), which are ignored.
+the invalid values (`archive: maybe`, an unknown `lang`, an invalid
+*access* group, a custom metadata value not matching its type), which
+are ignored.
 
 
 **Links format :**
@@ -586,6 +589,22 @@ Each page is readable by the groups of its *access* metadata. The
 `admin` group read all the pages. The default access of the pages is
 set in the `[metadata-default]` section, or in the settings of their
 source; without it, it is `admin`.
+
+A group can also get a right on the page, after a colon :
+
+    access: me:a, family:w, friends, public
+
+* **r** (the default, `friends` is `friends:r`) : read the page ;
+* **w** (or **rw**) : read and edit the page in the browser, its
+  content and its metadata, except *access*, *id*, *archive*,
+  *images-dir* and *files-dir* ;
+* **a** : read and edit everything in the page, these metadata included.
+
+`public` can only read. A group given several times gets its highest
+right. An invalid item (`family:x`, `public:w`) gives no right at all,
+not even to read, and is logged as an invalid value when the pages are
+loaded; in *kiwi.ini*, it is an error. Members of the `admin` group have every
+right on every page.
 
 # Content versioning and backup
 

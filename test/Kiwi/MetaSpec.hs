@@ -25,7 +25,7 @@ metaSpec = do
     normalize "---\nzz: 2\nauthors: Jack\\, Jr, John\nlang: french\ntags: b\naa: 1\n\
               \title: My: title\naccess: friends, family\nid: x\ntags: a\n\
               \files-dir: f\nimages-dir: i\narchive: 1\ndate: 2020-1-5\n..."
-      `shouldBe` "title: My: title\nid: x\ntags: a, b\naccess: friends, family\n\
+      `shouldBe` "title: My: title\nid: x\ntags: a, b\naccess: family, friends\n\
                  \lang: french\narchive: yes\nimages-dir: i\nfiles-dir: f\n\
                  \date: 2020-01-05\nauthors: Jack\\, Jr, John\naa: 1\nzz: 2\n"
 
@@ -83,3 +83,19 @@ metaSpec = do
   it "reads custom dates written with or without leading zeros" $
     map cmdKeys (metaCustom $ parse "date: 2020-01-05, 2020-1-5")
       `shouldBe` [replicate 2 (KeyDay $ Time.fromGregorian 2020 1 5)]
+
+  it "reads the rights of the access groups" $ do
+    parseAccess "family:w, friends, me : A, both:rw, both:r, x:, y:z, public:w, :w"
+      `shouldBe` ( [ ("both", AccessWrite), ("family", AccessWrite), ("friends", AccessRead)
+                   , ("me", AccessAdmin) ]
+                 , ["x:", "y:z", "public:w", ":w"] )
+    parseAccess "public, public:r" `shouldBe` ([("public", AccessRead)], [])
+
+  it "writes the access by right, keeping the invalid groups" $ do
+    normalize "access: friends, me:a, family:rw, public, zz:x"
+      `shouldBe` "access: me:a, family:w, friends, public, zz:x\n"
+    -- the invalid groups are ignored: without valid one, no one can read
+    metaAccess (parse "access: x:z") `shouldBe` Just []
+    normalize "access: x:z" `shouldBe` "access: x:z\n"
+    invalidMetaValues cfg (parse "access: a, x:z, public:a")
+      `shouldBe` [("access", "x:z"), ("access", "public:a")]

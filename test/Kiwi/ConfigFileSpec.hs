@@ -43,7 +43,7 @@ configSpec = do
     fmap Conf.uiLang c `shouldBe` Right UI_English
     fmap Conf.toc c `shouldBe` Right TocOn
     fmap Conf.editor c `shouldBe` Right Nothing
-    fmap (metaAccess . Conf.defaultMeta) c `shouldBe` Right (Just ["admin"])
+    fmap (metaAccess . Conf.defaultMeta) c `shouldBe` Right (Just [("admin", AccessRead)])
 
   it "reads ui-lang, toc, editor and the custom metadata types" $ do
     let c = Conf.parseConfig $ ini [ "ui-lang: french", "toc: off"
@@ -67,7 +67,7 @@ configSpec = do
     let c = Conf.parseConfig $ TE.decodeUtf8 Conf.defaultConfigFileContent
     fmap Conf.editor c `shouldBe` Right Nothing
     fmap Conf.uiLang c `shouldBe` Right UI_English
-    fmap (metaAccess . Conf.defaultMeta) c `shouldBe` Right (Just ["admin"])
+    fmap (metaAccess . Conf.defaultMeta) c `shouldBe` Right (Just [("admin", AccessRead)])
     fmap Conf.bind c `shouldBe` Right (Just "127.0.0.1")
 
   it "reads the address to listen on, all of them without it" $ do

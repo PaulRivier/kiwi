@@ -192,7 +192,7 @@ emptyPagesDB md cmc sc =
 pageExtractKeys :: [CustomMetaConfig] -> [DI.Field Page MetaField DocIndexKey]
 pageExtractKeys cmc = [ mkField FieldSource KeyText ((:[]) . fst . pageUID)
                       , mkField FieldTag KeyText extractTags
-                      , mkField FieldAccess KeyText pageAccess
+                      , mkField FieldAccess KeyText (map fst . pageAccess)
                       , mkField FieldLink KeyPairText pageLinks
                       , mkField FieldLang KeyLang ((:[]) . pageLang)
                       , mkField FieldArchive KeyBool ((:[]) . pageArchive)

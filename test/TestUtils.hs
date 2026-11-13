@@ -24,7 +24,7 @@ import qualified Utils.DocIndex as DI
 defMeta :: MetaData
 defMeta = emptyMeta { metaTitle = Just "untitled"
                     , metaTags = Just ["untagged"]
-                    , metaAccess = Just ["private"]
+                    , metaAccess = Just [("private", AccessRead)]
                     , metaLang = Just $ LangFixed English
                     }
 
@@ -42,7 +42,7 @@ mkPage uid tags access archive day =
        , pageTitle = snd uid
        , pageTags = tags
        , pageLang = English
-       , pageAccess = access
+       , pageAccess = map (, AccessRead) access
        , pageLinks = []
        , pageArchive = archive
        , pageCustomMeta = []

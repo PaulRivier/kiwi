@@ -52,7 +52,7 @@ loadPageSpec = do
         m = pandocMeta p
     metaTitle m `shouldBe` Just "My title"
     metaTags m `shouldBe` Just ["a", "b > c"]
-    metaAccess m `shouldBe` Just ["public"]
+    metaAccess m `shouldBe` Just [("public", AccessRead)]
     metaLang m `shouldBe` Just (LangFixed French)
     blocks p `shouldBe` [PD.Para [PD.Str "Hello"]]
 
@@ -66,7 +66,7 @@ loadPageSpec = do
     let m = pandocMeta $ load "foo: bar\n\nHello"
     metaTitle m `shouldBe` Just "untitled"
     metaTags m `shouldBe` Just ["untagged"]
-    metaAccess m `shouldBe` Just ["private"]
+    metaAccess m `shouldBe` Just [("private", AccessRead)]
     metaLang m `shouldBe` Just (LangFixed English)
     metaId m `shouldBe` Nothing
 
@@ -245,15 +245,16 @@ metaDataSpec = do
                         , "[source b]", "access: ,", "[source c]", "root-tag: x > y" ]
         access = map (\sc -> (scSourceName sc, scAccess sc)) . Conf.sourcesConfig
     fmap access (Conf.parseConfig ini) `shouldBe`
-      Right [ ("a", Just ["family", "friends"]), ("b", Nothing), ("c", Nothing) ]
+      Right [ ("a", Just [("family", AccessRead), ("friends", AccessRead)])
+            , ("b", Nothing), ("c", Nothing) ]
     fmap (map scRootTag . Conf.sourcesConfig) (Conf.parseConfig ini) `shouldBe`
       Right [[], [], ["x", "y"]]
 
   it "uses the access of the source config, unless the page has one" $ do
-    let sc = SourceConfig "src" [] (Just ["family"]) Nothing
+    let sc = SourceConfig "src" [] (Just [("family", AccessWrite)]) Nothing
         access sM c = case loadPage "test.md" c "src" (sourceMeta sM defMeta) [] "" of
           Left e -> error e
-          Right p -> metaAccess $ pandocMeta p
+          Right p -> map fst <$> metaAccess (pandocMeta p)
     access (Just sc) "title: t\n\n" `shouldBe` Just ["family"]
     access (Just sc) "title: t\naccess: public\n\n" `shouldBe` Just ["public"]
     access (Just sc { scAccess = Nothing }) "title: t\n\n" `shouldBe` Just ["private"]

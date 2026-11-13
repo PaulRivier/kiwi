@@ -40,11 +40,11 @@ configParser = do
   meta <- section "metadata-default" $ do
     defTitle <- fieldDefOf "title" string "untitled"
     defTags  <- fieldDefOf "tags" string "untagged"
-    defAccess <- fieldDefOf "access" string "admin"
+    defAccess <- fieldDefOf "access" accessList [("admin", K.AccessRead)]
     defLang  <- fieldDefOf "lang" U.parseLangSetting K.defaultLangSetting
     return Meta.emptyMeta { K.metaTitle = Just $ T.strip defTitle
                           , K.metaTags = Just $ Tags.splitTags defTags
-                          , K.metaAccess = Just $ Tags.splitMeta defAccess
+                          , K.metaAccess = Just defAccess
                           , K.metaLang = Just defLang
                           }
   customMeta' <- sectionsOf (T.stripPrefix "metadata ") customMetaParser
@@ -88,17 +88,22 @@ customMetaParser name' = do
 sourceConfigParser :: T.Text -> SectionParser K.SourceConfig
 sourceConfigParser source = do
   rt <- fieldDefOf "root-tag" string ""
-  access <- fieldDefOf "access" string ""
+  access <- fieldDefOf "access" accessList []
   lang <- fieldMbOf "lang" U.parseLangSetting
   return K.SourceConfig { K.scSourceName = source
                         , K.scRootTag = Tags.tagToSegments $ T.pack rt
                         -- without any group, the global default is used
-                        , K.scAccess = case Tags.splitMeta (T.pack access) of
-                            [] -> Nothing
-                            groups -> Just groups
+                        , K.scAccess = if null access then Nothing else Just access
                         , K.scLang = lang
                         }
 
+
+-- | An access list (see 'Meta.parseAccess'), refused with an invalid item
+accessList :: T.Text -> Either String K.Access
+accessList t = case Meta.parseAccess t of
+  (access, []) -> Right access
+  (_, invalid) -> Left $ "invalid access: " ++ T.unpack (T.intercalate ", " invalid)
+                  ++ " (expected GROUP, GROUP:w or GROUP:a; public can only read)"
 
 trim :: String -> String
 trim = T.unpack . T.strip . T.pack

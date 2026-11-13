@@ -29,7 +29,9 @@ secure-cookie: no
 title: untitled
 tags: untagged
 # access : built-in special groups are 'admin' and 'public'
-# You can use any groups you want here, comma-separated
+# You can use any groups you want here, comma-separated, each with its right
+# on the pages: read (family or family:r), write (family:w) or admin
+# (family:a); 'public' can only read
 access: admin
 # lang of the pages, for fulltext search. Use auto/english to detect it from
 # the content (french, english, spanish), with english when detection fails.

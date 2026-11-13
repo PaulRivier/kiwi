@@ -9,6 +9,8 @@ module Kiwi.Meta
   , clearMeta
   , keepOnlyMeta
   , sourceMeta
+  , adminKeys
+  , parseAccess
   , splitPage
   , normalizeNewlines
   , parseHeader
@@ -22,7 +24,9 @@ module Kiwi.Meta
 import           Control.Applicative ((<|>))
 import           Control.Monad (mfilter)
 import           Data.Char (isAlphaNum, isSpace)
+import qualified Data.List as L
 import qualified Data.Map.Strict as M
+import           Data.Ord (Down (..))
 import           Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Text as T
 
@@ -98,6 +102,33 @@ sourceMeta scM md = mergeMeta md emptyMeta { metaAccess = scM >>= scAccess
                                            , metaLang = scM >>= scLang }
 
 
+-- | Keys of the header that only the users with the admin right on a page
+-- can change: those with the write right can not.
+adminKeys :: [T.Text]
+adminKeys = ["access", "id", "archive", "images-dir", "files-dir"]
+
+-- | Groups of an access list ("family:w, friends, me:a"), with their right,
+-- and the items that can not be read. The right of a group is read (r, the
+-- default), write (w, or rw) or admin (a); "public" can only read. A group
+-- given several times gets its highest right. Groups are sorted by name.
+parseAccess :: T.Text -> (Access, [T.Text])
+parseAccess t =
+  let items = [ (i, parseItem i) | i <- splitMeta t ]
+  in ( M.toList $ M.fromListWith max [ x | (_, Just x) <- items ]
+     , [ i | (i, Nothing) <- items ] )
+  where
+    parseItem i = do
+      let (g, l) = fromMaybe (i, "r") $ splitOnFirst ":" i
+          group = T.strip g
+      level <- case T.toLower (T.strip l) of
+        "r"  -> Just AccessRead
+        "w"  -> Just AccessWrite
+        "rw" -> Just AccessWrite
+        "a"  -> Just AccessAdmin
+        _    -> Nothing
+      if T.null group || (group == "public" && level > AccessRead)
+        then Nothing else Just (group, level)
+
 -- | Header and content of a page (see 'normalizeNewlines'): the header is the
 -- first block of the file, until its first blank line, and the content is
 -- what follows. A file without blank line is a header only, with an empty
@@ -127,13 +158,14 @@ fromFields cmc fields =
              metaId = mfilter (not . T.null) $ T.concat <$> look "id"
            , metaTitle = T.intercalate " " <$> look "title"
            , metaTags = splitTags . T.intercalate "," <$> look "tags"
-           , metaAccess = splitMeta . T.intercalate "," <$> look "access"
+           , metaAccess = fst <$> access
            , metaLang = fst lang
            , metaArchive = fst archive
            , metaImagesDir = T.concat <$> look "images-dir"
            , metaFilesDir = T.concat <$> look "files-dir"
            , metaCustom = map fst customs
            , metaOther = M.fromList $ unknown ++ snd lang ++ snd archive ++
+                                      [ ("access", bad) | Just (_, bad@(_:_)) <- [access] ] ++
                                       concatMap snd customs
            }
   where
@@ -145,6 +177,7 @@ fromFields cmc fields =
       Just v  -> case parse v of
         Just x  -> (Just x, [])
         Nothing -> (Nothing, [(k, [v])])
+    access = parseAccess . T.intercalate "," <$> look "access"
     lang = lastValue "lang" (either (const Nothing) Just . parseLangSetting)
     archive = lastValue "archive" parseBool
     customs = [ (CustomMetaData (cmcName c) (mapMaybe snd values), invalid)
@@ -168,10 +201,11 @@ unknownMetaKeys cmc = filter (`notElem` knownKeys cmc) . M.keys . metaOther
 
 -- | Fields of a header whose value can not be read, with this value. For
 -- "archive" and "lang" (built-in), the page has the default value instead;
--- for the custom metadata of type int, date or bool, the value is ignored.
+-- an invalid group of "access" is ignored (see 'parseAccess'); for the
+-- custom metadata of type int, date or bool, the value is ignored.
 invalidMetaValues :: [CustomMetaConfig] -> MetaData -> [(T.Text, T.Text)]
 invalidMetaValues cmc m =
-  [ (k, v) | k <- ["archive", "lang"] ++ map cmcName cmc
+  [ (k, v) | k <- ["archive", "lang", "access"] ++ map cmcName cmc
            , v <- fromMaybe [] (M.lookup k $ metaOther m) ]
 
 
@@ -196,7 +230,12 @@ writeHeader cmc m = T.unlines $ concat
   , line "id" (metaId m)
   , line "tags" (T.intercalate ", " . map writeTag . nodup . map writeTag' <$>
                  metaTags m)
-  , line "access" (T.intercalate ", " . map (escape ",") <$> metaAccess m)
+  , let invalid = other "access"
+    in case metaAccess m of
+         Nothing | null invalid -> []
+         access -> [field "access" $ T.intercalate ", " $
+                      map writeAccess (L.sortOn (\(g, l) -> (Down l, g)) $ fromMaybe [] access)
+                      ++ invalid]
   , orOther "lang" (showLangSetting <$> metaLang m)
   , orOther "archive" ((\b -> if b then "yes" else "no") <$> metaArchive m)
   , line "images-dir" (metaImagesDir m)
@@ -220,6 +259,10 @@ writeHeader cmc m = T.unlines $ concat
       in if any ((== n) . cmdName) (metaCustom m) || not (null invalid)
          then [field n (T.intercalate ", " (values ++ invalid))]
          else []
+    writeAccess (g, l) = g <> case l of
+      AccessRead  -> ""
+      AccessWrite -> ":w"
+      AccessAdmin -> ":a"
     -- a tag, by its segments: "a > b"
     writeTag' = T.intercalate " > " . map (escape ">") . tagToSegments
     writeTag = escape ",{}"
