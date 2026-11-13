@@ -15,8 +15,8 @@
   `images-dir` and `files-dir` metadata), `family:a` (edit everything).
   `public` can only read. Existing access lists keep their meaning.
 - **Pages saved from the browser are committed** when their file is in a
-  git repository (and not ignored there): the file alone, with the login of
-  the user as author. New `git-commit` setting in the `[kiwi]` section
+  git repository (and not ignored there): the file alone, with "LOGIN via
+  Kiwi" as author. New `git-commit` setting in the `[kiwi]` section
   (`yes` by default, `no` to disable). A failure of git is logged, the page
   is saved anyway.
 - The local editor button has its own icon; the pen is the browser editor.
