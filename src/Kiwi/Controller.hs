@@ -517,11 +517,11 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
     Left (Edit.SaveFailed e) -> serveFailure $ T.pack e
 
 -- | Commits the file of a page saved by this user, when it is in a git
--- repository; a failure is logged
+-- repository, with "USER via Kiwi" as author; a failure is logged
 commitPage :: K.ServerState -> T.Text -> FilePath -> K.PageUID -> IO ()
 commitPage ss user path (source, pid) = do
   let message = T.concat [ "Edit ", source, ":", pid, " (kiwi ", K.kiwiName ss, ")" ]
-  r <- Git.commitFile path user message
+  r <- Git.commitFile path (user <> " via Kiwi") message
   case r of
     Right Git.Committed -> K.logger ss L.Info $ T.pack $ "page committed: " ++ path
     Right _ -> return ()

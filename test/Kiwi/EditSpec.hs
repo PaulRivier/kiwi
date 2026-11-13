@@ -161,7 +161,7 @@ editSpec = do
     saved <- save h "title: New\n\nBye"
     liftIO $ status saved `shouldBe` 200
     liftIO $ gitOut cd ["log", "-1", "--format=%an <%ae>|%cn <%ce>|%s"]
-      `shouldReturn` "bob <>|Kiwi <>|Edit s:p (kiwi kiwi)\n"
+      `shouldReturn` "bob via Kiwi <>|Kiwi <>|Edit s:p (kiwi kiwi)\n"
     liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""
 
   it "does not commit a saved page with git-commit: no" $ onRepo ["git-commit: no"] $ \cd -> do

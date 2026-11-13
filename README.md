@@ -648,8 +648,8 @@ You are strongly encouraged to keep your content in a git repository
 When a page saved from the browser is in a git repository, and not
 ignored there (`.gitignore`), Kiwi commits this file alone: a file not
 tracked yet is added, and what you have staged for other files stays
-staged, out of the commit. The author of the commit is the login of the
-user (without email), its committer is *Kiwi*, and its message is
+staged, out of the commit. The author of the commit is *LOGIN via
+Kiwi* (without email), its committer is *Kiwi*, and its message is
 `Edit SOURCE:ID (kiwi NAME)`. Changes of the file that were not
 committed before its edition are in the commit too. Set
 `git-commit: no` in the `[kiwi]` section of kiwi.ini to disable these
