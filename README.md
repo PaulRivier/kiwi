@@ -564,6 +564,9 @@ is also refused when the page could not be loaded (an invalid header),
 or when its new id is the one of another page. Until it is saved, the
 text is kept as a draft in your browser, for this version of the file.
 
+When the saved file is in a git repository, Kiwi commits it: see
+[Content versioning and backup](#content-versioning-and-backup).
+
 The save and preview requests from the pages of another site are
 refused: behind a reverse proxy, keep the `Host` header of the requests
 (or set `X-Forwarded-Host`).
@@ -639,8 +642,27 @@ right on every page.
 
 # Content versioning and backup
 
-Kiwi is unaware of your content history, however you are strongly
-encouraged to keep your content in a revision control system.
+You are strongly encouraged to keep your content in a git repository
+(one by source, the whole content folder, or the kiwi folder).
+
+When a page saved from the browser is in a git repository, and not
+ignored there (`.gitignore`), Kiwi commits this file alone: a file not
+tracked yet is added, and what you have staged for other files stays
+staged, out of the commit. The author of the commit is the login of the
+user (without email), its committer is *Kiwi*, and its message is
+`Edit SOURCE:ID (kiwi NAME)`. Changes of the file that were not
+committed before its edition are in the commit too. Set
+`git-commit: no` in the `[kiwi]` section of kiwi.ini to disable these
+commits. Kiwi does not push, and the files changed with your local
+editor are not committed.
+
+The commit is made with the `git` program; when it fails (git not
+installed, a hook that refuses the commit, a merge in progress, more
+than 10 seconds), the page is saved anyway and the error is logged. If
+Kiwi runs as another user than the owner of the repository, git refuses
+to work in it until the repository is added to the `safe.directory`
+setting of this user, for example
+`git config --global --add safe.directory /path/to/repository`.
 
 Don't put *_accounts* and *_sessions* under version control: they hold
 the password hashes and the sessions. Kiwi writes them readable by
