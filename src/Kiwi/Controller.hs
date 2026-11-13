@@ -355,7 +355,8 @@ serveSearch query = do
   let sources = K.contextSources ctx
       -- all the sources, as those the context can have (see 'withContext')
       allSources = [ s | K.KeyText s <- DI.getFieldKeys (K.pagesIndex allDB) K.FieldSource ]
-      ctxLang = searchLang (K.metaLang $ K.defaultMeta allDB) (K.sourcesConfig allDB)
+      ctxLang = searchLang (fromMaybe K.defaultLangSetting $ K.metaLang $ K.defaultMeta allDB)
+                           (K.sourcesConfig allDB)
                            allSources sources
       -- the lang prefix of the query, if any, is displayed with the query
       lang = fst $ queryLang ctxLang query

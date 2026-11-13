@@ -9,9 +9,10 @@ import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 
 import qualified Kiwi.ConfigFile as Conf
-import           Kiwi.Pandoc (linksInContext, loadPage, pageDoc, pagePath, parseMetaData,
-                              parseCustomMeta, sourceMeta, splitPage, unknownMetaKeys,
-                              invalidMetaValues)
+import           Data.Maybe (fromMaybe)
+import           Kiwi.Meta (parseHeader, parseHeaderFields, sourceMeta, splitPage,
+                            unknownMetaKeys, invalidMetaValues)
+import           Kiwi.Pandoc (linksInContext, loadPage, pageDoc, pagePath)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
 import           TestUtils
@@ -30,28 +31,29 @@ images = PW.query f . pandocDoc
 blocks :: PandocPage -> [PD.Block]
 blocks p = let PD.Pandoc _ bs = pandocDoc p in bs
 
--- | Fields of the header of a page text
-header :: T.Text -> M.Map T.Text [T.Text]
-header = either error fst . splitPage []
+-- | Header of a page text
+header :: [CustomMetaConfig] -> T.Text -> MetaData
+header cfg = either error fst . splitPage cfg
 
-metaData :: T.Text -> M.Map T.Text [T.Text]
-metaData = either error id . parseMetaData []
+-- | Custom metadata of a header
+customMeta :: [CustomMetaConfig] -> T.Text -> [CustomMetaData]
+customMeta cfg = metaCustom . either error id . parseHeader cfg
 
 unknownKeys :: [CustomMetaConfig] -> T.Text -> [T.Text]
-unknownKeys cfg = unknownMetaKeys cfg . header
+unknownKeys cfg = unknownMetaKeys cfg . header cfg
 
 invalidValues :: [CustomMetaConfig] -> T.Text -> [(T.Text, T.Text)]
-invalidValues cfg = invalidMetaValues cfg . header
+invalidValues cfg = invalidMetaValues cfg . header cfg
 
 loadPageSpec :: Spec
 loadPageSpec = do
   it "reads metadata header and content" $ do
     let p = load "title: My title\ntags: a, b > c\naccess: public\nlang: french\n\nHello"
         m = pandocMeta p
-    metaTitle m `shouldBe` "My title"
-    metaTags m `shouldBe` ["a", "b > c"]
-    metaAccess m `shouldBe` ["public"]
-    metaLang m `shouldBe` LangFixed French
+    metaTitle m `shouldBe` Just "My title"
+    metaTags m `shouldBe` Just ["a", "b > c"]
+    metaAccess m `shouldBe` Just ["public"]
+    metaLang m `shouldBe` Just (LangFixed French)
     blocks p `shouldBe` [PD.Para [PD.Str "Hello"]]
 
   it "separates the blocks in the plain text of the content" $
@@ -62,19 +64,19 @@ loadPageSpec = do
 
   it "uses default metadata when fields are missing" $ do
     let m = pandocMeta $ load "foo: bar\n\nHello"
-    metaTitle m `shouldBe` "untitled"
-    metaTags m `shouldBe` ["untagged"]
-    metaAccess m `shouldBe` ["private"]
-    metaLang m `shouldBe` LangFixed English
+    metaTitle m `shouldBe` Just "untitled"
+    metaTags m `shouldBe` Just ["untagged"]
+    metaAccess m `shouldBe` Just ["private"]
+    metaLang m `shouldBe` Just (LangFixed English)
     metaId m `shouldBe` Nothing
 
   it "joins repeated fields" $ do
     let m = pandocMeta $ load "title: a\ntags: t1\ntags: t2, t3\n\n"
-    metaTags m `shouldBe` ["t1", "t2", "t3"]
+    metaTags m `shouldBe` Just ["t1", "t2", "t3"]
 
   it "expands groups of tags, on several lines" $ do
     let m = pandocMeta $ load "title: a\ntags: sport > {alpinisme, escalade}\ntags: b\n\n"
-    metaTags m `shouldBe` ["sport > alpinisme", "sport > escalade", "b"]
+    metaTags m `shouldBe` Just ["sport > alpinisme", "sport > escalade", "b"]
 
   it "reads custom id" $
     metaId (pandocMeta $ load "id: my-id\n\n") `shouldBe` Just "my-id"
@@ -85,14 +87,14 @@ loadPageSpec = do
 
   it "accepts windows line endings" $ do
     let p = load "title: T\r\ntags: x\r\n\r\nline 1\r\nline 2"
-    metaTitle (pandocMeta p) `shouldBe` "T"
-    metaTags (pandocMeta p) `shouldBe` ["x"]
+    metaTitle (pandocMeta p) `shouldBe` Just "T"
+    metaTags (pandocMeta p) `shouldBe` Just ["x"]
     blocks p `shouldBe` [PD.Para [PD.Str "line", PD.Space, PD.Str "1",
                                   PD.SoftBreak, PD.Str "line", PD.Space, PD.Str "2"]]
 
   it "accepts a file with header only" $ do
     let p = load "title: Only header"
-    metaTitle (pandocMeta p) `shouldBe` "Only header"
+    metaTitle (pandocMeta p) `shouldBe` Just "Only header"
     blocks p `shouldBe` []
 
   it "fixes relative and absolute page links, and collects them" $ do
@@ -175,7 +177,7 @@ loadPageSpec = do
     inCtx `shouldBe` [(["kiwi-link-page"], "/page/src/sub:C%23?source=x#part")]
 
   it "reads the archive metadata" $ do
-    let archived = metaArchive . pandocMeta . load
+    let archived = fromMaybe False . metaArchive . pandocMeta . load
     archived "title: t\n\nx" `shouldBe` False
     archived "title: t\narchive: Yes\n\nx" `shouldBe` True
     archived "title: t\narchive: 0\n\nx" `shouldBe` False
@@ -192,11 +194,11 @@ loadPageSpec = do
     invalidValues cfg "lang: auto/french\ndate: 2020-1-5\ncount: 3\nflag: No\n\n"
       `shouldBe` []
     -- the default lang is used
-    metaLang (pandocMeta $ load "title: t\nlang: fr\n\nx") `shouldBe` LangFixed English
+    metaLang (pandocMeta $ load "title: t\nlang: fr\n\nx") `shouldBe` Just (LangFixed English)
 
   it "removes a byte order mark at the start of the file" $ do
     let p = load "\xFEFFtitle: T\r\ntags: x\r\n\r\nHello"
-    metaTitle (pandocMeta p) `shouldBe` "T"
+    metaTitle (pandocMeta p) `shouldBe` Just "T"
     blocks p `shouldBe` [PD.Para [PD.Str "Hello"]]
     unknownKeys [] "\xFEFFtitle: T\n\nHello" `shouldBe` []
 
@@ -252,26 +254,26 @@ metaDataSpec = do
         access sM c = case loadPage "test.md" c "src" (sourceMeta sM defMeta) [] "" of
           Left e -> error e
           Right p -> metaAccess $ pandocMeta p
-    access (Just sc) "title: t\n\n" `shouldBe` ["family"]
-    access (Just sc) "title: t\naccess: public\n\n" `shouldBe` ["public"]
-    access (Just sc { scAccess = Nothing }) "title: t\n\n" `shouldBe` ["private"]
-    access Nothing "title: t\n\n" `shouldBe` ["private"]
+    access (Just sc) "title: t\n\n" `shouldBe` Just ["family"]
+    access (Just sc) "title: t\naccess: public\n\n" `shouldBe` Just ["public"]
+    access (Just sc { scAccess = Nothing }) "title: t\n\n" `shouldBe` Just ["private"]
+    access Nothing "title: t\n\n" `shouldBe` Just ["private"]
 
   it "parses metadata lines, separators and blank lines" $
-    parseMetaData [] "---\ntitle: a: b\n  \ntags: x\n tags : y \n...\nimages-dir:"
+    parseHeaderFields [] "---\ntitle: a: b\n  \ntags: x\n tags : y \n...\nimages-dir:"
       `shouldBe` Right (M.fromList [ ("title", ["a: b"]), ("tags", ["x", "y"])
                                    , ("images-dir", [""]) ])
 
   it "refuses a header with anything else than metadata" $ do
-    parseMetaData [] "title: t\nnot meta\ntags: x" `shouldBe`
+    parseHeaderFields [] "title: t\nnot meta\ntags: x" `shouldBe`
       Left "invalid metadata header, line 2"
-    parseMetaData [] "# Heading" `shouldBe` Left "invalid metadata header, line 1"
-    parseMetaData [] "Some text: with a colon" `shouldBe`
+    parseHeaderFields [] "# Heading" `shouldBe` Left "invalid metadata header, line 1"
+    parseHeaderFields [] "Some text: with a colon" `shouldBe`
       Left "invalid metadata header, line 1"
-    parseMetaData [] ": no key" `shouldBe` Left "invalid metadata header, line 1"
-    parseMetaData [] ":::" `shouldBe` Left "invalid metadata header, line 1"
+    parseHeaderFields [] ": no key" `shouldBe` Left "invalid metadata header, line 1"
+    parseHeaderFields [] ":::" `shouldBe` Left "invalid metadata header, line 1"
     -- the names of the custom metadata may have several words
-    parseMetaData ["my field"] "my field: x\nmy-key_2: y" `shouldBe`
+    parseHeaderFields ["my field"] "my field: x\nmy-key_2: y" `shouldBe`
       Right (M.fromList [("my field", ["x"]), ("my-key_2", ["y"])])
 
   it "refuses a page whose first block is not its metadata" $ do
@@ -284,7 +286,7 @@ metaDataSpec = do
     loaded "\n\n# Title" `shouldBe` Right ()
     loaded "" `shouldBe` Right ()
     fmap (metaTitle . pandocMeta) (loadPage "test.md" "\n\n# Title" "src" defMeta [] "")
-      `shouldBe` Right "untitled"
+      `shouldBe` Right (Just "untitled")
 
   it "parses custom metadata according to their type" $ do
     let cfg = [ CustomMetaConfig "date" CmtDate 1
@@ -292,9 +294,9 @@ metaDataSpec = do
               , CustomMetaConfig "flag" CmtBool 1
               , CustomMetaConfig "authors" CmtText 1
               , CustomMetaConfig "absent" CmtText 1 ]
-        m = metaData "date: 2020-1-5, 2021-12-31, bad\ncount: 3, x, 12\n\
-                          \flag: Yes\nauthors: John, Jack\\, Jr"
-        res = [ (cmdName c, cmdKeys c) | c <- parseCustomMeta m cfg ]
+        m = "date: 2020-1-5, 2021-12-31, bad\ncount: 3, x, 12\n\
+            \flag: Yes\nauthors: John, Jack\\, Jr"
+        res = [ (cmdName c, cmdKeys c) | c <- customMeta cfg m ]
     res `shouldBe` [ ("date", [ KeyDay (Time.fromGregorian 2020 1 5)
                               , KeyDay (Time.fromGregorian 2021 12 31) ])
                    , ("count", [KeyInt 3, KeyInt 12])
@@ -309,9 +311,9 @@ metaDataSpec = do
 
   it "reads booleans" $ do
     let cfg = [CustomMetaConfig "b" CmtBool 1]
-        m = metaData "b: true, 1, Yes, no, false, 0, oui"
+        m = "b: true, 1, Yes, no, false, 0, oui"
     -- invalid values are ignored
-    map cmdKeys (parseCustomMeta m cfg)
+    map cmdKeys (customMeta cfg m)
       `shouldBe` [map KeyBool [True, True, True, False, False, False]]
 
   it "parses lang settings" $ do
@@ -329,9 +331,9 @@ metaDataSpec = do
                              , "[source c]" ]
         langs c = (metaLang (Conf.defaultMeta c), map scLang (Conf.sourcesConfig c))
     fmap langs (Conf.parseConfig $ ini "lang: auto/spanish") `shouldBe`
-      Right (LangAuto Spanish, [Just (LangAuto English), Just (LangFixed French), Nothing])
+      Right (Just (LangAuto Spanish), [Just (LangAuto English), Just (LangFixed French), Nothing])
     fmap langs (Conf.parseConfig $ ini "") `shouldBe`
-      Right (LangFixed English, [Just (LangAuto English), Just (LangFixed French), Nothing])
+      Right (Just (LangFixed English), [Just (LangAuto English), Just (LangFixed French), Nothing])
     either (const True) (const False) (Conf.parseConfig $ ini "lang: klingon")
       `shouldBe` True
 
@@ -340,8 +342,8 @@ metaDataSpec = do
         lang c = case loadPage "test.md" c "src" (sourceMeta (Just sc) defMeta) [] "" of
           Left e -> error e
           Right p -> metaLang $ pandocMeta p
-    lang "title: t\n\n" `shouldBe` LangAuto Spanish
-    lang "title: t\nlang: auto/french\n\n" `shouldBe` LangAuto French
-    lang "title: t\nlang: german\n\n" `shouldBe` LangFixed German
-    lang "title: t\nlang: klingon\n\n" `shouldBe` LangAuto Spanish
+    lang "title: t\n\n" `shouldBe` Just (LangAuto Spanish)
+    lang "title: t\nlang: auto/french\n\n" `shouldBe` Just (LangAuto French)
+    lang "title: t\nlang: german\n\n" `shouldBe` Just (LangFixed German)
+    lang "title: t\nlang: klingon\n\n" `shouldBe` Just (LangAuto Spanish)
 

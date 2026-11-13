@@ -42,6 +42,7 @@ module Kiwi.Types
   , langCode
   , langName
   , LangSetting(..)
+  , defaultLangSetting
   , baseLang
   , UI_Lang(..)
   , parseUILang
@@ -186,16 +187,24 @@ data MetaField = FieldSource
 
 
 
+-- | Metadata of a header (see "Kiwi.Meta"): absent fields are 'Nothing'. The
+-- defaults of the config, and the metadata of a page (its header merged over
+-- the defaults) have the same type.
 data MetaData =
   MetaData { metaId :: Maybe T.Text
-           , metaTitle :: T.Text
-           , metaTags  :: [TagId]
-           , metaAccess :: [T.Text]
-           , metaLang  :: LangSetting
-           , metaArchive :: Bool
-           , metaCustom :: [CustomMetaData]
+           , metaTitle :: Maybe T.Text
+           , metaTags  :: Maybe [TagId]
+           , metaAccess :: Maybe [T.Text]
+           , metaLang  :: Maybe LangSetting
+           , metaArchive :: Maybe Bool
+           , metaImagesDir :: Maybe T.Text  -- ^ folder of the "image:" links
+           , metaFilesDir :: Maybe T.Text   -- ^ folder of the "file:" links
+           , metaCustom :: [CustomMetaData]  -- ^ in the order of the config
+           -- | fields that kiwi can not use, as written: unknown keys, and
+           -- values that can not be read (see 'Kiwi.Meta.invalidMetaValues')
+           , metaOther :: M.Map T.Text [T.Text]
            }
-  deriving (Show)
+  deriving (Eq, Show)
 
 
 -- | The document is not kept, it is parsed again from the content to be
@@ -229,7 +238,6 @@ data PandocPage =
   PandocPage { pandocDoc :: PD.Pandoc
              , pandocMeta :: MetaData
              , pandocPageLinks :: [PageUID]
-             , pandocHeader :: M.Map T.Text [T.Text]  -- ^ fields of the header
              , pandocBody :: T.Text       -- ^ markdown content, without the header
              , pandocImagesDir :: T.Text  -- ^ folder of the "image:" links
              , pandocFilesDir :: T.Text   -- ^ folder of the "file:" links
@@ -243,7 +251,7 @@ data CustomMetaData =
   CustomMetaData { cmdName :: T.Text
                  , cmdKeys :: [DocIndexKey]
                  }
-  deriving (Show)
+  deriving (Eq, Show)
 
 
 data CustomMetaConfig = 
@@ -383,6 +391,10 @@ data Lang
 data LangSetting = LangFixed Lang
                  | LangAuto Lang
   deriving (Show, Eq)
+
+-- | Lang of the pages when the config does not give one
+defaultLangSetting :: LangSetting
+defaultLangSetting = LangFixed English
 
 -- | The fixed lang, or the fallback of the detection
 baseLang :: LangSetting -> Lang

@@ -14,6 +14,7 @@ import           Data.Foldable (toList)
 import qualified Data.Text as T
 import qualified System.FilePath as FP
 
+import qualified Kiwi.Meta as Meta
 import qualified Kiwi.Tags as Tags
 import qualified Kiwi.Types as K
 import qualified Kiwi.Utils as U
@@ -40,15 +41,12 @@ configParser = do
     defTitle <- fieldDefOf "title" string "untitled"
     defTags  <- fieldDefOf "tags" string "untagged"
     defAccess <- fieldDefOf "access" string "admin"
-    defLang  <- fieldDefOf "lang" U.parseLangSetting (K.LangFixed K.English)
-    return K.MetaData { K.metaId = Nothing
-                      , K.metaTitle = T.strip defTitle
-                      , K.metaTags = Tags.splitTags defTags
-                      , K.metaAccess = Tags.splitMeta defAccess
-                      , K.metaLang = defLang
-                      , K.metaArchive = False
-                      , K.metaCustom = []
-                      }
+    defLang  <- fieldDefOf "lang" U.parseLangSetting K.defaultLangSetting
+    return Meta.emptyMeta { K.metaTitle = Just $ T.strip defTitle
+                          , K.metaTags = Just $ Tags.splitTags defTags
+                          , K.metaAccess = Just $ Tags.splitMeta defAccess
+                          , K.metaLang = Just defLang
+                          }
   customMeta' <- sectionsOf (T.stripPrefix "metadata ") customMetaParser
   sourcesConfig' <- sectionsOf (T.stripPrefix "source ") sourceConfigParser
   section "kiwi" $ do

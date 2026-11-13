@@ -14,6 +14,7 @@ import           System.IO.Error (isAlreadyExistsError)
 import qualified Kiwi.Auth as Auth
 import qualified Kiwi.ConfigFile as Conf
 import qualified Kiwi.PagesDB as DB
+import           Kiwi.Meta (emptyMeta)
 import           Kiwi.Pandoc (loadPage)
 import           Kiwi.Server (initServerState, kiwiApp)
 import           Kiwi.Types
@@ -21,14 +22,11 @@ import qualified Kiwi.Utils as U
 import qualified Utils.DocIndex as DI
 
 defMeta :: MetaData
-defMeta = MetaData { metaId = Nothing
-                   , metaTitle = "untitled"
-                   , metaTags = ["untagged"]
-                   , metaAccess = ["private"]
-                   , metaLang = LangFixed English
-                   , metaArchive = False
-                   , metaCustom = []
-                   }
+defMeta = emptyMeta { metaTitle = Just "untitled"
+                    , metaTags = Just ["untagged"]
+                    , metaAccess = Just ["private"]
+                    , metaLang = Just $ LangFixed English
+                    }
 
 -- | A page of a source, with its tags, access groups, archive flag, and
 -- modification day (in january 2026)
