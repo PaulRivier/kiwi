@@ -617,12 +617,28 @@ a.archive-switch.active:hover,
   text-decoration: underline dotted;
 }
 
-.page-view ul.backlinks {
-  justify-content: flex-end;
+/* custom metadata (before the title) and backlinks (after the document),
+   each one in a frame with a legend */
+.page-view fieldset.page-meta {
+  margin: 0 0 12px 0;
 }
 
-.page-view ul.backlinks li {
-  border: none;
+.page-view fieldset.page-meta legend,
+.page-view fieldset.backlinks legend {
+  color: rgba(var(--kiwi-text), 0.6);
+}
+
+.page-view fieldset.page-meta ul.custom-meta-list {
+  margin: 0.2em 0 0.5em 0;
+}
+
+.page-view fieldset.backlinks {
+  margin: 2.5em 0 0 0;
+  border-color: rgba(var(--kiwi-page-link), 0.3);
+}
+
+.page-view fieldset.backlinks ul.backlinks {
+  margin: 0 0 12px 0;
 }
 
 /* centered, with a short centered rule below: it can not be mistaken for a
@@ -908,6 +924,18 @@ h1.page-title::after {
   list-style-type: "\2013  ";
 }
 
+/* same indent as the bullet lists */
+.document ol {
+  padding-left: 2em;
+}
+
+/* a thin rule, as the ones of the headings */
+.document hr {
+  margin: 2em 0;
+  border: none;
+  border-top: 1px solid rgba(var(--kiwi-text), 0.2);
+}
+
 code, pre {
   font-family: ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace;
   font-size: 0.9em;
@@ -924,6 +952,23 @@ code {
 pre {
   padding-bottom: 0.5em;
   overflow-x: auto;
+}
+
+/* code blocks in a light frame, so that their start and end are clear;
+   inline code on a light background, readable even without its color */
+.document pre {
+  margin: 0.8em 0 1em 0;
+  padding: 0.7em 1em;
+  background-color: rgba(var(--kiwi-text), 0.05);
+  border: 1px solid rgba(var(--kiwi-text), 0.1);
+  border-radius: 6px;
+  line-height: 1.45;
+}
+
+.document :not(pre) > code {
+  padding: 0.1em 0.35em;
+  background-color: rgba(var(--kiwi-text), 0.07);
+  border-radius: 4px;
 }
 
 .document figure {

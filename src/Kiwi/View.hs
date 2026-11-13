@@ -338,18 +338,23 @@ pageView loc ctx pageExists p doc backlinks = div_ [class_ "page-view"] $ do
     (K.contextArchive ctx)
   -- the name of a field is a link to the pages having it
   unless (null $ K.pageCustomMeta p) $
-    ul_ [class_ "custom-meta-list"] $ forM_ (K.pageCustomMeta p) $ \cmd -> li_ $ do
-      a_ [ class_ "field", title_ (K.loc_PagesWithField loc)
-         , href_ $ Browse.browseUrl ctx $ Browse.addFieldToReq contextReq
-                                            (K.FieldCustom $ K.cmdName cmd) ] $
-        toHtml $ K.cmdName cmd
-      " – "
-      sequence_ $ intersperse " "
-        [ link (Browse.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
-        | k <- K.cmdKeys cmd ]
+    fieldset_ [class_ "flex page-meta"] $ do
+      legend_ $ toHtml $ K.loc_Metadata loc
+      ul_ [class_ "custom-meta-list"] $ forM_ (K.pageCustomMeta p) $ \cmd -> li_ $ do
+        a_ [ class_ "field", title_ (K.loc_PagesWithField loc)
+           , href_ $ Browse.browseUrl ctx $ Browse.addFieldToReq contextReq
+                                              (K.FieldCustom $ K.cmdName cmd) ] $
+          toHtml $ K.cmdName cmd
+        " – "
+        sequence_ $ intersperse " "
+          [ link (Browse.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
+          | k <- K.cmdKeys cmd ]
   h1_ [class_ "page-title", pageLang] $ toHtml $ K.pageTitle p
   div_ [class_ "document", pageLang] $ writeHtml5 pageExists $ linksInContext ctx doc
-  linksList "pages-list backlinks" $ map (pageLink ctx) backlinks
+  unless (null backlinks) $
+    fieldset_ [class_ "flex backlinks"] $ do
+      legend_ $ toHtml $ K.loc_Backlinks loc
+      linksList "pages-list backlinks" $ map (pageLink ctx) backlinks
   where
     -- the title and the document are in the lang of the page, the rest in
     -- the lang of the interface

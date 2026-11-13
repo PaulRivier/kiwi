@@ -495,6 +495,8 @@ data Locales = Locales
   , loc_BrokenLinks :: T.Text
   , loc_NoBrokenLink :: T.Text
   , loc_LoadErrors :: T.Text
+  -- | legend of the pages linking to a page
+  , loc_Backlinks :: T.Text
   -- , loc_TimeLocale :: Time.TimeLocale
   }
   deriving (Show)
