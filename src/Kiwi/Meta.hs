@@ -12,6 +12,8 @@ module Kiwi.Meta
   , splitPage
   , normalizeNewlines
   , parseHeader
+  , writeHeader
+  , writePage
   , unknownMetaKeys
   , invalidMetaValues
   , parseHeaderFields  -- exported for tests
@@ -24,9 +26,10 @@ import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Text as T
 
-import           Kiwi.Tags (splitMeta, splitTags)
+import           Kiwi.Tags (splitMeta, splitTags, tagToSegments)
 import           Kiwi.Types
-import           Kiwi.Utils (splitOnFirst, parseLangSetting, parseBool, readCustomValue)
+import           Kiwi.Utils (splitOnFirst, parseLangSetting, parseBool, readCustomValue,
+                             showCustomValue, showLangSetting, nodup)
 
 
 -- | Metadata without any field
@@ -170,6 +173,58 @@ invalidMetaValues :: [CustomMetaConfig] -> MetaData -> [(T.Text, T.Text)]
 invalidMetaValues cmc m =
   [ (k, v) | k <- ["archive", "lang"] ++ map cmcName cmc
            , v <- fromMaybe [] (M.lookup k $ metaOther m) ]
+
+
+-- | Text of a page: its header (see 'writeHeader'), a blank line, and its
+-- content, which ends with a newline. A page without metadata starts with a
+-- blank line.
+writePage :: [CustomMetaConfig] -> MetaData -> T.Text -> T.Text
+writePage cmc m content =
+  let header = writeHeader cmc m
+      body = T.dropWhileEnd (== '\n') content
+  in (if T.null header then "\n" else header) <> "\n" <>
+     (if T.null body then "" else body <> "\n")
+
+-- | Normalized text of a header, read back by 'parseHeader': one line by
+-- key, in this order: title, id, tags, access, lang, archive, images-dir,
+-- files-dir, the custom metadata in the order of the config, then the other
+-- keys by name (one line by value). The tags are sorted, without
+-- duplicates, their segments separated by " > ". The values that can not be read are written as they were.
+writeHeader :: [CustomMetaConfig] -> MetaData -> T.Text
+writeHeader cmc m = T.unlines $ concat
+  [ line "title" (metaTitle m)
+  , line "id" (metaId m)
+  , line "tags" (T.intercalate ", " . map writeTag . nodup . map writeTag' <$>
+                 metaTags m)
+  , line "access" (T.intercalate ", " . map (escape ",") <$> metaAccess m)
+  , orOther "lang" (showLangSetting <$> metaLang m)
+  , orOther "archive" ((\b -> if b then "yes" else "no") <$> metaArchive m)
+  , line "images-dir" (metaImagesDir m)
+  , line "files-dir" (metaFilesDir m)
+  , concatMap custom cmc
+  , [ field k v | (k, vs) <- M.toList (metaOther m), k `notElem` knownKeys cmc, v <- vs ]
+  ]
+  where
+    field k v = if T.null v then k <> ":" else k <> ": " <> v
+    line k = maybe [] (\v -> [field k v])
+    other k = M.findWithDefault [] k (metaOther m)
+    -- a value that can be read, or the one that could not
+    orOther k v = case v of
+      Just _  -> line k v
+      Nothing -> map (field k) (other k)
+    custom c =
+      let n = cmcName c
+          values = [ escape "," (showCustomValue v)
+                   | cmd <- metaCustom m, cmdName cmd == n, v <- cmdKeys cmd ]
+          invalid = map (escape ",") (other n)
+      in if any ((== n) . cmdName) (metaCustom m) || not (null invalid)
+         then [field n (T.intercalate ", " (values ++ invalid))]
+         else []
+    -- a tag, by its segments: "a > b"
+    writeTag' = T.intercalate " > " . map (escape ">") . tagToSegments
+    writeTag = escape ",{}"
+    escape cs = T.concatMap (\ch -> if ch `elem` T.unpack cs then T.pack ['\\', ch]
+                                    else T.singleton ch)
 
 
 -- | Fields of a header: key and values of its lines. Each line is a field

@@ -140,6 +140,7 @@ test-suite kiwi-test
       Kiwi.ControllerSpec
       Kiwi.HtmlWriterSpec
       Kiwi.LangDetectSpec
+      Kiwi.MetaSpec
       Kiwi.PagesDBSpec
       Kiwi.PandocSpec
       Kiwi.SearchSpec

@@ -8,6 +8,8 @@ module Kiwi.Utils
   , inlinesText
   , parseBool
   , readCustomValue
+  , showCustomValue
+  , showLangSetting
     -- * Lists
   , nodup
   , fastListDiff
@@ -128,6 +130,22 @@ readCustomValue t v = case t of
   CmtDate -> KeyDay <$> Time.parseTimeM True Time.defaultTimeLocale "%Y-%-m-%-d"
                                         (T.unpack v)
   CmtBool -> KeyBool <$> parseBool v
+
+
+-- | Text of a custom metadata value, read back by 'readCustomValue'
+showCustomValue :: DocIndexKey -> T.Text
+showCustomValue k = case k of
+  KeyText t        -> t
+  KeyInt i         -> T.pack $ show i
+  KeyDay d         -> T.pack $ Time.formatTime Time.defaultTimeLocale "%Y-%m-%d" d
+  KeyBool b        -> if b then "yes" else "no"
+  KeyLang l        -> langName l
+  KeyPairText (a, b) -> a <> ":" <> b
+
+-- | Text of a lang setting, read back by 'parseLangSetting'
+showLangSetting :: LangSetting -> T.Text
+showLangSetting (LangFixed l) = langName l
+showLangSetting (LangAuto l)  = "auto/" <> langName l
 
 
 -- DocIndex request helpers

@@ -8,6 +8,7 @@ import           Kiwi.ConfigFileSpec (configSpec)
 import           Kiwi.ControllerSpec (metaIndexSpec)
 import           Kiwi.HtmlWriterSpec (htmlWriterSpec)
 import           Kiwi.LangDetectSpec (langDetectSpec)
+import           Kiwi.MetaSpec (metaSpec)
 import           Kiwi.PagesDBSpec (pagesDBSpec)
 import           Kiwi.PandocSpec (loadPageSpec, metaDataSpec)
 import           Kiwi.SearchSpec (searchSpec)
@@ -20,6 +21,7 @@ main :: IO ()
 main = hspec $ do
   describe "Kiwi.Pandoc.loadPage" loadPageSpec
   describe "Kiwi.Pandoc metadata" metaDataSpec
+  describe "Kiwi.Meta" metaSpec
   describe "Kiwi.ConfigFile" configSpec
   describe "Kiwi.Tags" tagsSpec
   describe "Kiwi.Browse" browseReqSpec
