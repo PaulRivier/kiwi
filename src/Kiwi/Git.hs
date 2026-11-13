@@ -37,7 +37,7 @@ commitFile :: FilePath -> T.Text -> T.Text -> IO (Either String CommitResult)
 commitFile path author message = do
   r <- timeout gitTimeout $ runExceptT $ do
     file <- liftIO $ D.canonicalizePath path
-    env <- liftIO gitEnvironment
+    env <- liftIO $ gitEnvironment author
     let git dir args = liftIO $ gitIn env dir args
         run dir args = git dir args >>= \case
           Left e -> throwError $ "git: " ++ show e
@@ -57,9 +57,7 @@ commitFile path author message = do
             case changed of
               Right (ExitSuccess, _, _) -> return Unchanged
               _ -> do
-                _ <- run root [ "commit", "--quiet", "--no-edit"
-                              , "--author", T.unpack author ++ " <>"
-                              , "-m", T.unpack message, "--", file ]
+                _ <- run root ["commit", "--quiet", "-m", T.unpack message, "--", file]
                 return Committed
       _ -> return NotInRepository
   return $ fromMaybe (Left "git: time limit reached") r
@@ -80,14 +78,18 @@ gitTimeout :: Int
 gitTimeout = 10 * 1000000
 
 -- | The environment of kiwi, without the variables that would make git use
--- another repository, without prompt, and with Kiwi as committer
-gitEnvironment :: IO [(String, String)]
-gitEnvironment = do
+-- another repository, without prompt, with this author and Kiwi as
+-- committer (without email)
+gitEnvironment :: T.Text -> IO [(String, String)]
+gitEnvironment author = do
   env <- getEnvironment
   return $ [ (k, v) | (k, v) <- env, k `notElem` removed ] ++
            [ ("GIT_TERMINAL_PROMPT", "0")
+           , ("GIT_AUTHOR_NAME", T.unpack author)
+           , ("GIT_AUTHOR_EMAIL", "")
            , ("GIT_COMMITTER_NAME", "Kiwi")
            , ("GIT_COMMITTER_EMAIL", "") ]
   where removed = [ "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY"
                   , "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_TERMINAL_PROMPT"
-                  , "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL" ]
+                  , "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE"
+                  , "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE" ]
