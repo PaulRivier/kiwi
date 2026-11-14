@@ -162,7 +162,33 @@ editSpec = do
     liftIO $ status saved `shouldBe` 200
     liftIO $ gitOut cd ["log", "-1", "--format=%an <%ae>|%cn <%ce>|%s"]
       `shouldReturn` "bob via Kiwi <>|Kiwi <>|Edit s:p (kiwi kiwi)\n"
+    -- no pre-update commit: the file was not changed outside of kiwi
+    liftIO $ gitOut cd ["rev-list", "--count", "HEAD"] `shouldReturn` "2\n"
     liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""
+
+  let logOf cd n = gitOut cd ["log", "-" ++ show (n :: Int), "--format=%an <%ae>|%cn <%ce>|%s"]
+      saveCommits = "bob via Kiwi <>|Kiwi <>|Edit s:p (kiwi kiwi)\n\
+                    \Kiwi <>|Kiwi <>|Pre-update commit of s:p (kiwi kiwi)\n"
+
+  it "first commits the changes made outside of kiwi, as Kiwi" $ onRepo [] $ \cd -> do
+    _ <- login "bob"
+    liftIO $ appendFile (pagePath cd "p.md") "\n\nOutside"
+    outside <- liftIO $ readFile (pagePath cd "p.md")
+    h <- hashOf cd "p.md"
+    saved <- save h "title: New\n\nBye"
+    liftIO $ status saved `shouldBe` 200
+    liftIO $ logOf cd 3 `shouldReturn` (saveCommits ++ "test <test@test>|test <test@test>|init\n")
+    liftIO $ gitOut cd ["show", "HEAD~1:s/pages/p.md"] `shouldReturn` outside
+    liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""
+
+  it "first commits a page file that is not tracked yet, as Kiwi" $ onRepo [] $ \cd -> do
+    _ <- login "bob"
+    liftIO $ git cd ["rm", "-q", "--cached", "s/pages/p.md"]
+    liftIO $ git cd ["commit", "-q", "-m", "untrack"]
+    h <- hashOf cd "p.md"
+    saved <- save h "title: New\n\nBye"
+    liftIO $ status saved `shouldBe` 200
+    liftIO $ logOf cd 2 `shouldReturn` saveCommits
 
   it "does not commit a saved page with git-commit: no" $ onRepo ["git-commit: no"] $ \cd -> do
     _ <- login "bob"

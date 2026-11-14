@@ -25,12 +25,7 @@ the bottom of each page (`/commonmark`) shows the syntax. Raw HTML is
 allowed, but its scripts are blocked by the Content-Security-Policy of
 Kiwi (`script-src 'self'`): only the scripts of the theme run.
 
-Kiwi is beta software, use at your own risk. Some notes:
-- Since it does never write to content files, there is no risk of data
-  loss
-- The access control system is alpha, if you really need guaranteed
-  access control reliability, consider reviewing this code (it is
-  short and simple), or getting in touch with the author about it.
+Kiwi is beta software, use at your own risk.
 
 # Install from released binaries (Linux)
 
@@ -650,8 +645,11 @@ ignored there (`.gitignore`), Kiwi commits this file alone: a file not
 tracked yet is added, and what you have staged for other files stays
 staged, out of the commit. The author of the commit is *LOGIN via
 Kiwi* (without email), its committer is *Kiwi*, and its message is
-`Edit SOURCE:ID (kiwi NAME)`. Changes of the file that were not
-committed before its edition are in the commit too. Set
+`Edit SOURCE:ID (kiwi NAME)`. When the file differed from its last
+commit before the save (changes not committed, or a file not tracked
+yet), Kiwi first commits it as it was, with *Kiwi* as author and the
+message `Pre-update commit of SOURCE:ID (kiwi NAME)`: the changes made
+outside of Kiwi are not attributed to the user of the browser. Set
 `git-commit: no` in the `[kiwi]` section of kiwi.ini to disable these
 commits. Kiwi does not push, and the files changed with your local
 editor are not committed.

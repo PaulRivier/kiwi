@@ -1,6 +1,13 @@
 # ChangeLog for Kiwi
 
-## v0.4.1.0 - 2026-11-13
+## Unreleased
+
+- Git: before committing a page saved from the browser, Kiwi commits the
+  changes of its file made outside of Kiwi (or the file not tracked yet),
+  with "Kiwi" as author and the message "Pre-update commit of SOURCE:ID
+  (kiwi NAME)", so that they are not attributed to the user of the browser.
+
+## v0.4.2.0 - 2026-11-13
 
 - **Edit pages in the browser**, with a markdown editor (EasyMDE, embedded:
   nothing loaded from elsewhere), a toolbar and a preview rendered by Kiwi.

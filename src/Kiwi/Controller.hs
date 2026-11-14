@@ -480,10 +480,12 @@ sameOrigin = do
 
 -- | Saves the text of a page sent by its editor (see 'Kiwi.Edit.editedText'),
 -- when its file has not changed since the edition (same hash), and when the
--- page can be loaded, with an id that is not the one of another page. The
--- file is then committed when it is in a git repository (unless git-commit
--- is no; a failure of git is only logged), and the pages are reloaded. The
--- check, the write, the commit and the reload hold the lock of the reloads. The answer is the URL of the page (its id may change),
+-- page can be loaded, with an id that is not the one of another page. When
+-- the file is in a git repository (unless git-commit is no; a failure of git
+-- is only logged), its changes made outside of kiwi, if any, are first
+-- committed by Kiwi, and the saved file is committed by its user. The pages
+-- are then reloaded. The check, the commits, the write and the reload hold
+-- the lock of the reloads. The answer is the URL of the page (its id may change),
 -- with the keys that the user can not change in the Kiwi-Ignored-Keys header,
 -- if any; 409 when the file changed, 400 when the text can not be saved.
 serveSavePage :: K.PageUID -> T.Text -> T.Text -> ActM ()
@@ -496,11 +498,14 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
     file <- withExceptT Edit.SaveFailed $ ExceptT $ readPageFile path
     (text, ignored, newUid) <- liftEither $
       Edit.checkSave (K.contentDir ss) db uid level hash path file sent
+    liftIO $ when (K.gitCommit ss) $
+      commitPage ss "Kiwi" "pre-update commit" "Pre-update commit of " path uid
     withExceptT (\e -> Edit.SaveFailed $ show (e :: IOException)) $ ExceptT $ try $
       Edit.writePageFile path text
     liftIO $ do
       K.logger ss L.Info $ T.pack $ concat [ "page saved by ", T.unpack user, ": ", path ]
-      when (K.gitCommit ss) $ commitPage ss user path newUid
+      when (K.gitCommit ss) $
+        commitPage ss (user <> " via Kiwi") "page" "Edit " path newUid
       DB.reloadPages ss
     return (newUid, ignored)
   case result of
@@ -516,16 +521,17 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
       Scotty.text $ TL.pack e
     Left (Edit.SaveFailed e) -> serveFailure $ T.pack e
 
--- | Commits the file of a page saved by this user, when it is in a git
--- repository, with "USER via Kiwi" as author; a failure is logged
-commitPage :: K.ServerState -> T.Text -> FilePath -> K.PageUID -> IO ()
-commitPage ss user path (source, pid) = do
-  let message = T.concat [ "Edit ", source, ":", pid, " (kiwi ", K.kiwiName ss, ")" ]
-  r <- Git.commitFile path (user <> " via Kiwi") message
+-- | Commits the file of a page, when it is in a git repository and differs
+-- from its last commit, with this author and the message "PREFIX SOURCE:ID
+-- (kiwi NAME)"; the commit (named by what in the log) or its failure is logged
+commitPage :: K.ServerState -> T.Text -> String -> T.Text -> FilePath -> K.PageUID -> IO ()
+commitPage ss author what prefix path (source, pid) = do
+  let message = T.concat [ prefix, source, ":", pid, " (kiwi ", K.kiwiName ss, ")" ]
+  r <- Git.commitFile path author message
   case r of
-    Right Git.Committed -> K.logger ss L.Info $ T.pack $ "page committed: " ++ path
+    Right Git.Committed -> K.logger ss L.Info $ T.pack $ concat [ what, " committed: ", path ]
     Right _ -> return ()
-    Left e -> K.logger ss L.Warn $ T.pack $ concat [ "page not committed: ", path, ": ", e ]
+    Left e -> K.logger ss L.Warn $ T.pack $ concat [ what, " not committed: ", path, ": ", e ]
 
 -- | Preview of the content of a text sent by the editor of a page, as the
 -- content of the page (links relative to its folder): an HTML fragment, or
