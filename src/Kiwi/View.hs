@@ -282,10 +282,11 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
              , data_ "error-forbidden" (K.loc_ActionForbidden loc)
              , data_ "error-failed" (K.loc_ActionFailed loc) ]
 
--- | CommonMark link to the page, to paste in another page. The brackets of the
--- title are escaped (and the backslashes, which would escape them).
+-- | CommonMark link to the page, by its uid, to paste in another page of its
+-- source. The brackets of the title are escaped (and the backslashes, which
+-- would escape them); a valid uid needs no angle brackets.
 cmLink :: K.Page -> T.Text
-cmLink p = T.concat ["[", escape (K.pageTitle p), "](<page:", Url.pageUIDLink p, ">)"]
+cmLink p = T.concat ["[", escape (K.pageTitle p), "](uid:", snd (K.pageUID p), ")"]
   where
     escape = T.concatMap $ \c -> if c `elem` ['[', ']', '\\'] then T.pack ['\\', c]
                                  else T.singleton c

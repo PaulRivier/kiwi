@@ -1,4 +1,5 @@
 title: CommonMark cheatsheet
+uid: CommonMark
 tags: kiwi, help, CommonMark
 lang: english
 
@@ -271,17 +272,20 @@ recognized as valid autolinks by markdown parsers.
 
 ### Inline links
 
-Make a link to an other Kiwi document from your document. Syntax is
-`[text of the link](<page:ID>)` where ID is the file name, from your
-pages directory, without file extension. For example to link to your
-Home.md file.
+Make a link to an other Kiwi document of the same source. Syntax is
+`[text of the link](uid:UID)` where UID is the `uid` of the page, found
+in its metadata header. For example to link to the page whose uid is
+*Home*, and to its section *What to do now*:
 
 ```
-[Home page](<page:Home>)
+[Home page](uid:Home)
+[What to do now](uid:Home#what-to-do-now)
 ```
 
-There is a convenient feature to help link : click the chainlink
-button in the page header on any page, to get a preformated Kiwi Link copied to your clipboard. Paste it as usual in your document to make the link.
+The easiest way to get the link of a page: click the chainlink button
+in the page header, to get a Kiwi link to this page copied to your
+clipboard. Paste it as usual in your document to make the link. The
+link stays valid when the file of the page is renamed or moved.
 
 
 You can make a link to one of your files

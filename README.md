@@ -191,12 +191,22 @@ the files whose name starts with a letter or a digit and ends with
 `.md` or `.markdown`: other files (`_draft.md`, `notes.txt`) are
 ignored, with a message in debug mode (`kiwi serve --log-level debug`),
 as well as hidden files and folders (`.name`). Pages must be UTF-8
-files.
+files, with Unix line endings (LF) and without byte order mark: other
+files are not loaded, and are listed on the *Doctor* page.
 
-Pages filename are used as identifiers, unless you set a custom
-identifier in the page: the identifier is the file path from *pages*,
-without extension, with `:` between the folders (*recipe/cake.md* gives
-`recipe:cake`).
+Each page has a unique identifier in its source, its *uid*, written in
+its metadata (`uid: 7KQ2M9XA3B`). Kiwi writes one in the pages that have
+none, when it loads them: 10 random characters. It also gives a new uid
+to a page whose uid is not valid, or is already the one of another page
+of the source (a copied file, for example), and keeps the former one in
+its *previous-uids* metadata. The file is then written again, its
+metadata header in a normalized form (see [Edit pages in the
+browser](#edit-pages-in-the-browser)), and committed when it is in a git
+repository (see [Content versioning and backup](#content-versioning-and-backup)).
+You may choose a uid yourself (`uid: cake`): from 1 to 64 letters,
+digits, `-` or `_`. The address of a page is `/page/SOURCE/UID`, and the
+links to a page use its uid: they stay valid when its file is renamed
+or moved.
 
 Kiwi documents are composed of metadata and content. Metadata are
 fields in the form
@@ -267,10 +277,10 @@ Some metadata keys are reserved by kiwi :
 
 * **title** : title of your page (optional, but a page without title
   gets the default one, *untitled*)
-* **id** : your page identifier, this is optional, if you don't set it
-  kiwi will use the name of the file. In should be unique within the
-  page source. It should not include "/" or ":". When two pages of a
-  source have the same identifier, only one is used, with a warning.
+* **uid** : the identifier of the page, unique in its source (see
+  above). Kiwi writes it when it is missing.
+* **previous-uids** : the uids that Kiwi replaced on this page,
+  separated by commas. Kept by Kiwi, don't change it.
 * **tags** : powerful tags, see below (optional)
 * **lang** : language of the content, for full-text search and for the
   `lang` attribute of the page in HTML (optional)
@@ -303,16 +313,16 @@ are ignored.
 
 **Links format :**
 
-Link to a page, file-name is file path from *pages* without extension
-(a `.md` or `.markdown` extension is removed), or the custom
-identifier of the page
+Link to a page of the same source, by its uid (the chainlink button of
+a page copies a link to it; spaces around the uid are allowed:
+`<uid: cake>`). A page can not link to a page of another source.
 
-    [link to a page](<page:File-name>)
+    [link to a page](uid:UID)
 
 Link to a heading of a page, headings get an anchor from their text
 (`## Baking time` gives `#baking-time`)
 
-    [link to a section](<page:File-name#baking-time>)
+    [link to a section](uid:UID#baking-time)
     [link to a section of this page](#baking-time)
 
 Link to an image, file-name is file path from *images*
@@ -331,8 +341,6 @@ You are free to create subfolders to arrange your files in *pages*,
 *images* and *files*. Subfolders have minimal impact on Kiwi
 behaviour, however they provide the following properties :
 
-- links to an other page are relative to current page folder. This
-  will save you strokes and help you move folders if you need to.
 - If meta *images-dir* is not set, links to an image are relative to
   current page subfolder in 'images' folder. In other word, from
   document *pages/recipe/cake.md*, a link to *image:cacao.png* will
@@ -345,14 +353,11 @@ Links can target path relative to top directories if they start with
 
     [link to a file](<file:/spreadsheet.ods>)
 
-A custom page identifier does not depend on the folder of its page: from
-a subfolder, link to it with `page:/identifier`.
-
-In links, `.` and `..` work as usual (`page:../cake`); a `..` above the
-top of the *pages*, *images* or *files* folder is ignored, so a link never
-leaves its source. Targets may be percent-encoded, which is needed for
-the characters with a meaning in links: `page:C%23` links to the page
-*C#.md* (a `#` starts an anchor).
+In image and file links, `.` and `..` work as usual (`image:../cake.png`);
+a `..` above the top of the *images* or *files* folder is ignored, so a
+link never leaves its source. Targets may be percent-encoded, which is
+needed for the characters with a meaning in links: `file:C%23.pdf` links
+to the file *C#.pdf* (a `#` starts an anchor).
 
 Broken links get the `kiwi-link-broken` class, that the theme shows in
 red with a dashed underline. For a reader, a link to a page they can
@@ -361,8 +366,8 @@ not read, or between an archived page and a non archived one (see
 linked at the bottom of every page) lists the pages with broken links,
 among those the reader can read, with these links. For admins, it also
 lists the files that could not be loaded as pages, with the reason
-(invalid metadata header, file that is not UTF-8, page identifier already
-used by another file...).
+(invalid metadata header, file that is not UTF-8, file where Kiwi could
+not write the uid of the page...).
 
 
 ### images and files
@@ -544,19 +549,21 @@ margin of the block under the mouse: it opens the editor at the line of
 this block.
 
 The editor shows the whole file, its metadata header included, written
-in a normalized form: one line by key, in a fixed order (title, id,
-tags, access, lang, archive, images-dir, files-dir, the custom
-metadata, then the other keys), the tags sorted. With the write right,
-the *access*, *id*, *archive*, *images-dir* and *files-dir* metadata
-are not shown, and are kept as they are in the file when the page is
-saved; with the admin right, everything can be changed.
+in a normalized form: one line by key, in a fixed order (title, uid,
+previous-uids, tags, access, lang, archive, images-dir, files-dir, the
+custom metadata, then the other keys), the tags sorted. The *uid* and
+*previous-uids* metadata are never shown, and are kept as they are in
+the file when the page is saved, whatever the right. With the write
+right, the *access*, *archive*, *images-dir* and *files-dir* metadata
+are not shown either, and are kept the same way; with the admin right,
+they can be changed.
 
 When the page is saved, Kiwi writes the file (atomically, with its
 former permissions), and reloads the pages. The save is refused when
 the file has changed since the editor was opened (by another editor or
 another user): keep a copy of your text, and open the editor again. It
-is also refused when the page could not be loaded (an invalid header),
-or when its new id is the one of another page. Until it is saved, the
+is also refused when the page could not be loaded (an invalid header).
+Until it is saved, the
 text is kept as a draft in your browser, for this version of the file.
 
 When the saved file is in a git repository, Kiwi commits it: see
@@ -582,8 +589,8 @@ the file is saved to see the changes.
 # Copy link
 
 Clicking on the chain link will copy a link to current page to your
-clipboard, so that it is easier for you to link between your
-documents. This button is only shown to admins and to the users with the
+clipboard (`[Title](uid:UID)`), so that it is easier for you to link
+between the documents of a source. This button is only shown to admins and to the users with the
 write right on the page, and the browser only allows it over HTTPS or on
 localhost.
 
@@ -625,9 +632,10 @@ A group can also get a right on the page, after a colon :
 
 * **r** (the default, `friends` is `friends:r`) : read the page ;
 * **w** (or **rw**) : read and edit the page in the browser, its
-  content and its metadata, except *access*, *id*, *archive*,
-  *images-dir* and *files-dir* ;
-* **a** : read and edit everything in the page, these metadata included.
+  content and its metadata, except *access*, *archive*, *images-dir*
+  and *files-dir* ;
+* **a** : read and edit everything in the page, these metadata included
+  (but not *uid* and *previous-uids*, kept by Kiwi).
 
 `public` can only read. A group given several times gets its highest
 right. An invalid item (`family:x`, `public:w`) gives no right at all,
@@ -645,18 +653,25 @@ ignored there (`.gitignore`), Kiwi commits this file alone: a file not
 tracked yet is added, and what you have staged for other files stays
 staged, out of the commit. The author of the commit is *LOGIN via
 Kiwi* (without email), its committer is *Kiwi*, and its message is
-`Edit SOURCE:ID (kiwi NAME)`. When the file differed from its last
+`Edit SOURCE:UID (kiwi NAME)`. When the file differed from its last
 commit before the save (changes not committed, or a file not tracked
 yet), Kiwi first commits it as it was, with *Kiwi* as author and the
-message `Pre-update commit of SOURCE:ID (kiwi NAME)`: the changes made
-outside of Kiwi are not attributed to the user of the browser. Set
-`git-commit: no` in the `[kiwi]` section of kiwi.ini to disable these
+message `Pre-update commit of SOURCE:UID (kiwi NAME)`: the changes made
+outside of Kiwi are not attributed to the user of the browser.
+
+Kiwi commits the files it writes when it loads the pages (the uids it
+writes, see [pages](#pages)) the same way: one commit by repository,
+with *Kiwi* as author and the message `Kiwi: uid assigned to N pages`,
+after a commit `Kiwi: pre-update commit of N pages` of those that
+differed from their last commit.
+
+Set `git-commit: no` in the `[kiwi]` section of kiwi.ini to disable these
 commits. Kiwi does not push, and the files changed with your local
 editor are not committed.
 
 The commit is made with the `git` program; when it fails (git not
 installed, a hook that refuses the commit, a merge in progress, more
-than 10 seconds), the page is saved anyway and the error is logged. If
+than 60 seconds), the page is saved anyway and the error is logged. If
 Kiwi runs as another user than the owner of the repository, git refuses
 to work in it until the repository is added to the `safe.directory`
 setting of this user, for example

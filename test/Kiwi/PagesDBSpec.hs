@@ -2,6 +2,7 @@ module Kiwi.PagesDBSpec (pagesDBSpec) where
 
 import           Control.Exception (IOException, finally, try)
 import           Data.Either (isRight)
+import qualified Data.ByteString as BS
 import           Control.Monad (when)
 import           Data.IORef (modifyIORef, newIORef, readIORef)
 import           Data.List (find, sort)
@@ -15,6 +16,7 @@ import qualified System.Posix.Files as PF
 import           Test.Hspec
 
 import           Kiwi.Auth (readableQuery)
+import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Log as L
 import qualified Kiwi.PagesDB as DB
 import           Kiwi.Search (queryTerms)
@@ -119,6 +121,20 @@ pagesDBSpec = do
       (db', msgs') <- reloadDB cd db
       msgs' `shouldBe` []
       dbIds db' `shouldReturn` ids
+
+  it "loads the pages of kiwi init with their uid, without writing them" $
+    withContentDir $ \cd -> do
+      D.createDirectoryIfMissing True (FP.takeDirectory $ pageFile cd "Home.md")
+      BS.writeFile (pageFile cd "Home.md") DP.defaultHomePage
+      BS.writeFile (pageFile cd "CommonMark.md") DP.commonmarkDocPage
+      (db, msgs) <- loadDB cd
+      sort (map pageUID $ DI.documentsList $ pagesIndex db)
+        `shouldBe` [("s", "CommonMark"), ("s", "Home")]
+      warnings msgs `shouldBe` []
+      DB.brokenLinks (pagesIndex db) `shouldSatisfy` null
+      fmap pageLinks (DI.findDoc (pagesIndex db) ("s", "Home")) `shouldBe` Just [("s", "CommonMark")]
+      BS.readFile (pageFile cd "Home.md") `shouldReturn` DP.defaultHomePage
+      BS.readFile (pageFile cd "CommonMark.md") `shouldReturn` DP.commonmarkDocPage
 
   it "does not reload unchanged files" $
     withContentDir $ \cd -> do

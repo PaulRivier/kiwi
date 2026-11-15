@@ -2,10 +2,27 @@
 
 ## Unreleased
 
+- **Page uids**: each page has a `uid` metadata, unique in its source.
+  Kiwi writes one (10 random characters) in a page that has none when it
+  loads it, and gives a new one to a page whose uid is invalid or already
+  the one of another page of the source, the former uid going to the new
+  `previous-uids` metadata. The file is written again with a normalized
+  metadata header, and committed (one commit by repository, "Kiwi: uid
+  assigned to N pages"). A page whose file can not be written is not
+  loaded, and listed on the Doctor page. The page address is
+  `/page/SOURCE/UID`, and the links to a page are `[text](uid:UID)` or
+  `[text](uid:UID#anchor)`: they no longer depend on the path of its file.
+  The copied link of a page uses its uid. `uid` and `previous-uids` can not
+  be changed from the browser editor, whatever the right.
+- **Breaking**: the `page:` links and the `id` metadata are no longer
+  supported. Page files with Windows line endings (CRLF) or a byte order
+  mark are no longer loaded (the browser editor saves LF line endings).
+- The pages created by `kiwi init` have the uids `Home` and `CommonMark`.
 - Git: before committing a page saved from the browser, Kiwi commits the
   changes of its file made outside of Kiwi (or the file not tracked yet),
-  with "Kiwi" as author and the message "Pre-update commit of SOURCE:ID
+  with "Kiwi" as author and the message "Pre-update commit of SOURCE:UID
   (kiwi NAME)", so that they are not attributed to the user of the browser.
+  The time limit of git is now 60 seconds.
 
 ## v0.4.2.0 - 2026-11-13
 

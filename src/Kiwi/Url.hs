@@ -5,7 +5,6 @@ module Kiwi.Url
   , editUrl
   , urlEncodeText
   , urlDecodeText
-  , pageUIDLink
   , contextParams
   , withoutContextParams
   , inContext
@@ -53,9 +52,10 @@ renderParams :: [(T.Text, T.Text)] -> T.Text
 renderParams ps = TE.decodeUtf8 $ URI.renderQuery True
   [ (TE.encodeUtf8 n, Just $ TE.encodeUtf8 v) | (n, v) <- ps ]
 
-pageUIDLink :: Page -> T.Text
-pageUIDLink p = let (_,i) = pageUID p in
-  T.concat ["/", i]
+-- (unused since the links are by uid, see 'Kiwi.View.cmLink')
+-- pageUIDLink :: Page -> T.Text
+-- pageUIDLink p = let (_,i) = pageUID p in
+--   T.concat ["/", i]
 
 -- | Encodes a path segment: every character but the letters, digits, and
 -- "-_.~:@&=+$," ('/', '?', '#', '%' and spaces are encoded)

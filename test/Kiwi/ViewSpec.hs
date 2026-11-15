@@ -22,11 +22,11 @@ import           TestUtils
 
 viewSpec :: Spec
 viewSpec = do
-  let page title = (mkPage ("src", "sub:p") [] ["public"] False 1) { pageTitle = title }
+  let page title = (mkPage ("src", "p") [] ["public"] False 1) { pageTitle = title }
 
   it "escapes the brackets and backslashes of the title in the copied link" $
     V.cmLink (page "a [b] \\c")
-      `shouldBe` "[a \\[b\\] \\\\c](<page:/sub:p>)"
+      `shouldBe` "[a \\[b\\] \\\\c](uid:p)"
 
   it "copies a link whose text is the title, once parsed" $ do
     let title = "a [b] ]c[ \\"
