@@ -195,7 +195,10 @@ data MetaField = FieldSource
 -- defaults of the config, and the metadata of a page (its header merged over
 -- the defaults) have the same type.
 data MetaData =
-  MetaData { metaId :: Maybe T.Text
+  MetaData { metaUid :: Maybe T.Text
+           -- | the former uids of the page, replaced by kiwi (see
+           -- 'Kiwi.PagesDB.updatePagesDB')
+           , metaPreviousUids :: Maybe [T.Text]
            , metaTitle :: Maybe T.Text
            , metaTags  :: Maybe [TagId]
            , metaAccess :: Maybe Access
@@ -223,7 +226,7 @@ type Access = [(T.Text, AccessLevel)]
 -- | The document is not kept, it is parsed again from the content to be
 -- displayed (see 'Kiwi.Pandoc.pageDoc'). Fields are strict, so that none keeps it alive through a thunk.
 data Page =
-  Page { pageUID  :: !PageUID   -- ^ page uid, used for routing
+  Page { pageUID  :: !PageUID   -- ^ (source, uid of the page), used for routing
        , pageAbsoluteFSPath :: !FP.FilePath  -- ^ path to file, absolute
        , pageMTime :: !Time.UTCTime -- ^ time of file modification from filesystem
        -- , pageText :: !T.Text   -- ^ text of the file, metadata included
@@ -238,18 +241,20 @@ data Page =
        , pageLinks :: ![PageUID]
        , pageArchive :: !Bool  -- ^ only in the archives navigation
        , pageCustomMeta :: ![CustomMetaData]
+       , pagePreviousUids :: ![T.Text]  -- ^ uids replaced by kiwi (previous-uids)
        }
   deriving (Show)
 
 
-type PageUID = (T.Text, T.Text) -- ^ (source, page id)
+type PageUID = (T.Text, T.Text) -- ^ (source, uid), unique
 -- type PageSet = S.Set Page
 type TagId = T.Text
 type TagSegments = [TagId]
 
 data PandocPage =
   PandocPage { pandocDoc :: PD.Pandoc
-             , pandocMeta :: MetaData
+             , pandocMeta :: MetaData     -- ^ the header merged over the defaults
+             , pandocHeader :: MetaData   -- ^ the header of the file alone
              , pandocPageLinks :: [PageUID]
              , pandocBody :: T.Text       -- ^ markdown content, without the header
              , pandocImagesDir :: T.Text  -- ^ folder of the "image:" links

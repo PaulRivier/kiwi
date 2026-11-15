@@ -9,6 +9,7 @@ import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 
 import qualified Kiwi.ConfigFile as Conf
+import           Data.Either (isLeft)
 import           Data.Maybe (fromMaybe)
 import           Kiwi.Meta (parseHeader, parseHeaderFields, sourceMeta, splitPage,
                             unknownMetaKeys, invalidMetaValues)
@@ -68,7 +69,7 @@ loadPageSpec = do
     metaTags m `shouldBe` Just ["untagged"]
     metaAccess m `shouldBe` Just [("private", AccessRead)]
     metaLang m `shouldBe` Just (LangFixed English)
-    metaId m `shouldBe` Nothing
+    metaUid m `shouldBe` Nothing
 
   it "joins repeated fields" $ do
     let m = pandocMeta $ load "title: a\ntags: t1\ntags: t2, t3\n\n"
@@ -78,19 +79,20 @@ loadPageSpec = do
     let m = pandocMeta $ load "title: a\ntags: sport > {alpinisme, escalade}\ntags: b\n\n"
     metaTags m `shouldBe` Just ["sport > alpinisme", "sport > escalade", "b"]
 
-  it "reads custom id" $
-    metaId (pandocMeta $ load "id: my-id\n\n") `shouldBe` Just "my-id"
+  it "reads the uid and the previous uids, in the header of the file" $ do
+    let p = load "uid: my-id\nprevious-uids: a:b, X\\,Y\n\n"
+    metaUid (pandocMeta p) `shouldBe` Just "my-id"
+    metaUid (pandocHeader p) `shouldBe` Just "my-id"
+    metaPreviousUids (pandocHeader p) `shouldBe` Just ["a:b", "X,Y"]
+    metaTitle (pandocHeader p) `shouldBe` Nothing
 
-  it "ignores an empty id" $ do
-    metaId (pandocMeta $ load "id:\n\n") `shouldBe` Nothing
-    metaId (pandocMeta $ load "id:   \n\n") `shouldBe` Nothing
+  it "ignores an empty uid" $ do
+    metaUid (pandocMeta $ load "uid:\n\n") `shouldBe` Nothing
+    metaUid (pandocMeta $ load "uid:   \n\n") `shouldBe` Nothing
 
-  it "accepts windows line endings" $ do
-    let p = load "title: T\r\ntags: x\r\n\r\nline 1\r\nline 2"
-    metaTitle (pandocMeta p) `shouldBe` Just "T"
-    metaTags (pandocMeta p) `shouldBe` Just ["x"]
-    blocks p `shouldBe` [PD.Para [PD.Str "line", PD.Space, PD.Str "1",
-                                  PD.SoftBreak, PD.Str "line", PD.Space, PD.Str "2"]]
+  it "refuses windows line endings and a byte order mark" $ do
+    splitPage [] "title: T\r\ntags: x\r\n\r\nline 1\r\nline 2" `shouldSatisfy` isLeft
+    splitPage [] "\xFEFFtitle: T\n\nHello" `shouldSatisfy` isLeft
 
   it "accepts a file with header only" $ do
     let p = load "title: Only header"
@@ -102,6 +104,16 @@ loadPageSpec = do
     links p `shouldBe` [ (["kiwi-link-page"], "/page/src/sub:Other")
                        , (["kiwi-link-page"], "/page/src/Top:Page") ]
     pandocPageLinks p `shouldBe` [("src", "sub:Other"), ("src", "Top:Page")]
+
+  it "fixes uid links, with spaces around the uid, and collects them" $ do
+    let p = load "title: t\n\n[a](uid:ABC) [b](<uid: XYZ >) [c](<uid: XYZ #part 2>) \
+                 \[d](uid:A%20B#x)"
+    links p `shouldBe` [ (["kiwi-link-page"], "/page/src/ABC")
+                       , (["kiwi-link-page"], "/page/src/XYZ")
+                       , (["kiwi-link-page"], "/page/src/XYZ#part 2")
+                       , (["kiwi-link-page"], "/page/src/A%20B#x") ]
+    pandocPageLinks p `shouldBe` [ ("src", "ABC"), ("src", "XYZ"), ("src", "XYZ")
+                                 , ("src", "A B") ]
 
   it "fixes page links from a page at top of pages folder" $ do
     let p = loadIn "" "title: t\n\n[a](<page:Other>)"
@@ -196,12 +208,6 @@ loadPageSpec = do
     -- the default lang is used
     metaLang (pandocMeta $ load "title: t\nlang: fr\n\nx") `shouldBe` Just (LangFixed English)
 
-  it "removes a byte order mark at the start of the file" $ do
-    let p = load "\xFEFFtitle: T\r\ntags: x\r\n\r\nHello"
-    metaTitle (pandocMeta p) `shouldBe` Just "T"
-    blocks p `shouldBe` [PD.Para [PD.Str "Hello"]]
-    unknownKeys [] "\xFEFFtitle: T\n\nHello" `shouldBe` []
-
   it "fixes images paths" $ do
     let p = load "title: t\n\n![x](<image:a.png>) ![y](<image:/b.png>) ![z](http://e.org/c.png)"
     images p `shouldBe` ["/image/src/sub/a.png", "/image/src/b.png", "http://e.org/c.png"]
@@ -214,7 +220,7 @@ loadPageSpec = do
 
   it "parses a page again, from its content, to display it" $ do
     let body = "[a](<page:Other>) ![x](<image:a.png>) [f](<file:c.ods>)"
-        c = "title: t\r\nimages-dir: pics\r\n\r\n" <> body
+        c = "title: t\nimages-dir: pics\n\n" <> body
         page = Page { pageUID = ("src", "sub:p")
                     , pageAbsoluteFSPath = "/k/content/src/pages/sub/p.md"
                     , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
@@ -229,6 +235,7 @@ loadPageSpec = do
                     , pageLinks = []
                     , pageArchive = False
                     , pageCustomMeta = []
+                    , pagePreviousUids = []
                     }
     pandocBody (load c) `shouldBe` body
     pandocImagesDir (load c) `shouldBe` "pics"

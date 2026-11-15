@@ -11,9 +11,11 @@ module Kiwi.Meta
   , keepOnlyMeta
   , sourceMeta
   , adminKeys
+  , kiwiKeys
+  , isValidUid
+  , uidFromBytes
   , parseAccess
   , splitPage
-  , normalizeNewlines
   , parseHeader
   , writeHeader
   , writePage
@@ -24,6 +26,8 @@ module Kiwi.Meta
 
 import           Control.Applicative ((<|>))
 import           Control.Monad (mfilter)
+import           Data.Bits ((.&.))
+import qualified Data.ByteString as BS
 import           Data.Char (isAlphaNum, isSpace)
 import qualified Data.List as L
 import qualified Data.Map.Strict as M
@@ -39,7 +43,8 @@ import           Kiwi.Utils (splitOnFirst, parseLangSetting, parseBool, readCust
 
 -- | Metadata without any field
 emptyMeta :: MetaData
-emptyMeta = MetaData { metaId = Nothing
+emptyMeta = MetaData { metaUid = Nothing
+                     , metaPreviousUids = Nothing
                      , metaTitle = Nothing
                      , metaTags = Nothing
                      , metaAccess = Nothing
@@ -55,7 +60,8 @@ emptyMeta = MetaData { metaId = Nothing
 -- second does not have (custom and other fields: by name)
 mergeMeta :: MetaData -> MetaData -> MetaData
 mergeMeta a b =
-  MetaData { metaId = metaId b <|> metaId a
+  MetaData { metaUid = metaUid b <|> metaUid a
+           , metaPreviousUids = metaPreviousUids b <|> metaPreviousUids a
            , metaTitle = metaTitle b <|> metaTitle a
            , metaTags = metaTags b <|> metaTags a
            , metaAccess = metaAccess b <|> metaAccess a
@@ -78,7 +84,9 @@ clearMeta keys = filterMeta (`notElem` keys)
 -- | Keys of the fields of the metadata, valid or not
 metaKeys :: MetaData -> [T.Text]
 metaKeys m = nodup $
-  [ k | (k, True) <- [ ("id", isJust $ metaId m), ("title", isJust $ metaTitle m)
+  [ k | (k, True) <- [ ("uid", isJust $ metaUid m)
+                     , ("previous-uids", isJust $ metaPreviousUids m)
+                     , ("title", isJust $ metaTitle m)
                      , ("tags", isJust $ metaTags m), ("access", isJust $ metaAccess m)
                      , ("lang", isJust $ metaLang m), ("archive", isJust $ metaArchive m)
                      , ("images-dir", isJust $ metaImagesDir m)
@@ -91,7 +99,8 @@ keepOnlyMeta keys = filterMeta (`elem` keys)
 
 filterMeta :: (T.Text -> Bool) -> MetaData -> MetaData
 filterMeta keep m =
-  MetaData { metaId = field "id" metaId
+  MetaData { metaUid = field "uid" metaUid
+           , metaPreviousUids = field "previous-uids" metaPreviousUids
            , metaTitle = field "title" metaTitle
            , metaTags = field "tags" metaTags
            , metaAccess = field "access" metaAccess
@@ -116,7 +125,24 @@ sourceMeta scM md = mergeMeta md emptyMeta { metaAccess = scM >>= scAccess
 -- | Keys of the header that only the users with the admin right on a page
 -- can change: those with the write right can not.
 adminKeys :: [T.Text]
-adminKeys = ["access", "id", "archive", "images-dir", "files-dir"]
+adminKeys = ["access", "archive", "images-dir", "files-dir"]
+
+-- | Keys of the header that kiwi keeps: no editor can see nor change them,
+-- whatever their right
+kiwiKeys :: [T.Text]
+kiwiKeys = ["uid", "previous-uids"]
+
+-- | Whether a uid can be used: from 1 to 64 letters, digits, '-' or '_'
+isValidUid :: T.Text -> Bool
+isValidUid u = not (T.null u) && T.length u <= 64 &&
+               T.all (\ch -> isAlphaNum ch || ch == '-' || ch == '_') u
+
+-- | A uid made of random bytes: one character of the Crockford base32
+-- alphabet by byte (its 5 low bits, so that each character is equally
+-- likely). Kiwi draws 10 bytes, so 50 bits.
+uidFromBytes :: BS.ByteString -> T.Text
+uidFromBytes = T.pack . map (\b -> T.index crockford (fromIntegral (b .&. 31))) . BS.unpack
+  where crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 -- | Groups of an access list ("family:w, friends, me:a"), with their right,
 -- and the items that can not be read. The right of a group is read (r, the
@@ -140,20 +166,14 @@ parseAccess t =
       if T.null group || (group == "public" && level > AccessRead)
         then Nothing else Just (group, level)
 
--- | Header and content of a page (see 'normalizeNewlines'): the header is the
--- first block of the file, until its first blank line, and the content is
--- what follows. A file without blank line is a header only, with an empty
--- content. Fails when the header is invalid (see 'parseHeaderFields').
+-- | Header and content of a page: the header is the first block of the
+-- file, until its first blank line, and the content is what follows. A file
+-- without blank line is a header only, with an empty content. Fails when the
+-- header is invalid (see 'parseHeaderFields'). Lines end with LF only.
 splitPage :: [CustomMetaConfig] -> T.Text -> Either String (MetaData, T.Text)
 splitPage cmc c =
-  let normC = normalizeNewlines c
-      (metaC, content) = fromMaybe (normC, T.empty) $ splitOnFirst "\n\n" normC
+  let (metaC, content) = fromMaybe (c, T.empty) $ splitOnFirst "\n\n" c
   in (, content) <$> parseHeader cmc metaC
-
--- | The text of a file without its initial byte order mark (U+FEFF, added by
--- some Windows editors) if any, and with Unix line endings
-normalizeNewlines :: T.Text -> T.Text
-normalizeNewlines c = T.replace "\r\n" "\n" $ fromMaybe c $ T.stripPrefix "\xFEFF" c
 
 
 -- | Metadata of a header (see 'parseHeaderFields'). The values that can not
@@ -165,8 +185,9 @@ parseHeader cmc t = fromFields cmc <$> parseHeaderFields (map cmcName cmc) t
 -- fields are joined, except "lang" and "archive", whose last line is used.
 fromFields :: [CustomMetaConfig] -> M.Map T.Text [T.Text] -> MetaData
 fromFields cmc fields =
-  MetaData { -- an empty id is ignored: the page gets the id of its path
-             metaId = mfilter (not . T.null) $ T.concat <$> look "id"
+  MetaData { -- an empty uid is ignored: the page gets a new one
+             metaUid = mfilter (not . T.null) $ T.concat <$> look "uid"
+           , metaPreviousUids = splitMeta . T.intercalate "," <$> look "previous-uids"
            , metaTitle = T.intercalate " " <$> look "title"
            , metaTags = splitTags . T.intercalate "," <$> look "tags"
            , metaAccess = fst <$> access
@@ -201,8 +222,8 @@ fromFields cmc fields =
 
 -- | Keys of the header that kiwi reads: built-in, and custom metadata
 knownKeys :: [CustomMetaConfig] -> [T.Text]
-knownKeys cmc = [ "id", "title", "tags", "access", "lang", "archive", "images-dir"
-                , "files-dir" ] ++ map cmcName cmc
+knownKeys cmc = [ "uid", "previous-uids", "title", "tags", "access", "lang", "archive"
+                , "images-dir", "files-dir" ] ++ map cmcName cmc
 
 
 -- | Keys of a header that kiwi does not use: neither built-in nor declared
@@ -231,14 +252,15 @@ writePage cmc m content =
      (if T.null body then "" else body <> "\n")
 
 -- | Normalized text of a header, read back by 'parseHeader': one line by
--- key, in this order: title, id, tags, access, lang, archive, images-dir,
+-- key, in this order: title, uid, previous-uids, tags, access, lang, archive, images-dir,
 -- files-dir, the custom metadata in the order of the config, then the other
 -- keys by name (one line by value). The tags are sorted, without
 -- duplicates, their segments separated by " > ". The values that can not be read are written as they were.
 writeHeader :: [CustomMetaConfig] -> MetaData -> T.Text
 writeHeader cmc m = T.unlines $ concat
   [ line "title" (metaTitle m)
-  , line "id" (metaId m)
+  , line "uid" (metaUid m)
+  , line "previous-uids" (T.intercalate ", " . map (escape ",") <$> metaPreviousUids m)
   , line "tags" (T.intercalate ", " . map writeTag . nodup . map writeTag' <$>
                  metaTags m)
   , let invalid = other "access"

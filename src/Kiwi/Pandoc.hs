@@ -8,7 +8,9 @@ module Kiwi.Pandoc
   , embeddedDoc
   , pagePath
   , linksInContext
-  , textPageUID
+  , checkPageText
+  , pageSubDir
+  , pageTarget
   , Loaded (..)
   , loadPage         -- exported for tests
   ) where
@@ -38,12 +40,11 @@ import qualified Text.Pandoc.Walk as PW
 
 import           Kiwi.HtmlWriter (pageTargetAttrs, lineKey)
 import           Kiwi.LangDetect (resolveLang)
-import           Kiwi.Meta (emptyMeta, mergeMeta, sourceMeta, splitPage, normalizeNewlines,
+import           Kiwi.Meta (emptyMeta, mergeMeta, sourceMeta, splitPage,
                             unknownMetaKeys, invalidMetaValues)
 import           Kiwi.Types
 import           Kiwi.Tags (prefixNormalizeTag)
 import qualified Kiwi.Url as Url
-import           Kiwi.Utils (pathToPageId)
 import qualified Kiwi.Utils as U
 
 
@@ -60,7 +61,7 @@ loadPage path c source md cmc dir = do
         imagesDir = fromMaybe dirT $ metaImagesDir meta
         filesDir  = fromMaybe dirT $ metaFilesDir meta
     (doc, colLinks) <- loadDoc False path source dirT imagesDir filesDir content
-    return $ PandocPage doc meta colLinks content imagesDir filesDir
+    return $ PandocPage doc meta header colLinks content imagesDir filesDir
 
 
 -- | Document of a page from its markdown content, with its links fixed, and
@@ -180,21 +181,21 @@ pageDoc contentDir' p =
 embeddedDoc :: FP.FilePath -> Bool -> T.Text -> Either String (Maybe T.Text, PD.Pandoc)
 embeddedDoc name withHeader c = do
   (header, content) <- if withHeader then splitPage [] c
-                       else Right (emptyMeta, normalizeNewlines c)
+                       else Right (emptyMeta, c)
   let title = metaTitle header
   (doc, _) <- loadDoc False name "" "" "" "" content
   return (title, doc)
 
 
--- | Id of the page of a file of the content folder, from a text of the file:
--- fails when the page can not be loaded (see 'loadPageIO')
-textPageUID :: FP.FilePath -> PagesDB -> FP.FilePath -> T.Text -> Either String PageUID
-textPageUID contentDir' db fullPath c = do
+-- | Checks that a text of a file of the content folder gives a page: fails
+-- when the page can not be loaded (see 'loadPageIO')
+checkPageText :: FP.FilePath -> PagesDB -> FP.FilePath -> T.Text -> Either String ()
+checkPageText contentDir' db fullPath c = do
   let (source, relPath) = pagePath contentDir' fullPath
       scM = L.find ((== source) . scSourceName) (sourcesConfig db)
-  p <- loadPage fullPath c source (sourceMeta scM (defaultMeta db)) (customMetaConfig db)
+  _ <- loadPage fullPath c source (sourceMeta scM (defaultMeta db)) (customMetaConfig db)
                 (pageSubDir relPath)
-  return (source, fromMaybe (pathToPageId relPath) $ metaId $ pandocMeta p)
+  return ()
 
 
 -- | Source of a page file, and its path in the pages folder, without
@@ -228,6 +229,7 @@ linksInContext ctx = PW.walk inContext
 
 
 data LinkType = PageLink T.Text
+              | UidLink T.Text
               | AnchorLink T.Text
               | ImageLink T.Text
               | FileLink T.Text
@@ -246,11 +248,8 @@ walkDoc source pageDir imagesDir filesDir doc =
       -- chemin des pages, fichiers, liens externes
       fixInlines (PD.Link attr txt (rawLink, lName)) =
         case parseLink rawLink of
-          PageLink l   -> let (pId, fragment) = pageTarget pageDir l
-                              uid = (source, pId)
-                          in PD.Link (addKVs (pageTargetAttrs uid) $
-                                      addClass pageLinkClass attr) txt
-                                     (Url.pageUIDUrl uid <> fragment, lName)
+          PageLink l   -> pageLink attr txt lName $ pageTarget pageDir l
+          UidLink l    -> pageLink attr txt lName $ uidTarget l
           AnchorLink l -> PD.Link (addClass "kiwi-link-anchor" attr) txt
                                   (l, lName)
           ImageLink l  -> PD.Link (addClass "kiwi-link-image" attr) txt
@@ -262,14 +261,21 @@ walkDoc source pageDir imagesDir filesDir doc =
       -- reste
       fixInlines x = x
 
+      pageLink attr txt lName (pId, fragment) =
+        let uid = (source, pId)
+        in PD.Link (addKVs (pageTargetAttrs uid) $ addClass pageLinkClass attr) txt
+                   (Url.pageUIDUrl uid <> fragment, lName)
+
       collect :: PD.Inline -> [CollectedFromDoc]
       collect (PD.Link _ _ (rawLink, _)) = case parseLink rawLink of
         PageLink l -> [CollectedPageLink $ fst $ pageTarget pageDir l]
+        UidLink l  -> [CollectedPageLink $ fst $ uidTarget l]
         _          -> []
       collect _ = []
 
       parseLink :: T.Text -> LinkType
       parseLink l = let ltM = (PageLink  <$> T.stripPrefix ("page:") l) <|>
+                              (UidLink   <$> T.stripPrefix ("uid:") l) <|>
                               (ImageLink <$> T.stripPrefix ("image:") l) <|>
                               (FileLink  <$> T.stripPrefix ("file:") l) <|>
                               (if T.isPrefixOf "#" l then Just (AnchorLink l) else Nothing)
@@ -304,6 +310,13 @@ walkDoc source pageDir imagesDir filesDir doc =
 
 
 
+-- | Uid of the page targeted by a "uid:" link, and the fragment of the link
+-- ("#anchor"), if any. The uid may be percent-encoded, and surrounded by
+-- spaces ("<uid: XYZ>").
+uidTarget :: T.Text -> (T.Text, T.Text)
+uidTarget l = let (u, fragment) = T.breakOn "#" l
+              in (T.strip $ Url.urlDecodeText u, fragment)
+
 -- | Id of the page targeted by a "page:" link written in a page of the
 -- given folder, and the fragment of the link ("#anchor"), if any. The target
 -- may be percent-encoded, and may end with the extension of the page file
@@ -336,9 +349,12 @@ absoluteSegments dir path =
 
 
 
--- | A loaded page, and what its header has that kiwi can not use (see
--- 'unknownMetaKeys' and 'invalidMetaValues')
+-- | A loaded page, the header of its file, and what this header has that
+-- kiwi can not use (see 'unknownMetaKeys' and 'invalidMetaValues'). The uid
+-- of the page is the one of its file, as written (it may be invalid, or
+-- empty without uid): 'Kiwi.PagesDB.updatePagesDB' checks it.
 data Loaded = Loaded { loadedPage :: !Page
+                     , loadedHeader :: !MetaData
                      , loadedUnknownKeys :: ![T.Text]
                      , loadedInvalidValues :: ![(T.Text, T.Text)]
                      }
@@ -363,7 +379,8 @@ loadPageIO fullPath relPath source md cmc scM = do
       -- the page, the plain text of its content and the issues of its
       -- header are evaluated here, so that the document can be freed
       Right p -> let meta = pandocMeta p
-                     pId = fromMaybe (pathToPageId relPath) $ metaId meta
+                     header = pandocHeader p
+                     pId = fromMaybe "" $ metaUid header
                      -- the defaults of the config have every field
                      title = fromMaybe "" $ metaTitle meta
                      !content = U.pageContent $ pandocDoc p
@@ -390,5 +407,6 @@ loadPageIO fullPath relPath source md cmc scM = do
                                   , pageLinks = links
                                   , pageArchive = fromMaybe False $ metaArchive meta
                                   , pageCustomMeta = metaCustom meta
+                                  , pagePreviousUids = fromMaybe [] $ metaPreviousUids header
                                   }
-        in Right $ Loaded page unknown invalid
+        in Right $ Loaded page header unknown invalid

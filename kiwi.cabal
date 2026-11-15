@@ -89,6 +89,7 @@ library
       Kiwi.Locales
       Kiwi.Log
       Kiwi.Meta
+      Kiwi.Migration
       Kiwi.HtmlWriter
       Kiwi.PagesDB
       Kiwi.Pandoc
@@ -133,6 +134,7 @@ test-suite kiwi-test
     , QuickCheck
     , text
     , time
+    , unix
     , wai
     , wai-extra
   type: exitcode-stdio-1.0
@@ -147,6 +149,7 @@ test-suite kiwi-test
       Kiwi.HtmlWriterSpec
       Kiwi.LangDetectSpec
       Kiwi.MetaSpec
+      Kiwi.MigrationSpec
       Kiwi.PagesDBSpec
       Kiwi.PandocSpec
       Kiwi.SearchSpec

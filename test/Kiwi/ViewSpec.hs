@@ -64,7 +64,7 @@ viewSpec = do
                                            [("Content-Type", "application/x-www-form-urlencoded")] }
                     path)
         form
-      onKiwi = withKiwiApp [("p.md", "title: Page\n\nHello")] . WT.runSession
+      onKiwi = withKiwiApp [("p.md", "uid: p\ntitle: Page\n\nHello")] . WT.runSession
       body = TL.toStrict . TLE.decodeUtf8 . WT.simpleBody
 
   it "serves the pages and the search form without query" $ onKiwi $ do
@@ -84,7 +84,7 @@ viewSpec = do
   let getWith etag path = WT.request $ WT.setPath
         Wai.defaultRequest { Wai.requestHeaders = [("If-None-Match", etag)] } path
       withAdmin = withKiwiAccounts [("ann", "secret", ["admin"])]
-                                   [("p.md", "title: Page\n\nHello")] . WT.runSession
+                                   [("p.md", "uid: p\ntitle: Page\n\nHello")] . WT.runSession
       etagOf = maybe "" id . lookup "ETag" . WT.simpleHeaders
 
   it "answers 401 to a wrong login, and redirects after a right one" $ withAdmin $ do
@@ -131,7 +131,7 @@ viewSpec = do
 
   it "lists the load errors on the doctor page, for admins only" $
     withKiwiAccounts [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
-                     [("p.md", "title: Page\n\nHello"), ("bad.md", "# No header\n\nText")] $
+                     [("p.md", "uid: p\ntitle: Page\n\nHello"), ("bad.md", "# No header\n\nText")] $
     WT.runSession $ do
       let section = "<h2>Load errors</h2>"
       anonymous <- get "/doctor"
@@ -151,18 +151,18 @@ viewSpec = do
       liftIO $ WT.simpleStatus missing `shouldBe` Net.status404
 
   it "reloads the pages and the accounts out of a request, as the reload signal does" $
-    withKiwiState [] [("p.md", "title: Page\n\nHello")] $ \cd ss app -> do
+    withKiwiState [] [("p.md", "uid: p\ntitle: Page\n\nHello")] $ \cd ss app -> do
       let run = flip WT.runSession app
       missing <- run $ get "/page/s/new"
       WT.simpleStatus missing `shouldBe` Net.status404
-      writeFile (cd FP.</> "s" FP.</> "pages" FP.</> "new.md") "title: New\n\nHello"
+      writeFile (cd FP.</> "s" FP.</> "pages" FP.</> "new.md") "uid: new\ntitle: New\n\nHello"
       reloadKiwi ss
       found <- run $ get "/page/s/new"
       WT.simpleStatus found `shouldBe` Net.status200
 
   it "shows the search results one by line, with an excerpt" $
-    withKiwiApp [ ("a.md", "title: Alpha\nlang: english\n\nThe horses run in the field")
-                , ("b.md", "title: Beta\n\nA horse sleeps") ] $ WT.runSession $ do
+    withKiwiApp [ ("a.md", "uid: a\ntitle: Alpha\nlang: english\n\nThe horses run in the field")
+                , ("b.md", "uid: b\ntitle: Beta\n\nA horse sleeps") ] $ WT.runSession $ do
       resp <- get "/search?query=horse"
       liftIO $ WT.simpleStatus resp `shouldBe` Net.status200
       liftIO $ body resp `shouldSatisfy` T.isInfixOf "<h1>2 results</h1>"
@@ -186,7 +186,7 @@ viewSpec = do
       liftIO $ WT.simpleStatus resp `shouldBe` Net.status400
 
   it "links the name of a custom metadata to the pages having it" $
-    withKiwiApp [("a.md", "title: A\nauthor: Smith\n\nText")] $ WT.runSession $ do
+    withKiwiApp [("a.md", "uid: a\ntitle: A\nauthor: Smith\n\nText")] $ WT.runSession $ do
       page' <- get "/page/s/a"
       liftIO $ body page' `shouldSatisfy` T.isInfixOf
         "<a class=\"field\" title=\"The pages with this metadata\" href=\"/browse?has=author\">author</a>"
@@ -199,7 +199,7 @@ viewSpec = do
 
   it "lists the tags, the fields of kiwi, then the custom fields by name" $
     withKiwiAccounts [("ann", "secret", ["admin"])]
-                     [("a.md", "title: A\ntags: t\nzone: Nord\nauthor: Smith\n\nText")] $
+                     [("a.md", "uid: a\ntitle: A\ntags: t\nzone: Nord\nauthor: Smith\n\nText")] $
     WT.runSession $ do
       _ <- postForm "/login" "username=ann&password=secret"
       meta <- body <$> get "/metadata"

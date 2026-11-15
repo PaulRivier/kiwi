@@ -1,5 +1,6 @@
 module Kiwi.MetaSpec (metaSpec) where
 
+import qualified Data.ByteString as BS
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Time as Time
@@ -23,9 +24,9 @@ metaSpec :: Spec
 metaSpec = do
   it "writes the keys in a fixed order, one line by key" $
     normalize "---\nzz: 2\nauthors: Jack\\, Jr, John\nlang: french\ntags: b\naa: 1\n\
-              \title: My: title\naccess: friends, family\nid: x\ntags: a\n\
+              \title: My: title\naccess: friends, family\nuid: x\ntags: a\n\
               \files-dir: f\nimages-dir: i\narchive: 1\ndate: 2020-1-5\n..."
-      `shouldBe` "title: My: title\nid: x\ntags: a, b\naccess: family, friends\n\
+      `shouldBe` "title: My: title\nuid: x\ntags: a, b\naccess: family, friends\n\
                  \lang: french\narchive: yes\nimages-dir: i\nfiles-dir: f\n\
                  \date: 2020-01-05\nauthors: Jack\\, Jr, John\naa: 1\nzz: 2\n"
 
@@ -66,19 +67,35 @@ metaSpec = do
     metaOther m `shouldBe` M.fromList [("foo", ["2"]), ("bar", ["3"])]
 
   it "clears or keeps fields by key, with their invalid values" $ do
-    let m = parse "title: t\naccess: a\nid: i\nlang: zz\nauthors: A\nfoo: 1"
-    writeHeader cfg (clearMeta ["access", "id", "lang", "authors"] m)
+    let m = parse "title: t\naccess: a\nuid: i\nlang: zz\nauthors: A\nfoo: 1"
+    writeHeader cfg (clearMeta ["access", "uid", "lang", "authors"] m)
       `shouldBe` "title: t\nfoo: 1\n"
-    writeHeader cfg (keepOnlyMeta ["access", "id", "lang", "foo"] m)
-      `shouldBe` "id: i\naccess: a\nlang: zz\nfoo: 1\n"
+    writeHeader cfg (keepOnlyMeta ["access", "uid", "lang", "foo"] m)
+      `shouldBe` "uid: i\naccess: a\nlang: zz\nfoo: 1\n"
 
   it "rebuilds an edited header without the fields the editor can not change" $ do
-    let protected = ["access", "id", "archive"]
+    let protected = ["access", "uid", "archive"]
         original = parse "title: t\ntags: x\naccess: family\narchive: yes"
         -- the editor removed the tags and tried to change the access
         edited = parse "title: new\naccess: public"
     writeHeader cfg (mergeMeta (keepOnlyMeta protected original) (clearMeta protected edited))
       `shouldBe` "title: new\naccess: family\narchive: yes\n"
+
+  it "writes the uid and the previous uids after the title, escaping commas" $ do
+    normalize "tags: x\nprevious-uids: a:b, c\\,d\nuid: U\ntitle: t"
+      `shouldBe` "title: t\nuid: U\nprevious-uids: a:b, c\\,d\ntags: x\n"
+    metaPreviousUids (parse "previous-uids: a:b, c\\,d") `shouldBe` Just ["a:b", "c,d"]
+
+  it "checks the uids" $ do
+    map isValidUid ["a", "Home", "menthe-poivrée_2", T.replicate 64 "x"]
+      `shouldBe` replicate 4 True
+    map isValidUid ["", "a:b", "a/b", "a b", "a#b", T.replicate 65 "x"]
+      `shouldBe` replicate 6 False
+
+  it "makes a uid of Crockford base32 characters from random bytes" $ do
+    uidFromBytes (BS.pack [0, 1, 9, 10, 17, 18, 21, 26, 31, 32, 255])
+      `shouldBe` "019AHJNTZ0Z"
+    T.length (uidFromBytes $ BS.replicate 10 7) `shouldBe` 10
 
   it "reads custom dates written with or without leading zeros" $
     map cmdKeys (metaCustom $ parse "date: 2020-01-05, 2020-1-5")

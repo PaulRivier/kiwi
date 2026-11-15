@@ -13,7 +13,10 @@ module Kiwi.PagesDB
 import           Control.Concurrent (forkIO, getNumCapabilities)
 import           Control.Concurrent.Async (mapConcurrently)
 import           Control.Exception (IOException, evaluate, try)
-import           Control.Monad (forM_, unless, void, when)
+import           Control.Monad (forM, forM_, unless, void, when)
+import qualified Crypto.Random as CR
+import           Data.Bifunctor (first)
+import qualified Data.ByteString as BS
 import           Data.IORef (atomicWriteIORef, readIORef)
 import           Data.List (find, partition, sortOn)
 import qualified Data.Map.Strict as M
@@ -28,7 +31,11 @@ import qualified System.Directory as D
 import qualified System.FilePath as FP
 import           Text.Printf (printf)
 
+import           Kiwi.Edit (writePageFile)
+import qualified Kiwi.Git as Git
 import qualified Kiwi.Log as L
+import           Kiwi.Meta (isValidUid, uidFromBytes, writePage)
+import qualified Kiwi.Migration as Migration
 import           Kiwi.Search
 import           Kiwi.Types
 import           Kiwi.Pandoc (Loaded (..), loadPageIO, pagePath)
@@ -46,7 +53,7 @@ pagesFSDir = "pages"
 reloadPages :: ServerState -> IO ()
 reloadPages ss = do
   db' <- readIORef (pagesDB ss)
-  (db, t) <- timeIO $ updatePagesDB (logger ss) (contentDir ss) pagesFSDir db'
+  (db, t) <- timeIO $ updatePagesDB (logger ss) (gitCommit ss) (contentDir ss) pagesFSDir db'
   atomicWriteIORef (pagesDB ss) db
   warmUpSearchEngine (searchEngine db)
   logger ss L.Info $ T.pack $ concat [ "pages reloaded in ", printf "%.2f" t
@@ -61,14 +68,35 @@ warmUpSearchEngine :: PageSearchEngine -> IO ()
 warmUpSearchEngine se = void $ forkIO $ void $ evaluate $ SE.invariant se
 
 
+-- | Loads the pages (see 'loadPagesDB'), then converts their "page:" links
+-- to "uid:" links, and loads the converted pages again (temporary, see
+-- "Kiwi.Migration"). The files written are committed when the boolean is
+-- true (git-commit).
+updatePagesDB :: L.Logger -> Bool -> FP.FilePath -> FP.FilePath -> PagesDB -> IO PagesDB
+updatePagesDB logger' git contentDir' pagesDir db = do
+  db1 <- loadPagesDB logger' git contentDir' pagesDir S.empty db
+  converted <- Migration.convertLinks contentDir' db1
+  forM_ converted $ \(p, _, missing) -> unless (null missing) $ logger' L.Warn $ T.concat
+    [ "page: link not converted, ", T.pack p, " : ", T.intercalate ", " missing ]
+  let texts = [ (p, t) | (p, Just t, _) <- converted ]
+  if null texts then return db1 else do
+    written <- writePageFiles logger' git "page: links converted to uid: in" texts
+    -- a file written twice in a short time may keep its modification time
+    loadPagesDB logger' git contentDir' pagesDir
+                (S.fromList [ p | (p, Right ()) <- written ]) db1
+
 -- | Loads the files of the pages that are new or modified since they were
 -- loaded, and removes the pages of the files that are gone, or reloaded. A
 -- file is reloaded when its modification time differs from the one of its
 -- loaded page, so that renamed files, and files with an old date (copied,
--- synchronized), are loaded. The index and the search engine get the same
--- removals and insertions.
-updatePagesDB :: L.Logger -> FP.FilePath ->  FP.FilePath -> PagesDB ->  IO PagesDB
-updatePagesDB logger' contentDir' pagesDir db = do
+-- synchronized), are loaded; the given files are reloaded in any case. The
+-- index and the search engine get the same removals and insertions. Each
+-- page gets a uid unique in its source (see 'resolveUids'): the files whose
+-- uid changes are written, and committed when the boolean is true; a page
+-- whose file can not be written is not loaded.
+loadPagesDB :: L.Logger -> Bool -> FP.FilePath ->  FP.FilePath -> S.Set FP.FilePath ->
+               PagesDB ->  IO PagesDB
+loadPagesDB logger' git contentDir' pagesDir forced db = do
     sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
     -- dbOK <- getCondition
     let pagesDirs = map (\s -> FP.joinPath [contentDir', s, pagesDir]) sources
@@ -92,18 +120,29 @@ updatePagesDB logger' contentDir' pagesDir db = do
         pagesIndexClean = DI.removeMany (pagesIndex db) removedUIDs
         searchEngineClean = foldr deleteDoc (searchEngine db) removedUIDs
     (loaded, failed) <- loadPages toReload
-    let (inserted, duplicates) = resolveDuplicates pagesIndexClean loaded
-    forM_ duplicates $ \((src, pId), ignored, kept) -> logger' L.Warn $ T.concat
-      [ "duplicate page id ", src, ":", pId, ", ", T.pack ignored, " ignored, "
-      , T.pack kept, " used" ]
+    -- the pages of the index keep their uid
+    resolved <- resolveUids logger' contentDir'
+                  (S.fromList $ map pageUID $ DI.documentsList pagesIndexClean)
+                  (sortOn (pageAbsoluteFSPath . loadedPage) loaded)
+    let cmc = customMetaConfig db
+        texts = [ (pageAbsoluteFSPath pg, writePage cmc h (pageBody pg))
+                | (pg, Just h) <- resolved ]
+    written <- if null texts then return M.empty
+               else M.fromList <$> writePageFiles logger' git "uid assigned to" texts
+    -- the time of a written file is read again, so that it is not reloaded
+    inserted <- fmap concat $ forM resolved $ \(pg, _) ->
+      case M.lookup (pageAbsoluteFSPath pg) written of
+        Nothing -> return [pg]
+        Just (Left _) -> return []
+        Just (Right ()) -> do
+          mtE <- try $ D.getModificationTime (pageAbsoluteFSPath pg)
+          return [either (\(_ :: IOException) -> pg) (\mt -> pg { pageMTime = mt }) mtE]
     let newIndex = DI.insertMany pagesIndexClean inserted
         -- a file that is not loaded has no page in the index: it is loaded
         -- again at each reload, so these are all the errors
         errors = [ loadError p (T.pack e) | (p, e) <- failed ]
-                 ++ [ loadError ignored $ T.concat
-                        [ "duplicate page id ", pId, ", "
-                        , T.pack (snd $ sourcePath kept), " is used" ]
-                    | ((_, pId), ignored, kept) <- duplicates ]
+                 ++ [ loadError p (T.pack $ "unable to write the uid of the page : " ++ e)
+                    | (p, Left e) <- M.toList written ]
     -- the links to missing pages are listed on the /doctor page, not logged:
     -- they are an issue of the content, not of the server
     return $ db { dbGeneration = dbGeneration db + 1
@@ -119,7 +158,7 @@ updatePagesDB logger' contentDir' pagesDir db = do
 
     -- unknown file, or modification time different from the one of its page
     -- (a removed file has no time, and is then reloaded: loadPage reports it)
-    isModified path mt = case M.lookup path loadedByPath of
+    isModified path mt = S.member path forced || case M.lookup path loadedByPath of
       Nothing -> True
       Just pg -> mt /= Just (pageMTime pg)
 
@@ -146,11 +185,7 @@ updatePagesDB logger' contentDir' pagesDir db = do
         forM_ (loadedInvalidValues l) $ \(k, v) ->
           logger' L.Warn $ T.concat [ "invalid metadata value, ", T.pack p, " : "
                                     , k, ": ", v ]
-        -- ids made from the path have no '/': this one is from the "id" field
-        let pId = snd $ pageUID pg
-        when (T.isInfixOf "/" pId) $ logger' L.Warn $ T.concat
-          [ "page id with a '/', ", T.pack p, " : ", pId ]
-      return ( [ loadedPage l | (_, Right l) <- results ]
+      return ( [ l | (_, Right l) <- results ]
              , [ (p, e) | (p, Left e) <- results ] )
 
     -- source of a file, and its path in the pages folder of the source
@@ -174,26 +209,71 @@ updatePagesDB logger' contentDir' pagesDir db = do
       in loadPageIO fullPath relPath source md cmc sc
 
 
--- | The loaded pages to insert in the index (without the pages of the files
--- that are not loaded again), and the duplicates ignored: (page id, ignored
--- file, used file). When several files give the same page id, the page of
--- the first file path is used, whether it is loaded or already in the index,
--- so that the same page is shown after each reload.
-resolveDuplicates :: DI.DocIndex Page PageUID MetaField DocIndexKey ->
-                     [Page] -> ([Page], [(PageUID, FP.FilePath, FP.FilePath)])
-resolveDuplicates idx loaded =
-  let byUID = M.fromListWith (flip (++)) [ (pageUID pg, [pg]) | pg <- loaded ]
-      results = map resolve $ M.toList byUID
-  in (concatMap fst results, concatMap snd results)
+-- | The loaded pages (in this order), each one with a uid unique in its
+-- source, given the uids already used: a page keeps the uid of its file when
+-- it is valid and not used, else it gets a new one, with a header to write
+-- (that of the file, with this uid). The uid replaced, if any, goes to the
+-- previous-uids; a page without uid gets its former id there (see
+-- 'Migration.formerIds').
+resolveUids :: L.Logger -> FP.FilePath -> S.Set PageUID -> [Loaded] ->
+               IO [(Page, Maybe MetaData)]
+resolveUids _ _ _ [] = return []
+resolveUids logger' contentDir' used (l : ls) = do
+  let pg = loadedPage l
+      path = pageAbsoluteFSPath pg
+      header = loadedHeader l
+      (source, relPath) = pagePath contentDir' path
+  (uid, newHeader) <- case metaUid header of
+    Just u | isValidUid u, not (S.member (source, u) used) -> return (u, Nothing)
+    fileUid -> do
+      u <- newUid source
+      (former, h) <- case fileUid of
+        Just old -> do
+          logger' L.Warn $ T.concat
+            [ "uid ", old, if isValidUid old then " already used" else " invalid"
+            , ", ", T.pack path, " : new uid ", u ]
+          return ([old], header)
+        Nothing -> do
+          logger' L.Debug $ T.concat [ "uid assigned, ", T.pack path, " : ", u ]
+          return $ Migration.formerIds relPath header
+      let previous = fromMaybe [] (metaPreviousUids h)
+          previous' = previous ++ filter (`notElem` previous) former
+      return (u, Just h { metaUid = Just u, metaPreviousUids = Just previous' })
+  let pg' = pg { pageUID = (source, uid)
+               , pagePreviousUids = maybe (pagePreviousUids pg)
+                                          (fromMaybe [] . metaPreviousUids) newHeader }
+  ((pg', newHeader) :) <$> resolveUids logger' contentDir' (S.insert (source, uid) used) ls
   where
-    resolve (uid, news) =
-      let existing = pageAbsoluteFSPath <$> DI.findDoc idx uid
-          newPaths = map pageAbsoluteFSPath news
-          -- not empty: there is a loaded page for each uid
-          used = minimum $ maybe id (:) existing newPaths
-          ignored = filter (/= used) $ maybe id (:) existing newPaths
-      in ( [ pg | pg <- news, pageAbsoluteFSPath pg == used ]
-         , [ (uid, p, used) | p <- ignored ] )
+    newUid source = do
+      u <- uidFromBytes <$> (CR.getRandomBytes 10 :: IO BS.ByteString)
+      if S.member (source, u) used then newUid source else return u
+
+-- | Writes these texts of page files (see 'writePageFile'), and the result
+-- for each file. When the boolean is true (git-commit), the files that
+-- differ from their last commit are first committed as they are, and the
+-- files written are then committed, with the message "Kiwi: WHAT N pages".
+-- The failures are logged, as errors for the writes (an issue of the system).
+writePageFiles :: L.Logger -> Bool -> T.Text -> [(FP.FilePath, T.Text)] ->
+                  IO [(FP.FilePath, Either String ())]
+writePageFiles logger' git what texts = do
+  when git $ commit "Kiwi: pre-update commit of" (map fst texts)
+  results <- forM texts $ \(p, t) ->
+    (p,) . first (\(e :: IOException) -> show e) <$> try (writePageFile p t)
+  forM_ [ (p, e) | (p, Left e) <- results ] $ \(p, e) ->
+    logger' L.Error $ T.pack $ concat [ "unable to write the file ", p, " : ", e ]
+  let ok = [ p | (p, Right ()) <- results ]
+  logger' L.Info $ T.concat [ what, " ", T.pack (show $ length ok), " pages" ]
+  when (git && not (null ok)) $ commit (T.concat ["Kiwi: ", what]) ok
+  return results
+  where
+    commit prefix paths = do
+      rs <- Git.commitFiles paths "Kiwi"
+              (T.concat [prefix, " ", T.pack (show $ length paths), " pages"])
+      let committed = length [ () | (_, Right Git.Committed) <- rs ]
+      when (committed > 0) $ logger' L.Info $ T.concat
+        [ prefix, ": ", T.pack (show committed), " files committed" ]
+      forM_ (nodup [ e | (_, Left e) <- rs ]) $ \e ->
+        logger' L.Warn $ T.pack $ concat [ "files not committed: ", e ]
 
 
 

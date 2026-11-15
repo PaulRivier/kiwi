@@ -480,13 +480,12 @@ sameOrigin = do
 
 -- | Saves the text of a page sent by its editor (see 'Kiwi.Edit.editedText'),
 -- when its file has not changed since the edition (same hash), and when the
--- page can be loaded, with an id that is not the one of another page. When
+-- page can be loaded (its uid is kept, see 'Kiwi.Meta.kiwiKeys'). When
 -- the file is in a git repository (unless git-commit is no; a failure of git
 -- is only logged), its changes made outside of kiwi, if any, are first
 -- committed by Kiwi, and the saved file is committed by its user. The pages
 -- are then reloaded. The check, the commits, the write and the reload hold
--- the lock of the reloads. The answer is the URL of the page (its id may change),
--- with the keys that the user can not change in the Kiwi-Ignored-Keys header,
+-- the lock of the reloads. The answer is the URL of the page, with the keys that the user can not change in the Kiwi-Ignored-Keys header,
 -- if any; 409 when the file changed, 400 when the text can not be saved.
 serveSavePage :: K.PageUID -> T.Text -> T.Text -> ActM ()
 serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest sent $ do
@@ -496,8 +495,8 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
   result <- liftIO $ withMVar (K.pagesDBLock ss) $ \_ -> runExceptT $ do
     db <- liftIO $ readIORef (K.pagesDB ss)
     file <- withExceptT Edit.SaveFailed $ ExceptT $ readPageFile path
-    (text, ignored, newUid) <- liftEither $
-      Edit.checkSave (K.contentDir ss) db uid level hash path file sent
+    (text, ignored) <- liftEither $
+      Edit.checkSave (K.contentDir ss) db level hash path file sent
     liftIO $ when (K.gitCommit ss) $
       commitPage ss "Kiwi" "pre-update commit" "Pre-update commit of " path uid
     withExceptT (\e -> Edit.SaveFailed $ show (e :: IOException)) $ ExceptT $ try $
@@ -505,14 +504,14 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
     liftIO $ do
       K.logger ss L.Info $ T.pack $ concat [ "page saved by ", T.unpack user, ": ", path ]
       when (K.gitCommit ss) $
-        commitPage ss (user <> " via Kiwi") "page" "Edit " path newUid
+        commitPage ss (user <> " via Kiwi") "page" "Edit " path uid
       DB.reloadPages ss
-    return (newUid, ignored)
+    return ignored
   case result of
-    Right (newUid, ignored) -> do
+    Right ignored -> do
       unless (null ignored) $
         setHeader "Kiwi-Ignored-Keys" $ TL.fromStrict $ T.intercalate ", " ignored
-      Scotty.text $ TL.fromStrict $ Url.pageUIDUrl newUid
+      Scotty.text $ TL.fromStrict $ Url.pageUIDUrl uid
     Left Edit.SaveConflict -> do
       status Net.status409
       Scotty.text "the page has changed since its edition"

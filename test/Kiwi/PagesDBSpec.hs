@@ -1,13 +1,17 @@
 module Kiwi.PagesDBSpec (pagesDBSpec) where
 
+import           Control.Exception (IOException, finally, try)
+import           Data.Either (isRight)
+import           Control.Monad (when)
 import           Data.IORef (modifyIORef, newIORef, readIORef)
-import           Data.List (sort)
+import           Data.List (find, sort)
 import qualified Data.SearchEngine as SE
 import qualified Data.Text as T
 import qualified Data.Time as Time
 import qualified System.Directory as D
 import qualified System.FilePath as FP
 import           System.IO (IOMode (WriteMode), hPutStr, withBinaryFile)
+import qualified System.Posix.Files as PF
 import           Test.Hspec
 
 import           Kiwi.Auth (readableQuery)
@@ -31,18 +35,19 @@ writeFileAt p sec c = do
   D.setModificationTime p (Time.UTCTime (Time.fromGregorian 2026 1 1)
                                         (Time.secondsToDiffTime sec))
 
--- | The database updated by 'DB.updatePagesDB', and the messages logged
+-- | The database updated by 'DB.updatePagesDB' (without git), and the
+-- messages logged
 reloadDB :: FilePath -> PagesDB -> IO (PagesDB, [(L.LogLevel, T.Text)])
 reloadDB cd db = do
   logR <- newIORef []
-  db' <- DB.updatePagesDB (\lvl msg -> modifyIORef logR ((lvl, msg) :)) cd "pages" db
+  db' <- DB.updatePagesDB (\lvl msg -> modifyIORef logR ((lvl, msg) :)) False cd "pages" db
   msgs <- reverse <$> readIORef logR
   return (db', msgs)
 
 loadDB :: FilePath -> IO (PagesDB, [(L.LogLevel, T.Text)])
 loadDB cd = reloadDB cd (DB.emptyPagesDB defMeta [] [])
 
--- | Ids of the pages of the index, which must be those of the search engine:
+-- | Uids of the pages of the index, which must be those of the search engine:
 -- every test page has the word "kiwiword"
 dbIds :: PagesDB -> IO [T.Text]
 dbIds db = do
@@ -57,24 +62,67 @@ dbSearch db w = SE.query (searchEngine db) (queryTerms English w)
 dbPagePath :: PagesDB -> T.Text -> Maybe FilePath
 dbPagePath db pId = pageAbsoluteFSPath <$> DI.findDoc (pagesIndex db) ("s", pId)
 
+-- | The page of a file
+dbPageOf :: PagesDB -> FilePath -> Maybe Page
+dbPageOf db path = find ((== path) . pageAbsoluteFSPath) $ DI.documentsList $ pagesIndex db
+
+-- | Uid of the page of a file (fails without page)
+dbUidOf :: PagesDB -> FilePath -> T.Text
+dbUidOf db path = maybe (error $ "no page for " ++ path) (snd . pageUID) $ dbPageOf db path
+
+-- | Whether the uid is one drawn by kiwi: 10 characters of Crockford base32
+isDrawn :: T.Text -> Bool
+isDrawn u = T.length u == 10 && T.all (`elem` ("0123456789ABCDEFGHJKMNPQRSTVWXYZ" :: String)) u
+
 warnings :: [(L.LogLevel, T.Text)] -> [T.Text]
 warnings msgs = [ m | (L.Warn, m) <- msgs ]
 
 pagesDBSpec :: Spec
 pagesDBSpec = do
-  it "loads the pages, with the id of their path or of their id field" $
+  it "loads the pages, with the uid of their file" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword"
-      writeFileAt (pageFile cd "sub/b.md") 0 "title: B\n\nkiwiword"
-      writeFileAt (pageFile cd "c.md") 0 "id: custom\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: a\ntitle: A\n\nkiwiword"
+      writeFileAt (pageFile cd "sub/b.md") 0 "title: B\nuid: Sub_b-2\n\nkiwiword"
+      (db, msgs) <- loadDB cd
+      dbIds db `shouldReturn` ["Sub_b-2", "a"]
+      warnings msgs `shouldBe` []
+      -- the files are not written
+      readFile (pageFile cd "sub/b.md") `shouldReturn` "title: B\nuid: Sub_b-2\n\nkiwiword"
+
+  it "gives a uid to the pages without one, with their former id in previous-uids" $
+    withContentDir $ \cd -> do
+      writeFileAt (pageFile cd "a.md") 0 "tags: x\n---\ntitle: A\n\nkiwiword\n\n"
+      writeFileAt (pageFile cd "sub/b.md") 0 "\n\nkiwiword"
+      writeFileAt (pageFile cd "c.md") 0 "id: Home\naccess: public\n\nkiwiword"
       writeFileAt (pageFile cd "d.md") 0 "id:  \n\nkiwiword"
       (db, msgs) <- loadDB cd
-      dbIds db `shouldReturn` ["a", "custom", "d", "sub:b"]
-      warnings msgs `shouldBe` []
+      -- the former "id" fields, until they are replaced
+      sort (warnings msgs) `shouldBe` [ T.concat [ "unknown metadata, ", T.pack (pageFile cd f)
+                                                 , " : id" ]
+                               | f <- ["c.md", "d.md"] ]
+      ids <- dbIds db
+      length ids `shouldBe` 4
+      ids `shouldSatisfy` all isDrawn
+      let uidOf = dbUidOf db . pageFile cd
+          previous = fmap pagePreviousUids . dbPageOf db . pageFile cd
+      -- the header of the file alone is written, normalized, the content kept
+      readFile (pageFile cd "a.md") `shouldReturn` T.unpack (T.concat
+        [ "title: A\nuid: ", uidOf "a.md", "\nprevious-uids: a\ntags: x\n\nkiwiword\n" ])
+      readFile (pageFile cd "sub/b.md") `shouldReturn` T.unpack (T.concat
+        [ "uid: ", uidOf "sub/b.md", "\nprevious-uids: sub:b\n\nkiwiword\n" ])
+      -- the former "id" field goes to previous-uids
+      readFile (pageFile cd "c.md") `shouldReturn` T.unpack (T.concat
+        [ "uid: ", uidOf "c.md", "\nprevious-uids: Home\naccess: public\n\nkiwiword\n" ])
+      previous "c.md" `shouldBe` Just ["Home"]
+      previous "d.md" `shouldBe` Just ["d"]
+      -- the written files are not loaded again
+      (db', msgs') <- reloadDB cd db
+      msgs' `shouldBe` []
+      dbIds db' `shouldReturn` ids
 
   it "does not reload unchanged files" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: a\ntitle: A\n\nkiwiword"
       (db, _) <- loadDB cd
       (db', msgs) <- reloadDB cd db
       dbIds db' `shouldReturn` ["a"]
@@ -82,41 +130,42 @@ pagesDBSpec = do
 
   it "loads a renamed file, whose time is kept" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: a\ntitle: A\n\nkiwiword"
       (db, _) <- loadDB cd
       D.renameFile (pageFile cd "a.md") (pageFile cd "b.md")
       (db', _) <- reloadDB cd db
-      dbIds db' `shouldReturn` ["b"]
+      dbIds db' `shouldReturn` ["a"]
+      dbPagePath db' "a" `shouldBe` Just (pageFile cd "b.md")
 
   it "loads a new file with an old time" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 100 "title: A\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 100 "uid: a\ntitle: A\n\nkiwiword"
       (db, _) <- loadDB cd
-      writeFileAt (pageFile cd "b.md") 0 "title: B\n\nkiwiword"
+      writeFileAt (pageFile cd "b.md") 0 "uid: b\ntitle: B\n\nkiwiword"
       (db', _) <- reloadDB cd db
       dbIds db' `shouldReturn` ["a", "b"]
 
   it "reloads a file whose time goes back" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 100 "title: A\n\nkiwiword oldword"
+      writeFileAt (pageFile cd "a.md") 100 "uid: a\ntitle: A\n\nkiwiword oldword"
       (db, _) <- loadDB cd
-      writeFileAt (pageFile cd "a.md") 50 "title: A\n\nkiwiword newword"
+      writeFileAt (pageFile cd "a.md") 50 "uid: a\ntitle: A\n\nkiwiword newword"
       (db', _) <- reloadDB cd db
       dbIds db' `shouldReturn` ["a"]
       dbSearch db' "newword" `shouldBe` [("s", "a")]
       dbSearch db' "oldword" `shouldBe` []
 
-  it "removes the page of a file whose id changes" $
+  it "removes the page of a file whose uid changes" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 0 "id: one\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: one\n\nkiwiword"
       (db, _) <- loadDB cd
-      writeFileAt (pageFile cd "a.md") 1 "id: two\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 1 "uid: two\n\nkiwiword"
       (db', _) <- reloadDB cd db
       dbIds db' `shouldReturn` ["two"]
 
   it "removes the page of a file that can no longer be loaded" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: a\ntitle: A\n\nkiwiword"
       (db, _) <- loadDB cd
       withBinaryFile (pageFile cd "a.md") WriteMode $ \h -> hPutStr h "\xff\xfe"
       D.setModificationTime (pageFile cd "a.md") (Time.UTCTime (Time.fromGregorian 2026 1 2) 0)
@@ -126,70 +175,132 @@ pagesDBSpec = do
 
   it "removes the page of a removed file" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword"
-      writeFileAt (pageFile cd "b.md") 0 "title: B\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: a\ntitle: A\n\nkiwiword"
+      writeFileAt (pageFile cd "b.md") 0 "uid: b\ntitle: B\n\nkiwiword"
       (db, _) <- loadDB cd
       D.removeFile (pageFile cd "a.md")
       (db', _) <- reloadDB cd db
       dbIds db' `shouldReturn` ["b"]
 
-  it "uses the first file of a duplicate page id, at each reload, and warns" $
+  it "gives a new uid to the second file of a uid, in path order, and warns" $
     withContentDir $ \cd -> do
       -- "a.markdown" comes before "a.md"
-      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword"
-      writeFileAt (pageFile cd "a.markdown") 0 "title: A\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: a\nprevious-uids: old\ntitle: A\n\nkiwiword"
+      writeFileAt (pageFile cd "a.markdown") 0 "uid: a\ntitle: A\n\nkiwiword"
       (db, msgs) <- loadDB cd
-      dbIds db `shouldReturn` ["a"]
       dbPagePath db "a" `shouldBe` Just (pageFile cd "a.markdown")
-      warnings msgs `shouldBe` [ T.pack $ concat [ "duplicate page id s:a, "
-                                                 , pageFile cd "a.md", " ignored, "
-                                                 , pageFile cd "a.markdown", " used" ] ]
+      let new = dbUidOf db (pageFile cd "a.md")
+      new `shouldSatisfy` isDrawn
+      dbIds db `shouldReturn` sort ["a", new]
+      fmap pagePreviousUids (dbPageOf db $ pageFile cd "a.md") `shouldBe` Just ["old", "a"]
+      readFile (pageFile cd "a.md") `shouldReturn` T.unpack (T.concat
+        ["title: A\nuid: ", new, "\nprevious-uids: old, a\n\nkiwiword\n"])
+      warnings msgs `shouldBe` [ T.concat [ "uid a already used, ", T.pack (pageFile cd "a.md")
+                                          , " : new uid ", new ] ]
       (db', msgs') <- reloadDB cd db
-      dbPagePath db' "a" `shouldBe` Just (pageFile cd "a.markdown")
-      warnings msgs' `shouldBe` warnings msgs
-      -- the other file is used once the first one is removed
-      D.removeFile (pageFile cd "a.markdown")
-      (db'', msgs'') <- reloadDB cd db'
-      dbIds db'' `shouldReturn` ["a"]
-      dbPagePath db'' "a" `shouldBe` Just (pageFile cd "a.md")
-      warnings msgs'' `shouldBe` []
+      dbIds db' `shouldReturn` sort ["a", new]
+      warnings msgs' `shouldBe` []
 
-  it "replaces a loaded page by a new file of the same id, if it comes first" $
+  it "keeps the uid of a loaded page, a new file of this uid gets another one" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "b.md") 0 "id: x\n\nkiwiword bword"
+      writeFileAt (pageFile cd "b.md") 0 "uid: x\n\nkiwiword bword"
       (db, _) <- loadDB cd
-      writeFileAt (pageFile cd "a.md") 0 "id: x\n\nkiwiword aword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: x\n\nkiwiword aword"
       (db', msgs) <- reloadDB cd db
-      dbIds db' `shouldReturn` ["x"]
-      dbPagePath db' "x" `shouldBe` Just (pageFile cd "a.md")
-      dbSearch db' "aword" `shouldBe` [("s", "x")]
-      dbSearch db' "bword" `shouldBe` []
+      dbPagePath db' "x" `shouldBe` Just (pageFile cd "b.md")
+      dbSearch db' "bword" `shouldBe` [("s", "x")]
+      dbSearch db' "aword" `shouldBe` [("s", dbUidOf db' (pageFile cd "a.md"))]
       length (warnings msgs) `shouldBe` 1
 
-  it "warns about an id with a '/'" $
+  it "keeps the uid of a modified file" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 0 "id: x/y\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: x\n\nkiwiword"
+      (db, _) <- loadDB cd
+      writeFileAt (pageFile cd "a.md") 1 "uid: x\ntitle: New\n\nkiwiword"
+      (db', msgs) <- reloadDB cd db
+      dbIds db' `shouldReturn` ["x"]
+      warnings msgs `shouldBe` []
+
+  it "gives the same uid in two sources" $
+    withContentDir $ \cd -> do
+      writeFileAt (pageFile cd "a.md") 0 "uid: x\n\nkiwiword"
+      writeFileAt (cd FP.</> "t" FP.</> "pages" FP.</> "a.md") 0 "uid: x\n\nkiwiword"
       (db, msgs) <- loadDB cd
-      dbIds db `shouldReturn` ["x/y"]
-      warnings msgs `shouldBe` [T.pack $ "page id with a '/', " ++ pageFile cd "a.md" ++ " : x/y"]
+      sort (map pageUID $ DI.documentsList $ pagesIndex db) `shouldBe` [("s", "x"), ("t", "x")]
+      warnings msgs `shouldBe` []
+
+  it "replaces an invalid uid" $
+    withContentDir $ \cd -> do
+      writeFileAt (pageFile cd "a.md") 0 "uid: x/y\n\nkiwiword"
+      (db, msgs) <- loadDB cd
+      let new = dbUidOf db (pageFile cd "a.md")
+      new `shouldSatisfy` isDrawn
+      fmap pagePreviousUids (dbPageOf db $ pageFile cd "a.md") `shouldBe` Just ["x/y"]
+      warnings msgs `shouldBe` [ T.concat [ "uid x/y invalid, ", T.pack (pageFile cd "a.md")
+                                          , " : new uid ", new ] ]
+
+  it "does not load a page whose uid can not be written, until it can" $
+    withContentDir $ \cd -> do
+      writeFileAt (pageFile cd "ro/a.md") 0 "title: A\n\nkiwiword"
+      writeFileAt (pageFile cd "b.md") 0 "uid: b\n\nkiwiword"
+      let roDir = pageFile cd "ro"
+      PF.setFileMode roDir 0o555
+      -- root can write anyway
+      probe <- try (writeFile (roDir FP.</> ".probe") "") :: IO (Either IOException ())
+      when (isRight probe) $ do
+        PF.setFileMode roDir 0o755
+        pendingWith "the folder can be written (root)"
+      (db, msgs) <- loadDB cd `finally` PF.setFileMode roDir 0o755
+      dbIds db `shouldReturn` ["b"]
+      map (\(src, p, _) -> (src, p)) (loadErrors db) `shouldBe` [("s", "ro/a.md")]
+      length [ m | (L.Error, m) <- msgs ] `shouldBe` 1
+      (db', _) <- reloadDB cd db
+      length <$> dbIds db' `shouldReturn` 2
+      loadErrors db' `shouldBe` []
+
+  it "converts the page: links to uid: links, relative or absolute" $
+    withContentDir $ \cd -> do
+      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword [b](<page:sub/b#x>) \
+                                         \[h](page:Home \"t\") [m](page:missing)\n\n\
+                                         \[r]: page:/sub/b.md\n\n    [code](page:a)"
+      writeFileAt (pageFile cd "sub/b.md") 0 "title: B\n\nkiwiword [a](<page:../a.md>) \
+                                             \[c](page:/Home)"
+      writeFileAt (pageFile cd "c.md") 0 "id: Home\n\nkiwiword"
+      (db, msgs) <- loadDB cd
+      let uidOf = dbUidOf db . pageFile cd
+          (a, b, c) = (uidOf "a.md", uidOf "sub/b.md", uidOf "c.md")
+      readFile (pageFile cd "a.md") `shouldReturn` T.unpack (T.concat
+        [ "title: A\nuid: ", a, "\nprevious-uids: a\n\nkiwiword [b](<uid:", b, "#x>) "
+        , "[h](uid:", c, " \"t\") [m](page:missing)\n\n[r]: uid:", b, "\n\n"
+        , "    [code](uid:", a, ")\n" ])
+      readFile (pageFile cd "sub/b.md") `shouldReturn` T.unpack (T.concat
+        [ "title: B\nuid: ", b, "\nprevious-uids: sub:b\n\nkiwiword [a](<uid:", a, ">) "
+        , "[c](uid:", c, ")\n" ])
+      filter (not . T.isPrefixOf "unknown metadata") (warnings msgs) `shouldBe` [T.concat ["page: link not converted, ", T.pack (pageFile cd "a.md")
+                                        , " : missing"]]
+      -- the converted pages are loaded again, with their links
+      let backlinks :: PageUID -> [PageUID]
+          backlinks uid = map pageUID $ DI.query (pagesIndex db) (U.qOnly FieldLink uid)
+      sort (backlinks ("s", b)) `shouldBe` [("s", a)]
+      sort (backlinks ("s", c)) `shouldBe` sort [("s", a), ("s", b)]
 
   it "finds the links to missing pages, without warning" $
     withContentDir $ \cd -> do
       writeFileAt (pageFile cd "a.md") 0
-        "title: A\n\nkiwiword [b](<page:b.md#x>) [c](<page:c>) [c2](<page:c#y>)"
-      writeFileAt (pageFile cd "b.md") 0 "title: B\n\nkiwiword"
+        "uid: a\n\nkiwiword [b](<uid:b#x>) [c](<uid: c>) [c2](uid:c#y)"
+      writeFileAt (pageFile cd "b.md") 0 "uid: b\n\nkiwiword"
       (db, msgs) <- loadDB cd
       let broken = map (\(pg, uid) -> (pageUID pg, uid)) . DB.brokenLinks . pagesIndex
       broken db `shouldBe` [(("s", "a"), ("s", "c"))]
       warnings msgs `shouldBe` []
-      writeFileAt (pageFile cd "c.md") 0 "title: C\n\nkiwiword"
+      writeFileAt (pageFile cd "c.md") 0 "uid: c\n\nkiwiword"
       (db', _) <- reloadDB cd db
       broken db' `shouldBe` []
 
   it "finds the links to pages that the user can not read" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 0 "title: A\naccess: public\n\nkiwiword [b](<page:b>)"
-      writeFileAt (pageFile cd "b.md") 0 "title: B\naccess: secret\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: a\naccess: public\n\nkiwiword [b](uid:b)"
+      writeFileAt (pageFile cd "b.md") 0 "uid: b\naccess: secret\n\nkiwiword"
       (db, _) <- loadDB cd
       let broken loginM = map (\(pg, uid) -> (pageUID pg, uid)) $ DB.brokenLinks $
                           DI.narrow (pagesIndex db) (readableQuery loginM False)
@@ -199,13 +310,13 @@ pagesDBSpec = do
 
   it "finds the backlinks of a page linked with an anchor" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword [b](<page:sub/b#x>)"
-      writeFileAt (pageFile cd "sub/b.md") 0 "title: B\n\nkiwiword [a](<page:../a.md>)"
+      writeFileAt (pageFile cd "a.md") 0 "uid: a\n\nkiwiword [b](<uid:b#x>)"
+      writeFileAt (pageFile cd "sub/b.md") 0 "uid: b\n\nkiwiword [a](uid:a)"
       (db, _) <- loadDB cd
       let backlinks :: PageUID -> [PageUID]
           backlinks uid = map pageUID $ DI.query (pagesIndex db) (U.qOnly FieldLink uid)
-      backlinks ("s", "sub:b") `shouldBe` [("s", "a")]
-      backlinks ("s", "a") `shouldBe` [("s", "sub:b")]
+      backlinks ("s", "b") `shouldBe` [("s", "a")]
+      backlinks ("s", "a") `shouldBe` [("s", "b")]
 
   it "ignores the files whose name is not the one of a page, in debug" $
     withContentDir $ \cd -> do
@@ -217,20 +328,33 @@ pagesDBSpec = do
 
   it "lists the files that are not loaded, until they are fixed" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: a\ntitle: A\n\nkiwiword"
       writeFileAt (pageFile cd "sub/bad.md") 0 "# No header\n\nkiwiword"
-      writeFileAt (pageFile cd "a.markdown") 0 "title: A\n\nkiwiword"
       (db, msgs) <- loadDB cd
       dbIds db `shouldReturn` ["a"]
       loadErrors db `shouldBe`
-        [ ("s", "a.md", "duplicate page id a, a.markdown is used")
-        , ("s", "sub/bad.md", "unable to load the page : invalid metadata header, line 1") ]
-      length (warnings msgs) `shouldBe` 2
+        [ ("s", "sub/bad.md", "unable to load the page : invalid metadata header, line 1") ]
+      length (warnings msgs) `shouldBe` 1
       -- the same errors at each reload, without any change
       (db', _) <- reloadDB cd db
       loadErrors db' `shouldBe` loadErrors db
-      writeFileAt (pageFile cd "sub/bad.md") 1 "title: Fixed\n\nkiwiword"
-      D.removeFile (pageFile cd "a.md")
+      writeFileAt (pageFile cd "sub/bad.md") 1 "uid: bad\ntitle: Fixed\n\nkiwiword"
       (db'', _) <- reloadDB cd db'
-      dbIds db'' `shouldReturn` ["a", "sub:bad"]
+      dbIds db'' `shouldReturn` ["a", "bad"]
       loadErrors db'' `shouldBe` []
+
+  it "commits the files whose uid is written, after their changes" $ withGit $
+    withContentDir $ \cd -> do
+      git cd ["init", "-q"]
+      writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword"
+      writeFileAt (pageFile cd "b.md") 0 "uid: b\n\nkiwiword"
+      git cd ["add", "."]
+      git cd ["commit", "-q", "-m", "init"]
+      writeFileAt (pageFile cd "a.md") 0 "title: A2\n\nkiwiword"
+      writeFileAt (pageFile cd "c.md") 0 "title: C\n\nkiwiword"
+      _ <- DB.updatePagesDB (\_ _ -> return ()) True cd "pages" (DB.emptyPagesDB defMeta [] [])
+      gitOut cd ["log", "--format=%an|%s"] `shouldReturn`
+        "Kiwi|Kiwi: uid assigned to 2 pages\nKiwi|Kiwi: pre-update commit of 2 pages\ntest|init\n"
+      gitOut cd ["show", "--name-only", "--format=", "HEAD~1"]
+        `shouldReturn` "s/pages/a.md\ns/pages/c.md\n"
+      gitOut cd ["status", "--porcelain"] `shouldReturn` ""

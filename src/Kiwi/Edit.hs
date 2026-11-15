@@ -1,7 +1,8 @@
 -- | Edition of a page file in the browser: the text shown in the editor, the
 -- text saved from the one sent back and its checks, and its writing. The
 -- users with the write right on a page do not see nor change the metadata of
--- 'adminKeys'; the headers are written normalized (see 'writeHeader').
+-- 'adminKeys', and no one sees nor changes those of 'kiwiKeys' (uid); the
+-- headers are written normalized (see 'writeHeader').
 module Kiwi.Edit
   ( fileHash
   , editorText
@@ -14,7 +15,6 @@ module Kiwi.Edit
 import           Control.Exception (IOException, bracketOnError, try)
 import           Control.Monad (void, when)
 import           Data.Bifunctor (first)
-import           Data.Maybe (isJust)
 import qualified Crypto.Hash as H
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
@@ -25,9 +25,8 @@ import           System.IO (hClose, openTempFile)
 import qualified System.Posix.Files as PF
 
 import           Kiwi.Meta
-import           Kiwi.Pandoc (textPageUID)
+import           Kiwi.Pandoc (checkPageText)
 import           Kiwi.Types
-import qualified Utils.DocIndex as DI
 
 
 -- | Hash of the content of a file (SHA-256, hexadecimal), to detect that it
@@ -69,25 +68,22 @@ data SaveFailure = SaveConflict         -- ^ the file changed since its edition
 
 -- | Text of a page file to save, from the text sent by an editor with this
 -- right (see 'editedText'), with the keys sent that the editor can not
--- change, and the id of the page: the file (its bytes and text, read in the
--- content folder at this path) must not have changed since its edition
--- (same hash), and the page of the new text must load, with an id that is
--- not the one of another page of the pages.
-checkSave :: FilePath -> PagesDB -> PageUID -> AccessLevel -> T.Text -> FilePath ->
+-- change: the file (its bytes and text, read in the content folder at this
+-- path) must not have changed since its edition (same hash), and the page of
+-- the new text must load. The uid of the page can not change.
+checkSave :: FilePath -> PagesDB -> AccessLevel -> T.Text -> FilePath ->
              (BS.ByteString, T.Text) -> T.Text ->
-             Either SaveFailure (T.Text, [T.Text], PageUID)
-checkSave contentDir' db uid level hash path (bytes, fileText) sent = do
+             Either SaveFailure (T.Text, [T.Text])
+checkSave contentDir' db level hash path (bytes, fileText) sent = do
   when (fileHash bytes /= hash) $ Left SaveConflict
   (text, ignored) <- invalid $ editedText (customMetaConfig db) level fileText sent
-  newUid <- invalid $ textPageUID contentDir' db path text
-  when (newUid /= uid && isJust (DI.findDoc (pagesIndex db) newUid)) $
-    Left $ SaveInvalid "the id is the one of another page"
-  return (text, ignored, newUid)
+  invalid $ checkPageText contentDir' db path text
+  return (text, ignored)
   where invalid = first SaveInvalid
 
 -- | Keys of the header that an editor with this right can not see nor change
 protectedKeys :: AccessLevel -> [T.Text]
-protectedKeys level = if level >= AccessAdmin then [] else adminKeys
+protectedKeys level = kiwiKeys ++ if level >= AccessAdmin then [] else adminKeys
 
 -- | The header without the keys an editor with this right can not see
 restrict :: AccessLevel -> MetaData -> MetaData

@@ -50,6 +50,25 @@ gitSpec = do
     commitFile (dir FP.</> "p.md") "bob" "Edit s:p" `shouldReturn` Right Unchanged
     gitOut dir ["rev-list", "--count", "HEAD"] `shouldReturn` "1\n"
 
+  it "commits several files in one commit by repository" $ withRepo True $ \dir -> do
+    writeFile (dir FP.</> ".gitignore") "drafts/\n"
+    mapM_ (D.createDirectory . (dir FP.</>)) ["sub", "drafts", "other"]
+    git (dir FP.</> "other") ["init", "-q"]
+    writeFile (dir FP.</> "a.md") "a\n"
+    writeFile (dir FP.</> "same.md") "s\n"
+    git dir ["add", "same.md"]
+    git dir ["commit", "-q", "-m", "init"]
+    writeFile (dir FP.</> "sub" FP.</> "b.md") "b\n"
+    writeFile (dir FP.</> "drafts" FP.</> "d.md") "d\n"
+    writeFile (dir FP.</> "other" FP.</> "o.md") "o\n"
+    let files = map (dir FP.</>) ["a.md", "sub/b.md", "same.md", "drafts/d.md", "other/o.md"]
+    rs <- commitFiles files "Kiwi" "Kiwi: 5 pages"
+    rs `shouldMatchList` zip files (map Right [Committed, Committed, Unchanged, Ignored, Committed])
+    gitOut dir ["show", "--name-only", "--format=%s", "HEAD"]
+      `shouldReturn` "Kiwi: 5 pages\n\na.md\nsub/b.md\n"
+    gitOut (dir FP.</> "other") ["show", "--name-only", "--format=%s", "HEAD"]
+      `shouldReturn` "Kiwi: 5 pages\n\no.md\n"
+
 -- | Runs the test in a new temporary folder, a git repository or not
 -- (pending when git is not installed)
 withRepo :: Bool -> (FilePath -> IO ()) -> IO ()

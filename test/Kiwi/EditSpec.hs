@@ -21,43 +21,43 @@ import           TestUtils
 
 editSpec :: Spec
 editSpec = do
-  let file = "title: T\nid: x\ntags: a\naccess: fam:w, public\narchive: no\n\nHello"
+  let file = "title: T\nuid: x\nprevious-uids: old\ntags: a\naccess: fam:w, public\n\
+             \archive: no\n\nHello"
 
-  it "hides the admin metadata to the editors with the write right" $ do
+  it "hides the admin metadata to the editors with the write right, and the uid to all" $ do
     editorText [] AccessWrite file `shouldBe` Right ("title: T\ntags: a\n\nHello\n", 3)
     editorText [] AccessAdmin file `shouldBe`
-      Right ("title: T\nid: x\ntags: a\naccess: fam:w, public\narchive: no\n\nHello\n", 6)
+      Right ("title: T\ntags: a\naccess: fam:w, public\narchive: no\n\nHello\n", 5)
     -- without metadata, the page starts with a blank line
     editorText [] AccessWrite "\n\nHello" `shouldBe` Right ("\n\nHello\n", 2)
 
-  it "keeps the admin metadata of the file when the write right saves" $ do
+  it "keeps the admin metadata of the file when the write right saves, and the uid" $ do
     editedText [] AccessWrite file "title: New\naccess: public\n\nBye"
-      `shouldBe` Right ("title: New\nid: x\naccess: fam:w, public\narchive: no\n\nBye\n", ["access"])
+      `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\naccess: fam:w, public\n\
+                        \archive: no\n\nBye\n", ["access"])
     editedText [] AccessAdmin file "title: New\naccess: public\n\nBye"
-      `shouldBe` Right ("title: New\naccess: public\n\nBye\n", [])
+      `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\naccess: public\n\nBye\n", [])
+    editedText [] AccessAdmin file "title: New\nuid: y\nprevious-uids:\n\nBye"
+      `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\n\nBye\n", ["previous-uids", "uid"])
     editedText [] AccessWrite file "not a header\n\nBye"
       `shouldBe` Left "invalid metadata header, line 1"
 
-  it "checks a page to save: same file, valid text, id of no other page" $ do
+  it "checks a page to save: same file, valid text" $ do
     let db = mkPagesDB [mkPage ("src", "other") [] [] False 1, mkPage ("src", "x") [] [] False 1]
         bytes = TE.encodeUtf8 file
-        check uid hash = checkSave "/k/content" db uid AccessAdmin hash
-                           "/k/content/src/pages/p.md" (bytes, file)
-    check ("src", "x") (fileHash bytes) "title: New\nid: x\n\nBye"
-      `shouldBe` Right ("title: New\nid: x\n\nBye\n", [], ("src", "x"))
-    -- without id, the id of the path
-    check ("src", "x") (fileHash bytes) "title: New\n\nBye"
-      `shouldBe` Right ("title: New\n\nBye\n", [], ("src", "p"))
-    check ("src", "x") "0000" "title: New\nid: x\n\nBye" `shouldBe` Left SaveConflict
-    check ("src", "x") (fileHash bytes) "not a header\n\nBye"
+        check hash = checkSave "/k/content" db AccessAdmin hash
+                       "/k/content/src/pages/p.md" (bytes, file)
+    check (fileHash bytes) "title: New\n\nBye"
+      `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\n\nBye\n", [])
+    check "0000" "title: New\n\nBye" `shouldBe` Left SaveConflict
+    check (fileHash bytes) "not a header\n\nBye"
       `shouldBe` Left (SaveInvalid "invalid metadata header, line 1")
-    check ("src", "x") (fileHash bytes) "title: New\nid: other\n\nBye"
-      `shouldBe` Left (SaveInvalid "the id is the one of another page")
 
   -- requests to a kiwi with accounts: ann (admin), bob (family), joe (friends)
-  let pages = [ ("p.md", "title: Page\naccess: family:w, friends, public\n\nHello\n\nWorld")
-              , ("q.md", "title: Other\naccess: family:w\n\nQ")
-              , ("secret.md", "title: Secret\naccess: nobody\n\nS") ]
+  let pages = [ ("p.md", "title: Page\nuid: p\naccess: family:w, friends, public\n\n\
+                        \Hello\n\nWorld")
+              , ("q.md", "uid: q\ntitle: Other\naccess: family:w\n\nQ")
+              , ("secret.md", "uid: secret\ntitle: Secret\naccess: nobody\n\nS") ]
       onKiwi test = withKiwiState [ ("ann", "secret", ["admin"]), ("bob", "secret", ["family"])
                                   , ("joe", "secret", ["friends"]) ] pages $
                       \cd _ app -> WT.runSession (test cd) app
@@ -116,7 +116,7 @@ editSpec = do
     liftIO $ body saved `shouldBe` "/page/s/p"
     liftIO $ lookup "Kiwi-Ignored-Keys" (WT.simpleHeaders saved) `shouldBe` Just "access"
     content <- liftIO $ BS.readFile $ pagePath cd "p.md"
-    liftIO $ content `shouldBe` "title: New\naccess: family:w, friends, public\n\nBye\n"
+    liftIO $ content `shouldBe` "title: New\nuid: p\naccess: family:w, friends, public\n\nBye\n"
     page <- body <$> get "/page/s/p"
     liftIO $ page `shouldSatisfy` T.isInfixOf "Bye"
     -- the file has changed since the hash was read
@@ -127,15 +127,23 @@ editSpec = do
     liftIO $ status invalid `shouldBe` 400
     liftIO $ body invalid `shouldBe` "invalid metadata header, line 1"
 
-  it "lets the admins change the id, unless another page has it" $ onKiwi $ \cd -> do
+  it "keeps the uid of the page, even when an admin sends another one" $ onKiwi $ \cd -> do
     _ <- login "ann"
     h <- hashOf cd "p.md"
-    taken <- save h "title: Page\nid: q\n\nHello"
-    liftIO $ status taken `shouldBe` 400
-    moved <- save h "title: Page\nid: moved\naccess: public\n\nHello"
-    liftIO $ body moved `shouldBe` "/page/s/moved"
-    page <- get "/page/s/moved"
-    liftIO $ status page `shouldBe` 200
+    moved <- save h "title: Page\nuid: q\naccess: public\n\nHello"
+    liftIO $ status moved `shouldBe` 200
+    liftIO $ body moved `shouldBe` "/page/s/p"
+    liftIO $ lookup "Kiwi-Ignored-Keys" (WT.simpleHeaders moved) `shouldBe` Just "uid"
+    content <- liftIO $ BS.readFile $ pagePath cd "p.md"
+    liftIO $ content `shouldBe` "title: Page\nuid: p\naccess: public\n\nHello\n"
+
+  it "saves the text sent with windows line endings" $ onKiwi $ \cd -> do
+    _ <- login "ann"
+    h <- hashOf cd "p.md"
+    saved <- save h "title: Page\r\naccess: public\r\n\r\nHello\r\nAgain"
+    liftIO $ status saved `shouldBe` 200
+    content <- liftIO $ BS.readFile $ pagePath cd "p.md"
+    liftIO $ content `shouldBe` "title: Page\nuid: p\naccess: public\n\nHello\nAgain\n"
 
   it "refuses the edition requests from other sites" $ onKiwi $ \cd -> do
     _ <- login "bob"
@@ -201,7 +209,7 @@ editSpec = do
   it "previews the content of a text, relative to its page" $ onKiwi $ \_ -> do
     _ <- login "bob"
     preview <- post "/preview" [ ("source", "s"), ("id", "p")
-                               , ("text", "title: T\n\n*Hi* [o](<page:q>) [x](<page:none>)") ]
+                               , ("text", "title: T\n\n*Hi* [o](uid:q) [x](<uid: none>)") ]
     liftIO $ status preview `shouldBe` 200
     liftIO $ body preview `shouldSatisfy` T.isInfixOf "<em>Hi</em>"
     liftIO $ body preview `shouldSatisfy`

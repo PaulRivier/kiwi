@@ -151,7 +151,8 @@ kiwiRoute ss cache = do
     editParams = do
       source <- formParam "source"
       pId <- formParam "id"
-      sent <- formParam "text"
+      -- browsers send the text of a textarea with CRLF line endings
+      sent <- T.replace "\r\n" "\n" <$> formParam "text"
       return ((source, pId), sent)
     filesParts cd src = [ ( concat ["image/", src, "/"]
                           , FP.joinPath [cd, src, imagesFSDir] )
@@ -209,7 +210,7 @@ initServerState cfp conf logger' = do
   sem <- newQSem 3
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"
   sessM <- newMVar sess
-  db <- DB.updatePagesDB logger' contentDir' DB.pagesFSDir
+  db <- DB.updatePagesDB logger' (Conf.gitCommit conf) contentDir' DB.pagesFSDir
           (DB.emptyPagesDB (Conf.defaultMeta conf)
                            (Conf.customMetaConfig conf)
                            (Conf.sourcesConfig conf))
