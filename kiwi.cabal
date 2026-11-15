@@ -73,7 +73,6 @@ library
     , unliftio-core
     , wai
     , wai-extra
-    , wai-middleware-static
     , warp
   exposed-modules:
       Kiwi

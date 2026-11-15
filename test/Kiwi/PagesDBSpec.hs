@@ -3,7 +3,7 @@ module Kiwi.PagesDBSpec (pagesDBSpec) where
 import           Control.Exception (IOException, finally, try)
 import           Data.Either (isRight)
 import qualified Data.ByteString as BS
-import           Control.Monad (when)
+import           Control.Monad (forM_, when)
 import           Data.IORef (modifyIORef, newIORef, readIORef)
 import           Data.List (find, sort)
 import qualified Data.SearchEngine as SE
@@ -27,7 +27,7 @@ import           TestUtils
 
 -- | Path of a file of the pages of source "s"
 pageFile :: FilePath -> FilePath -> FilePath
-pageFile cd name = cd FP.</> "s" FP.</> "pages" FP.</> name
+pageFile cd name = cd FP.</> "s" FP.</> name
 
 -- | Writes the file, with a modification time of the given second
 writeFileAt :: FilePath -> Integer -> String -> IO ()
@@ -42,7 +42,7 @@ writeFileAt p sec c = do
 reloadDB :: FilePath -> PagesDB -> IO (PagesDB, [(L.LogLevel, T.Text)])
 reloadDB cd db = do
   logR <- newIORef []
-  db' <- DB.updatePagesDB (\lvl msg -> modifyIORef logR ((lvl, msg) :)) False cd "pages" db
+  db' <- DB.updatePagesDB (\lvl msg -> modifyIORef logR ((lvl, msg) :)) False cd db
   msgs <- reverse <$> readIORef logR
   return (db', msgs)
 
@@ -240,7 +240,7 @@ pagesDBSpec = do
   it "gives the same uid in two sources" $
     withContentDir $ \cd -> do
       writeFileAt (pageFile cd "a.md") 0 "uid: x\n\nkiwiword"
-      writeFileAt (cd FP.</> "t" FP.</> "pages" FP.</> "a.md") 0 "uid: x\n\nkiwiword"
+      writeFileAt (cd FP.</> "t" FP.</> "a.md") 0 "uid: x\n\nkiwiword"
       (db, msgs) <- loadDB cd
       sort (map pageUID $ DI.documentsList $ pagesIndex db) `shouldBe` [("s", "x"), ("t", "x")]
       warnings msgs `shouldBe` []
@@ -334,13 +334,21 @@ pagesDBSpec = do
       backlinks ("s", "b") `shouldBe` [("s", "a")]
       backlinks ("s", "a") `shouldBe` [("s", "b")]
 
-  it "ignores the files whose name is not the one of a page, in debug" $
+  it "ignores the files whose name is not the one of a page, and the hidden and _ ones" $
     withContentDir $ \cd -> do
-      writeFileAt (pageFile cd "_draft.md") 0 "title: A\n\nkiwiword"
-      writeFileAt (pageFile cd "notes.txt") 0 "title: A\n\nkiwiword"
+      D.createDirectoryIfMissing True (cd FP.</> "s" FP.</> "_drafts")
+      D.createDirectoryIfMissing True (cd FP.</> "s" FP.</> ".git")
+      D.createDirectoryIfMissing True (cd FP.</> "s" FP.</> ".stversions")
+      forM_ ["_draft.md", "notes.txt", "-draft.md", "_drafts/a.md", ".git/b.md"
+            , ".stversions/c.md", "page.md~"] $ \name ->
+        writeFileAt (pageFile cd name) 0 "title: A\n\nkiwiword"
       (db, msgs) <- loadDB cd
       dbIds db `shouldReturn` []
-      length [ m | (L.Debug, m) <- msgs, T.isPrefixOf "file ignored, " m ] `shouldBe` 2
+      -- only a page file whose name is refused is logged (in debug)
+      [ m | (L.Debug, m) <- msgs, T.isPrefixOf "file ignored, " m ]
+        `shouldBe` [T.pack $ "file ignored, " ++ pageFile cd "-draft.md" ++
+                    " : a page file name starts with a letter or a digit, and ends with \
+                    \.md or .markdown"]
 
   it "lists the files that are not loaded, until they are fixed" $
     withContentDir $ \cd -> do
@@ -368,9 +376,9 @@ pagesDBSpec = do
       git cd ["commit", "-q", "-m", "init"]
       writeFileAt (pageFile cd "a.md") 0 "title: A2\n\nkiwiword"
       writeFileAt (pageFile cd "c.md") 0 "title: C\n\nkiwiword"
-      _ <- DB.updatePagesDB (\_ _ -> return ()) True cd "pages" (DB.emptyPagesDB defMeta [] [])
+      _ <- DB.updatePagesDB (\_ _ -> return ()) True cd (DB.emptyPagesDB defMeta [] [])
       gitOut cd ["log", "--format=%an|%s"] `shouldReturn`
         "Kiwi|Kiwi: uid assigned to 2 pages\nKiwi|Kiwi: pre-update commit of 2 pages\ntest|init\n"
       gitOut cd ["show", "--name-only", "--format=", "HEAD~1"]
-        `shouldReturn` "s/pages/a.md\ns/pages/c.md\n"
+        `shouldReturn` "s/a.md\ns/c.md\n"
       gitOut cd ["status", "--porcelain"] `shouldReturn` ""

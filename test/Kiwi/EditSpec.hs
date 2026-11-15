@@ -46,7 +46,7 @@ editSpec = do
     let db = mkPagesDB [mkPage ("src", "other") [] [] False 1, mkPage ("src", "x") [] [] False 1]
         bytes = TE.encodeUtf8 file
         check hash = checkSave "/k/content" db AccessAdmin hash
-                       "/k/content/src/pages/p.md" (bytes, file)
+                       "/k/content/src/p.md" (bytes, file)
     check (fileHash bytes) "title: New\n\nBye"
       `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\n\nBye\n", [])
     check "0000" "title: New\n\nBye" `shouldBe` Left SaveConflict
@@ -74,7 +74,7 @@ editSpec = do
       login user = post "/login" [("username", user), ("password", "secret")]
       body = TL.toStrict . TLE.decodeUtf8 . WT.simpleBody
       status = Net.statusCode . WT.simpleStatus
-      pagePath cd name = cd FP.</> "s" FP.</> "pages" FP.</> name
+      pagePath cd name = cd FP.</> "s" FP.</> name
       hashOf cd name = fileHash <$> liftIO (BS.readFile $ pagePath cd name)
       save h text = post "/save-page" [("source", "s"), ("id", "p"), ("hash", h), ("text", text)]
 
@@ -186,12 +186,12 @@ editSpec = do
     saved <- save h "title: New\n\nBye"
     liftIO $ status saved `shouldBe` 200
     liftIO $ logOf cd 3 `shouldReturn` (saveCommits ++ "test <test@test>|test <test@test>|init\n")
-    liftIO $ gitOut cd ["show", "HEAD~1:s/pages/p.md"] `shouldReturn` outside
+    liftIO $ gitOut cd ["show", "HEAD~1:s/p.md"] `shouldReturn` outside
     liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""
 
   it "first commits a page file that is not tracked yet, as Kiwi" $ onRepo [] $ \cd -> do
     _ <- login "bob"
-    liftIO $ git cd ["rm", "-q", "--cached", "s/pages/p.md"]
+    liftIO $ git cd ["rm", "-q", "--cached", "s/p.md"]
     liftIO $ git cd ["commit", "-q", "-m", "untrack"]
     h <- hashOf cd "p.md"
     saved <- save h "title: New\n\nBye"
@@ -204,7 +204,7 @@ editSpec = do
     saved <- save h "title: New\n\nBye"
     liftIO $ status saved `shouldBe` 200
     liftIO $ gitOut cd ["rev-list", "--count", "HEAD"] `shouldReturn` "1\n"
-    liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` " M s/pages/p.md\n"
+    liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` " M s/p.md\n"
 
   it "previews the content of a text, relative to its page" $ onKiwi $ \_ -> do
     _ <- login "bob"

@@ -69,7 +69,6 @@ runServers logLevel cfps = do
     L.mkLogger logLevel "?" L.Error $ T.pack $
       "several kiwis use the same port: " ++ L.intercalate ", " (map show dupPorts)
     exitFailure
-  cache <- U.initWAICaching
   -- the reload signal (sent by kiwi reload) reloads every kiwi of this
   -- process, once it has loaded its pages
   reloaders <- newIORef []
@@ -83,7 +82,7 @@ runServers logLevel cfps = do
   let pidFiles = U.nodup $ map (pidFilePath . fst) confs
   bracket_ (forM_ pidFiles $ \p -> writeFile p (show pid ++ "\n"))
            (forM_ pidFiles $ \p -> try (D.removeFile p) :: IO (Either IOException ()))
-           (mapConcurrently_ (\(cfp, conf) -> kiwiServer cfp conf logLevel cache onReload) confs)
+           (mapConcurrently_ (\(cfp, conf) -> kiwiServer cfp conf logLevel onReload) confs)
 
 
 -- | File with the id of the process serving the kiwi of a config file,
@@ -173,15 +172,14 @@ initKiwiDir d = do
     createKiwi r = do
       forM_ (dirs r) D.createDirectory
       BS.writeFile (FP.combine r "kiwi.ini") Conf.defaultConfigFileContent
-      BS.writeFile (FP.combine r "content/my/pages/Home.md") DP.defaultHomePage
-      BS.writeFile (FP.combine r "content/my/pages/CommonMark.md") DP.commonmarkDocPage
+      BS.writeFile (FP.combine r "content/my/Home.md") DP.defaultHomePage
+      BS.writeFile (FP.combine r "content/my/CommonMark.md") DP.commonmarkDocPage
       putStrLn $ unlines ["Kiwi directory created at " ++ r,
                           "You should now do the following steps :",
                           " - check kiwi.ini file",
                           " - start wiki with command : kiwi serve " ++ FP.combine r "kiwi.ini"]
 
-    dirs r = map (FP.combine r) ["content", "content/my", "content/my/pages",
-                                 "content/my/images", "content/my/files"]
+    dirs r = map (FP.combine r) ["content", "content/my"]
       
 
 

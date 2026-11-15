@@ -15,6 +15,7 @@ module Kiwi.Controller
   , serveLogin
   , logUserIn
   , logUserOut
+  , serveFile
   , serveNotFound
   , serveError
   , withLogin
@@ -44,9 +45,12 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLE
+import           Data.Text.Normalize (normalize, NormalizationMode(NFC, NFD))
 import qualified Data.Time as Time
 import qualified Data.Tree as Tree
 import qualified Network.HTTP.Types as Net
+import           Network.Mime (defaultMimeLookup)
+import qualified System.Directory as D
 import           System.Exit (ExitCode (..))
 import qualified System.FilePath as FP
 import qualified System.Process as Proc
@@ -62,7 +66,7 @@ import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
 import qualified Kiwi.Git as Git
 import           Kiwi.Meta (splitPage)
-import           Kiwi.Pandoc (pageDoc, embeddedDoc)
+import           Kiwi.Pandoc (pageDoc, embeddedDoc, servablePath)
 import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, stripAccents,
                               excerpt)
 import           Kiwi.PagesDB (brokenLinks)
@@ -596,6 +600,60 @@ logMsg :: L.LogLevel -> T.Text -> ActM ()
 logMsg level msg = do
   logger <- asksK K.logger
   liftIO $ logger level msg
+
+
+-- | Serves a file of a source, given by the segments of its path from the top
+-- of the source, when a page that the user can read links it (see
+-- 'K.pageFiles'), archived or not: the request of an image has no archive
+-- mode. The path is put in NFC, as the paths of the links; the file is then
+-- opened with this path, or else with its NFD form (names written on macOS).
+-- A path that can not be served (see 'servablePath'), or that no page links,
+-- is not found; a file linked by pages that the user can not read is
+-- forbidden. The browser checks its ETag at each use.
+serveFile :: T.Text -> [T.Text] -> ActM ()
+serveFile source rawSegments = do
+  let segments = map (normalize NFC) rawSegments
+      key = (source, T.intercalate "/" segments)
+      linked q = DI.query (K.pagesIndex q) . DI.And . (U.qOnly K.FieldFile key :)
+  db <- getDB
+  loginM <- asksK (K.login . K.requestState)
+  if not (servablePath segments) || null (linked db []) then serveNotFound
+  else if null (linked db [Auth.readableAnyArchiveQuery loginM]) then serveForbidden
+  else do
+    cd <- asksK K.contentDir
+    let fsPath form = FP.joinPath (cd : map T.unpack (source : map (normalize form) segments))
+    found <- liftIO $ firstFile [fsPath NFC, fsPath NFD]
+    case found of
+      Nothing -> serveNotFound
+      Just (path, size, mtime) -> do
+        let etag = T.concat [ "\"", T.pack (show size), "-"
+                            , T.pack (show (Time.diffUTCTime mtime epoch)), "\"" ]
+        sent <- lookup Net.hIfNoneMatch . Wai.requestHeaders <$> request
+        setHeader "ETag" $ TL.fromStrict etag
+        setHeader "Cache-Control" "private, no-cache"
+        if sent == Just (TE.encodeUtf8 etag) then status Net.status304 else do
+          setHeader "Content-Type" $ TL.fromStrict $ contentType $ last segments
+          Scotty.file path
+  where
+    epoch = Time.UTCTime (Time.fromGregorian 1970 1 1) 0
+    -- the first path that is a file (symbolic links followed), with its size
+    -- and modification time
+    firstFile [] = return Nothing
+    firstFile (p : ps) = do
+      r <- try $ do
+        isFile <- D.doesFileExist p
+        if isFile then (\s t -> Just (p, s, t)) <$> D.getFileSize p
+                                                 <*> D.getModificationTime p
+        else return Nothing
+      case r of
+        Right (Just x) -> return (Just x)
+        Right Nothing -> firstFile ps
+        Left (_ :: IOException) -> firstFile ps
+    -- by the extension of the name; the texts are in UTF-8, as the pages
+    contentType name =
+      let t = TE.decodeUtf8 $ defaultMimeLookup name
+      in if "text/" `T.isPrefixOf` t && not ("charset" `T.isInfixOf` t)
+         then t <> "; charset=utf-8" else t
 
 
 serveNotFound :: ActM ()

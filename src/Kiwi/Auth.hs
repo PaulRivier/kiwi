@@ -24,6 +24,7 @@ module Kiwi.Auth
   , isAdmin
   , pageAccessLevel
   , readableQuery
+  , readableAnyArchiveQuery
   , randomText
   , loadAccounts
   , refusedLinesWarning
@@ -320,14 +321,15 @@ pageAccessLevel loginM p
 -- | The pages the user can read, archived or not: "public" ones for anonymous
 -- users, those of their groups too once logged in, all of them for admins
 readableQuery :: Maybe Login -> Bool -> DI.Query MetaField DocIndexKey
-readableQuery loginM archive
-  | loginIsAdmin loginM = world
-  | otherwise = case loginM of
-      Nothing        -> readable []
-      Just l         -> readable (loginGroups l)
-  where
-    world = U.qOnly FieldArchive archive
-    readable groups = DI.And [U.qAny FieldAccess ("public" : groups :: [T.Text]), world]
+readableQuery loginM archive =
+  DI.And [readableAnyArchiveQuery loginM, U.qOnly FieldArchive archive]
+
+-- | The pages the user can read (see 'readableQuery'), archived ones included
+readableAnyArchiveQuery :: Maybe Login -> DI.Query MetaField DocIndexKey
+readableAnyArchiveQuery loginM
+  -- every page is in the archive field
+  | loginIsAdmin loginM = U.qHasField FieldArchive
+  | otherwise = U.qAny FieldAccess ("public" : maybe [] loginGroups loginM :: [T.Text])
 
 
 -- | Random alphanumeric text of length l, from a cryptographically

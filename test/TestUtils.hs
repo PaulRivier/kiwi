@@ -21,7 +21,6 @@ import           Kiwi.Pandoc (loadPage, pageDoc)
 import qualified Text.Pandoc.Definition as PD
 import           Kiwi.Server (initServerState, kiwiApp)
 import           Kiwi.Types
-import qualified Kiwi.Utils as U
 import qualified Utils.DocIndex as DI
 
 defMeta :: MetaData
@@ -39,8 +38,7 @@ mkPage uid tags access archive day =
        , pageAbsoluteFSPath = "/dev/null"
        , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 day) 0
        , pageBody = ""
-       , pageImagesDir = ""
-       , pageFilesDir = ""
+       , pageFiles = []
        , pagePlainText = ""
        , pageTitle = snd uid
        , pageTags = tags
@@ -66,7 +64,7 @@ mkPagesDBWith cmc pages = let db = DB.emptyPagesDB defMeta cmc []
 display :: T.Text -> PD.Pandoc
 display body =
   either error id $ pageDoc "/k/content"
-    (mkPage ("src", "p") [] [] False 1) { pageAbsoluteFSPath = "/k/content/src/pages/p.md"
+    (mkPage ("src", "p") [] [] False 1) { pageAbsoluteFSPath = "/k/content/src/p.md"
                                         , pageBody = body }
 
 -- | Load a page from source "src", located in pages subfolder "sub"
@@ -85,7 +83,7 @@ withContentDir test = do
   tmp <- D.getTemporaryDirectory
   bracket (newDir tmp (0 :: Int)) D.removeDirectoryRecursive $ \d -> do
     let cd = d FP.</> "content"
-    D.createDirectoryIfMissing True (cd FP.</> "s" FP.</> "pages")
+    D.createDirectoryIfMissing True (cd FP.</> "s")
     test cd
   where
     newDir tmp n = do
@@ -120,7 +118,10 @@ withKiwiConfig kiwiLines accounts' files test = withContentDir $ \cd -> do
       account (l, pass, groups) = case Auth.hashPassword "kiwi-test-salt00" pass of
         Just hash -> return $ Account l "kiwi-test-salt00" hash groups
         Nothing -> fail "unable to hash the password"
-  forM_ files $ \(name, c) -> writeFile (cd FP.</> "s" FP.</> "pages" FP.</> name) c
+  forM_ files $ \(name, c) -> do
+    let path = cd FP.</> "s" FP.</> name
+    D.createDirectoryIfMissing True (FP.takeDirectory path)
+    writeFile path c
   accs <- mapM account accounts'
   mapM_ (hPutStrLn stderr) =<< Auth.dumpAccounts accs (kiwiDir' FP.</> "_accounts")
   conf <- either fail return $ Conf.parseConfig $ T.unlines $
@@ -129,8 +130,7 @@ withKiwiConfig kiwiLines accounts' files test = withContentDir $ \cd -> do
     , "[metadata zone]", "type: text"
     , "[metadata author]", "type: text" ]
   ss <- initServerState (kiwiDir' FP.</> "kiwi.ini") conf (\_ _ -> return ())
-  cache <- U.initWAICaching
-  kiwiApp ss cache >>= test cd ss
+  kiwiApp ss >>= test cd ss
 
 -- | Runs the test when git is installed, else marks it pending
 withGit :: IO () -> IO ()

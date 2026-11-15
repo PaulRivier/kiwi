@@ -112,11 +112,13 @@ In your kiwi folder you should have this layout.
   - _pid (while `kiwi serve` runs)
   - _sessions (created at the first login)
   - content
-    - my 
-      - pages
-      - images
-      - files
-  
+    - my
+      - Home.md
+      - CommonMark.md
+      - recipes
+        - cake.md
+        - cake.jpg
+
 *content* is the folder that will contain all your *sources*. A
 *source* is an independent module of content, with its own pages,
 images and files. Kiwi can handle many *sources* in a single database,
@@ -125,8 +127,10 @@ and allow to browse their contents together.
 You can have as many sources as you want. This can be really useful
 for collaboration, aggregation or online publishing.
 
-Your pages should go in the *pages* folder, your images in the
-*images* folder and your other files in the *files* folder.
+In a source, you arrange your pages, images and other files as you
+like, in any subfolders: an image or a file usually goes next to the
+page that links to it, so that moving or removing the folder of a page
+takes its files along.
 
 ## kiwi.ini config file
 
@@ -182,15 +186,18 @@ All these settings are optional.
 ## content folder
 
 This folder contains all your *sources*. You can have only one source,
-or several. In each source, Kiwi will require the following layout.
+or several: each folder of *content* is a source.
 
 ### pages
 
-Add your Markdown documents to 'pages' to get started. Kiwi only reads
-the files whose name starts with a letter or a digit and ends with
-`.md` or `.markdown`: other files (`_draft.md`, `notes.txt`) are
-ignored, with a message in debug mode (`kiwi serve --log-level debug`),
-as well as hidden files and folders (`.name`). Pages must be UTF-8
+Add your Markdown documents anywhere in the folder of a source to get
+started. Kiwi only reads as pages the files whose name starts with a
+letter or a digit and ends with `.md` or `.markdown`: other page files
+(`-draft.md`) are ignored, with a message in debug mode (`kiwi serve
+--log-level debug`), as well as the hidden files and folders (`.name`,
+such as `.git`) and those whose name starts with `_` (`_drafts`). Other
+files (images…) are not pages: see [images and
+files](#images-and-files). Pages must be UTF-8
 files, with Unix line endings (LF) and without byte order mark: other
 files are not loaded, and are listed on the *Doctor* page.
 
@@ -288,12 +295,6 @@ Some metadata keys are reserved by kiwi :
   with their rights, see [Accounts and access](#accounts-and-access)
   (optional)
 * **archive** : `yes` to archive the page, see below (optional)
-* **images-dir** : if you want to include many images in your document
-  from one of your images subfolder, set it here, and Kiwi will look
-  for your images links from there (optional)
-* **files-dir** : if you want to link to many files in your document
-  from one of your files subfolder, set it here, and Kiwi will look
-  for your files links from there (optional)
 
 Some metadata fields can have default values set in *kiwi.ini*
 file. You can change these default values there. These values are then
@@ -325,39 +326,31 @@ Link to a heading of a page, headings get an anchor from their text
     [link to a section](uid:UID#baking-time)
     [link to a section of this page](#baking-time)
 
-Link to an image, file-name is file path from *images*
+Link to a file of the source (an image, a spreadsheet…): its path is
+relative to the folder of the page. From *recipes/cake.md*,
+`file:cake.jpg` is *recipes/cake.jpg*, and `file:img/cacao.png` is
+*recipes/img/cacao.png*. A link to an image opens it in the image
+viewer of the page, a link to another file in a new tab.
 
-    [link to an image](<image:flower.png>)
-
-Link to an attachment file, file-name is file path from *files*
-
+    [link to an image](<file:cake.jpg>)
     [link to a file](<file:spreadsheet.ods>)
 
-Insert image :
+Insert an image:
 
-    ![link to an image](<image:flower.png>)
+    ![a cake](<file:cake.jpg>)
 
-You are free to create subfolders to arrange your files in *pages*,
-*images* and *files*. Subfolders have minimal impact on Kiwi
-behaviour, however they provide the following properties :
-
-- If meta *images-dir* is not set, links to an image are relative to
-  current page subfolder in 'images' folder. In other word, from
-  document *pages/recipe/cake.md*, a link to *image:cacao.png* will
-  look for file *images/recipe/cacao.png*. If meta *images-dir* is
-  set, it takes precedence.
-- same applies to files
-
-Links can target path relative to top directories if they start with
-*/*, like
+A path that starts with */* starts at the top of the source: from any
+page, `file:/images/flower.png` is *images/flower.png* in the folder of
+the source.
 
     [link to a file](<file:/spreadsheet.ods>)
 
-In image and file links, `.` and `..` work as usual (`image:../cake.png`);
-a `..` above the top of the *images* or *files* folder is ignored, so a
-link never leaves its source. Targets may be percent-encoded, which is
-needed for the characters with a meaning in links: `file:C%23.pdf` links
-to the file *C#.pdf* (a `#` starts an anchor).
+A file link never goes up: a path with `..` is refused, as well as the
+paths to files that Kiwi never serves (see [images and
+files](#images-and-files)); such a link is broken. `.` is allowed
+(`file:./cake.jpg`). Targets may be percent-encoded, which is needed
+for the characters with a meaning in links: `file:C%23.pdf` links to
+the file *C#.pdf* (a `#` starts an anchor, `file:doc.pdf#page=2`).
 
 Broken links get the `kiwi-link-broken` class, that the theme shows in
 red with a dashed underline. For a reader, a link to a page they can
@@ -372,16 +365,29 @@ not write the uid of the page...).
 
 ### images and files
 
-You are free to write any type of images and files in dedicated
-folders, and to use subfolders if you want to.
+Images and other files go anywhere in the folder of the source, next to
+the pages or in subfolders, as the pages.
 
-**Images and files are public** : they are served to anyone who knows
-or guesses their URL (`/image/SOURCE/…`, `/file/SOURCE/…`), logged in
-or not, whatever the access of the pages that link to them. Don't put
-private content there. Hidden files (`.name`) are not served.
+Kiwi serves a file (`/file/SOURCE/path`) only when a page links to it
+with a `file:` link, and only to the readers of at least one of the
+pages that link to it (archived or not): a file linked by a private
+page only is private, a file linked by no page is never served. A
+reader who can not read any of these pages gets the same answer as for
+a page (401, or 403 when logged in). Links written in raw HTML
+(`<img src="/file/…">`) do not count. As a consequence, a writer of a
+page can make any file of the source readable by the readers of this
+page, by linking to it.
 
-The images and files of a source added while Kiwi runs are served after
-a restart (its pages are loaded at the next reload).
+Kiwi never serves, even when a page links to them: the files of the
+pages (`.md`, `.markdown`) and the copies that editors leave next to
+them (`page.md~`, `#page.md#`, `page.md.orig`…: a name holding `.md` or
+`.markdown` followed by anything but a letter or a digit), the names
+that start with `.`, `_` or `#` or end with `~`, and anything in a
+folder whose name is one of those. The text files are served as UTF-8.
+
+A file linked by a new page, or added to the disk, is served once the
+pages are reloaded. In the editor of the browser, the preview does not
+show a file that the page links for the first time, until it is saved.
 
 
 # Documents reload
@@ -550,11 +556,11 @@ this block.
 
 The editor shows the whole file, its metadata header included, written
 in a normalized form: one line by key, in a fixed order (title, uid,
-previous-uids, tags, access, lang, archive, images-dir, files-dir, the
+previous-uids, tags, access, lang, archive, the
 custom metadata, then the other keys), the tags sorted. The *uid* and
 *previous-uids* metadata are never shown, and are kept as they are in
 the file when the page is saved, whatever the right. With the write
-right, the *access*, *archive*, *images-dir* and *files-dir* metadata
+right, the *access* and *archive* metadata
 are not shown either, and are kept the same way; with the admin right,
 they can be changed.
 
@@ -632,8 +638,7 @@ A group can also get a right on the page, after a colon :
 
 * **r** (the default, `friends` is `friends:r`) : read the page ;
 * **w** (or **rw**) : read and edit the page in the browser, its
-  content and its metadata, except *access*, *archive*, *images-dir*
-  and *files-dir* ;
+  content and its metadata, except *access* and *archive* ;
 * **a** : read and edit everything in the page, these metadata included
   (but not *uid* and *previous-uids*, kept by Kiwi).
 

@@ -1,6 +1,7 @@
 module Kiwi.ViewSpec (viewSpec) where
 
 import qualified Data.Text as T
+import           Control.Monad (forM_)
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.Text.Lazy as TL
@@ -9,6 +10,7 @@ import           Lucid (renderText)
 import qualified Network.HTTP.Types as Net
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Test as WT
+import qualified System.Directory as D
 import qualified System.FilePath as FP
 import           Test.Hspec
 import qualified Text.Pandoc.Definition as PD
@@ -150,12 +152,63 @@ viewSpec = do
       missing <- get "/page/s/bad"
       liftIO $ WT.simpleStatus missing `shouldBe` Net.status404
 
+  it "serves the files linked by the pages that the user can read" $
+    withKiwiState [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])
+                  , ("eve", "secret", ["friends"])]
+                  [ ("pub.md", "uid: pub\ntitle: P\n\n![a](<file:img/a.png>) [t](<file:notes.txt>) \
+                               \[g](<file:.git/config>) [m](<file:priv.md>) [e](<file:\xe9.png>)")
+                  , ("img/a.png", "PNG"), ("notes.txt", "text"), (".git/config", "G")
+                  , ("e\x301.png", "NFD")
+                  , ("priv.md", "uid: priv\ntitle: Priv\naccess: family\n\n[s](<file:/secret.pdf>)")
+                  , ("secret.pdf", "PDF")
+                  , ("old.md", "uid: old\ntitle: Old\narchive: yes\n\n[o](<file:old.pdf>)")
+                  , ("old.pdf", "OLD"), ("alone.pdf", "X") ] $ \cd ss app ->
+    flip WT.runSession app $ do
+      let status path = WT.simpleStatus <$> get path
+          header h = lookup h . WT.simpleHeaders
+      png <- get "/file/s/img/a.png"
+      liftIO $ do
+        WT.simpleStatus png `shouldBe` Net.status200
+        WT.simpleBody png `shouldBe` "PNG"
+        header "Content-Type" png `shouldBe` Just "image/png"
+        header "Cache-Control" png `shouldBe` Just "private, no-cache"
+        etagOf png `shouldSatisfy` (/= "")
+      cached <- getWith (etagOf png) "/file/s/img/a.png"
+      liftIO $ WT.simpleStatus cached `shouldBe` Net.status304
+      liftIO $ WT.simpleBody cached `shouldBe` ""
+      txt <- get "/file/s/notes.txt"
+      liftIO $ header "Content-Type" txt `shouldBe` Just "text/plain; charset=utf-8"
+      -- linked by a page in NFC, written in NFD on the disk
+      nfd <- get "/file/s/%C3%A9.png"
+      liftIO $ WT.simpleBody nfd `shouldBe` "NFD"
+      -- linked by an archived page: served out of the archive mode
+      status "/file/s/old.pdf" >>= liftIO . (`shouldBe` Net.status200)
+      -- not linked, not servable even when linked, in another source
+      forM_ [ "/file/s/alone.pdf", "/file/s/.git/config", "/file/s/priv.md"
+            , "/file/s/img/../notes.txt", "/file/x/img/a.png", "/file/s", "/file/" ] $ \path -> do
+        st <- status path
+        liftIO $ (path, st) `shouldBe` (path, Net.status404)
+      -- linked by a page that the user can not read
+      status "/file/s/secret.pdf" >>= liftIO . (`shouldBe` Net.status401)
+      _ <- postForm "/login" "username=eve&password=secret"
+      status "/file/s/secret.pdf" >>= liftIO . (`shouldBe` Net.status403)
+      _ <- postForm "/logout" ""
+      _ <- postForm "/login" "username=bob&password=secret"
+      status "/file/s/secret.pdf" >>= liftIO . (`shouldBe` Net.status200)
+      _ <- postForm "/logout" ""
+      _ <- postForm "/login" "username=ann&password=secret"
+      status "/file/s/secret.pdf" >>= liftIO . (`shouldBe` Net.status200)
+      -- no page links it any more
+      liftIO $ D.removeFile (cd FP.</> "s" FP.</> "old.md")
+      liftIO $ reloadKiwi ss
+      status "/file/s/old.pdf" >>= liftIO . (`shouldBe` Net.status404)
+
   it "reloads the pages and the accounts out of a request, as the reload signal does" $
     withKiwiState [] [("p.md", "uid: p\ntitle: Page\n\nHello")] $ \cd ss app -> do
       let run = flip WT.runSession app
       missing <- run $ get "/page/s/new"
       WT.simpleStatus missing `shouldBe` Net.status404
-      writeFile (cd FP.</> "s" FP.</> "pages" FP.</> "new.md") "uid: new\ntitle: New\n\nHello"
+      writeFile (cd FP.</> "s" FP.</> "new.md") "uid: new\ntitle: New\n\nHello"
       reloadKiwi ss
       found <- run $ get "/page/s/new"
       WT.simpleStatus found `shouldBe` Net.status200

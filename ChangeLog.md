@@ -18,6 +18,25 @@
   supported. Page files with Windows line endings (CRLF) or a byte order
   mark are no longer loaded (the browser editor saves LF line endings).
 - The pages created by `kiwi init` have the uids `Home` and `CommonMark`.
+- **Free layout of the sources**: pages, images and other files go
+  anywhere in the folder of a source (no more `pages`, `images` and
+  `files` folders). Hidden files and folders, and those whose name starts
+  with `_`, are ignored.
+- **Files served by their links**: a file of a source (`/file/SOURCE/path`)
+  is served only when a page links to it with `file:`, and only to the
+  readers of at least one of these pages, archived or not (401/403
+  otherwise, 404 when no page links to it). The files of the pages, the
+  copies left by editors (`page.md~`, `#page.md#`…), and the names starting
+  with `.`, `_` or `#`, or ending with `~`, are never served. The files are
+  revalidated by the browser at each use (ETag), and the text files are
+  served as UTF-8. A file link to an image opens the image viewer, by the
+  extension of the file.
+- **Breaking**: the `image:` links, the `/image/` addresses and the
+  `images-dir` and `files-dir` metadata are no longer supported: use
+  `file:` (`![a cake](<file:cake.jpg>)`), relative to the folder of the
+  page, or to the top of the source with `/`. A file link with `..` is
+  broken. Move the content of `pages`, `images` and `files` to the top of
+  the folder of each source before starting this version.
 - Git: before committing a page saved from the browser, Kiwi commits the
   changes of its file made outside of Kiwi (or the file not tracked yet),
   with "Kiwi" as author and the message "Pre-update commit of SOURCE:UID

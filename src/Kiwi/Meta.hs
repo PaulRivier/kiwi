@@ -50,8 +50,6 @@ emptyMeta = MetaData { metaUid = Nothing
                      , metaAccess = Nothing
                      , metaLang = Nothing
                      , metaArchive = Nothing
-                     , metaImagesDir = Nothing
-                     , metaFilesDir = Nothing
                      , metaCustom = []
                      , metaOther = M.empty
                      }
@@ -67,8 +65,6 @@ mergeMeta a b =
            , metaAccess = metaAccess b <|> metaAccess a
            , metaLang = metaLang b <|> metaLang a
            , metaArchive = metaArchive b <|> metaArchive a
-           , metaImagesDir = metaImagesDir b <|> metaImagesDir a
-           , metaFilesDir = metaFilesDir b <|> metaFilesDir a
            , metaCustom = metaCustom b ++
                           filter ((`notElem` map cmdName (metaCustom b)) . cmdName)
                                  (metaCustom a)
@@ -88,9 +84,7 @@ metaKeys m = nodup $
                      , ("previous-uids", isJust $ metaPreviousUids m)
                      , ("title", isJust $ metaTitle m)
                      , ("tags", isJust $ metaTags m), ("access", isJust $ metaAccess m)
-                     , ("lang", isJust $ metaLang m), ("archive", isJust $ metaArchive m)
-                     , ("images-dir", isJust $ metaImagesDir m)
-                     , ("files-dir", isJust $ metaFilesDir m) ] ]
+                     , ("lang", isJust $ metaLang m), ("archive", isJust $ metaArchive m) ] ]
   ++ map cmdName (metaCustom m) ++ M.keys (metaOther m)
 
 -- | The metadata with the fields of these keys only (see 'clearMeta')
@@ -106,8 +100,6 @@ filterMeta keep m =
            , metaAccess = field "access" metaAccess
            , metaLang = field "lang" metaLang
            , metaArchive = field "archive" metaArchive
-           , metaImagesDir = field "images-dir" metaImagesDir
-           , metaFilesDir = field "files-dir" metaFilesDir
            , metaCustom = filter (keep . cmdName) (metaCustom m)
            , metaOther = M.filterWithKey (\k _ -> keep k) (metaOther m)
            }
@@ -125,7 +117,7 @@ sourceMeta scM md = mergeMeta md emptyMeta { metaAccess = scM >>= scAccess
 -- | Keys of the header that only the users with the admin right on a page
 -- can change: those with the write right can not.
 adminKeys :: [T.Text]
-adminKeys = ["access", "archive", "images-dir", "files-dir"]
+adminKeys = ["access", "archive"]
 
 -- | Keys of the header that kiwi keeps: no editor can see nor change them,
 -- whatever their right
@@ -193,8 +185,6 @@ fromFields cmc fields =
            , metaAccess = fst <$> access
            , metaLang = fst lang
            , metaArchive = fst archive
-           , metaImagesDir = T.concat <$> look "images-dir"
-           , metaFilesDir = T.concat <$> look "files-dir"
            , metaCustom = map fst customs
            , metaOther = M.fromList $ unknown ++ snd lang ++ snd archive ++
                                       [ ("access", bad) | Just (_, bad@(_:_)) <- [access] ] ++
@@ -222,8 +212,8 @@ fromFields cmc fields =
 
 -- | Keys of the header that kiwi reads: built-in, and custom metadata
 knownKeys :: [CustomMetaConfig] -> [T.Text]
-knownKeys cmc = [ "uid", "previous-uids", "title", "tags", "access", "lang", "archive"
-                , "images-dir", "files-dir" ] ++ map cmcName cmc
+knownKeys cmc = [ "uid", "previous-uids", "title", "tags", "access", "lang", "archive" ]
+                ++ map cmcName cmc
 
 
 -- | Keys of a header that kiwi does not use: neither built-in nor declared
@@ -252,8 +242,8 @@ writePage cmc m content =
      (if T.null body then "" else body <> "\n")
 
 -- | Normalized text of a header, read back by 'parseHeader': one line by
--- key, in this order: title, uid, previous-uids, tags, access, lang, archive, images-dir,
--- files-dir, the custom metadata in the order of the config, then the other
+-- key, in this order: title, uid, previous-uids, tags, access, lang, archive,
+-- the custom metadata in the order of the config, then the other
 -- keys by name (one line by value). The tags are sorted, without
 -- duplicates, their segments separated by " > ". The values that can not be read are written as they were.
 writeHeader :: [CustomMetaConfig] -> MetaData -> T.Text
@@ -271,8 +261,6 @@ writeHeader cmc m = T.unlines $ concat
                       ++ invalid]
   , orOther "lang" (showLangSetting <$> metaLang m)
   , orOther "archive" ((\b -> if b then "yes" else "no") <$> metaArchive m)
-  , line "images-dir" (metaImagesDir m)
-  , line "files-dir" (metaFilesDir m)
   , concatMap custom cmc
   , [ field k v | (k, vs) <- M.toList (metaOther m), k `notElem` knownKeys cmc, v <- vs ]
   ]

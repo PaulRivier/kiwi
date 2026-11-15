@@ -22,7 +22,6 @@ module Kiwi.Utils
   , isValidMdFilename
   , pathToPageId
     -- * Caching
-  , initWAICaching
     -- * IO
   , traverseDir
   , getFileContent
@@ -41,8 +40,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TSIO
 import qualified Data.Time as Time
 import           GHC.Clock (getMonotonicTime)
-import qualified Network.Wai.Middleware.Static as Static
-import           Network.HTTP.Types.Header (RequestHeaders)
+-- import           Network.HTTP.Types.Header (RequestHeaders)
 import qualified System.Directory as D
 import qualified System.FilePath as FP
 import qualified Text.Pandoc.Definition as PD
@@ -208,16 +206,18 @@ normalizePageId = T.replace "/" ":"
 
 -- Caching helpers
 
-initWAICaching :: IO Static.CacheContainer
-initWAICaching = Static.initCaching (Static.CustomCaching staticCachingHeaders)
-  where
-    staticCachingHeaders :: Static.FileMeta -> RequestHeaders
-    staticCachingHeaders fm =
-      [ ("Cache-Control", "no-transform,public,max-age=3600,s-maxage=3600")
-      , ("Last-Modified", Static.fm_lastModified fm)
-      , ("ETag", Static.fm_etag fm)
-      , ("Vary", "Accept-Encoding")
-      ]
+-- The files of the sources are served by Kiwi.Controller.serveFile, with
+-- their own cache headers.
+-- initWAICaching :: IO Static.CacheContainer
+-- initWAICaching = Static.initCaching (Static.CustomCaching staticCachingHeaders)
+--   where
+--     staticCachingHeaders :: Static.FileMeta -> RequestHeaders
+--     staticCachingHeaders fm =
+--       [ ("Cache-Control", "no-transform,public,max-age=3600,s-maxage=3600")
+--       , ("Last-Modified", Static.fm_lastModified fm)
+--       , ("ETag", Static.fm_etag fm)
+--       , ("Vary", "Accept-Encoding")
+--       ]
 
 
 -- IO

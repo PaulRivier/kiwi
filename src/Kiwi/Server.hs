@@ -10,10 +10,9 @@ module Kiwi.Server
 import           Control.Concurrent.QSem (newQSem)
 import           Control.Concurrent.MVar (newMVar, withMVar)
 import           Control.Exception (IOException, SomeException, try)
-import           Control.Monad (when, forM_)
+import           Control.Monad (when)
 import           Control.Monad.Reader
 import           Data.IORef (newIORef, readIORef)
-import           Data.List (stripPrefix, isInfixOf)
 import           Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -27,8 +26,6 @@ import           Network.Wai.Middleware.RequestLogger (DetailedSettings (..), Ou
                                                        defaultDetailedSettings,
                                                        defaultRequestLoggerSettings,
                                                        mkRequestLogger)
-import qualified Network.Wai.Middleware.Static as Static
-import           Network.Wai.Middleware.Static ((>->), (<|>))
 import qualified System.Directory as D
 import           System.Exit (exitFailure)
 import qualified System.FilePath as FP
@@ -42,19 +39,13 @@ import qualified Kiwi.Log as L
 import qualified Kiwi.PagesDB as DB
 import           Kiwi.Theme (serveTheme)
 import           Kiwi.Types
-import           Kiwi.Utils (isDotFile, timeIO)
-
-
-imagesFSDir, filesFSDir :: FilePath
-filesFSDir = "files"
-imagesFSDir = "images"
+import           Kiwi.Utils (timeIO)
 
 
 -- | Serves a kiwi. Once its pages are loaded, the action that reloads it
 -- (see 'reloadKiwi') is given to the last argument, for the reload signal.
-kiwiServer :: FP.FilePath -> Conf.KiwiConfig -> L.LogLevel ->
-              Static.CacheContainer -> (IO () -> IO ()) -> IO ()
-kiwiServer cfp c logLevel cache onReload = do
+kiwiServer :: FP.FilePath -> Conf.KiwiConfig -> L.LogLevel -> (IO () -> IO ()) -> IO ()
+kiwiServer cfp c logLevel onReload = do
   let logger' = L.mkLogger logLevel (Conf.name c)
   (ss, t) <- timeIO $ initServerState cfp c logger'
   onReload $ reloadKiwi ss
@@ -74,7 +65,7 @@ kiwiServer cfp c logLevel cache onReload = do
                                          setPort (Conf.port c) (settings defaultOptions) }
   scottyOptsT opts runActionToIO $ do
     when (logLevel == L.Debug) $ middleware requestLogger
-    kiwiRoute ss cache
+    kiwiRoute ss
   where
     -- the login password is never logged (nor the raw request body, which
     -- is not displayed when params are modified)
@@ -84,14 +75,14 @@ kiwiServer cfp c logLevel cache onReload = do
 
 -- | The application of a kiwi, as served by 'kiwiServer' (without the
 -- requests logger of the debug mode)
-kiwiApp :: ServerState -> Static.CacheContainer -> IO Wai.Application
-kiwiApp ss cache = scottyAppT defaultOptions { verbose = 0 }
-                              (\m -> runReaderT (runServerM m) ss)
-                              (kiwiRoute ss cache)
+kiwiApp :: ServerState -> IO Wai.Application
+kiwiApp ss = scottyAppT defaultOptions { verbose = 0 }
+                        (\m -> runReaderT (runServerM m) ss)
+                        (kiwiRoute ss)
 
 
-kiwiRoute :: ServerState -> Static.CacheContainer -> WebM ()
-kiwiRoute ss cache = do
+kiwiRoute :: ServerState -> WebM ()
+kiwiRoute ss = do
   -- the first middleware is the outer one: all the responses have the headers
   middleware securityHeaders
   -- compressed responses, for the clients that accept them: text types, and
@@ -142,8 +133,13 @@ kiwiRoute ss cache = do
 
   middleware serveTheme
 
-  forM_ (contentSources ss) $ \src ->
-    serveStatic cache $ filesParts (contentDir ss) src
+  -- the files of the sources linked by the pages (see 'serveFile'): the path
+  -- of the request is decoded by WAI
+  get (regex "^/file/") $ do
+    segments <- Wai.pathInfo <$> request
+    case segments of
+      _ : source : path -> withLogin $ serveFile source path
+      _ -> withLogin serveNotFound
 
   notFound $ withLogin serveNotFound
 
@@ -154,11 +150,6 @@ kiwiRoute ss cache = do
       -- browsers send the text of a textarea with CRLF line endings
       sent <- T.replace "\r\n" "\n" <$> formParam "text"
       return ((source, pId), sent)
-    filesParts cd src = [ ( concat ["image/", src, "/"]
-                          , FP.joinPath [cd, src, imagesFSDir] )
-                        , ( concat ["file/", src, "/"]
-                          , FP.joinPath [cd, src, filesFSDir]) ]
-    
 
 
 -- | Security headers of all the responses (pages, theme, images and files of
@@ -194,7 +185,6 @@ initServerState :: FP.FilePath -> Conf.KiwiConfig -> L.Logger -> IO ServerState
 initServerState cfp conf logger' = do
   kiwiDir' <- D.makeAbsolute (FP.takeDirectory cfp)
   let contentDir' = FP.combine kiwiDir' (Conf.contentDir conf)
-  sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
   let accountsFile = FP.combine kiwiDir' "_accounts"
   accountsE <- try $ loadAccounts accountsFile
   accounts' <- case accountsE of
@@ -210,7 +200,7 @@ initServerState cfp conf logger' = do
   sem <- newQSem 3
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"
   sessM <- newMVar sess
-  db <- DB.updatePagesDB logger' (Conf.gitCommit conf) contentDir' DB.pagesFSDir
+  db <- DB.updatePagesDB logger' (Conf.gitCommit conf) contentDir'
           (DB.emptyPagesDB (Conf.defaultMeta conf)
                            (Conf.customMetaConfig conf)
                            (Conf.sourcesConfig conf))
@@ -221,7 +211,6 @@ initServerState cfp conf logger' = do
   return $ ServerState {
       kiwiName   = Conf.name conf
     , contentDir = contentDir'
-    , contentSources = sources
     , kiwiDir    = kiwiDir'
     , editorCommand = Conf.editor conf
     , uiLang       = findInterfaceLang (Conf.uiLang conf)
@@ -245,19 +234,21 @@ initServerState cfp conf logger' = do
     findInterfaceLang _         = UI_English
 
 
-serveStatic :: Static.CacheContainer -> [(String, FP.FilePath)] -> WebM ()
-serveStatic cache parts =
-  let opts = Static.defaultOptions { Static.cacheContainer = cache }
-      basePolicy = mconcat [ Static.noDots
-                           , Static.isNotAbsolute
-                           , Static.predicate (not . isInfixOf "/.")
-                           ]
-      contentPolicies = map (\(url,path) -> contentPolicy url path) parts
-      policy = basePolicy >-> foldl1 (<|>) contentPolicies
-  in middleware $
-     Static.staticPolicyWithOptions opts policy
-  where
-    contentPolicy url fspath = mconcat [ Static.policy (stripPrefix url)
-                                       , Static.addBase fspath ]
+-- The files of the sources were served from their images and files folders,
+-- without access control; they are now served by 'serveFile'.
+-- serveStatic :: Static.CacheContainer -> [(String, FP.FilePath)] -> WebM ()
+-- serveStatic cache parts =
+--   let opts = Static.defaultOptions { Static.cacheContainer = cache }
+--       basePolicy = mconcat [ Static.noDots
+--                            , Static.isNotAbsolute
+--                            , Static.predicate (not . isInfixOf "/.")
+--                            ]
+--       contentPolicies = map (\(url,path) -> contentPolicy url path) parts
+--       policy = basePolicy >-> foldl1 (<|>) contentPolicies
+--   in middleware $
+--      Static.staticPolicyWithOptions opts policy
+--   where
+--     contentPolicy url fspath = mconcat [ Static.policy (stripPrefix url)
+--                                        , Static.addBase fspath ]
 
 

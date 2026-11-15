@@ -75,7 +75,6 @@ import qualified Utils.DocIndex as DI
 data ServerState =
   ServerState { kiwiName      :: T.Text
               , contentDir    :: FP.FilePath
-              , contentSources :: [FP.FilePath]
               , kiwiDir       :: FP.FilePath
               , editorCommand :: Maybe (FP.FilePath, [String])
               , uiLang        :: UI_Lang
@@ -185,6 +184,7 @@ data MetaField = FieldSource
                | FieldAccess
                | FieldLang
                | FieldLink
+               | FieldFile     -- ^ (source, path) of the files linked
                | FieldArchive  -- ^ every page, archived or not
                | FieldCustom T.Text
   deriving (Show, Read, Eq, Ord)
@@ -204,8 +204,6 @@ data MetaData =
            , metaAccess :: Maybe Access
            , metaLang  :: Maybe LangSetting
            , metaArchive :: Maybe Bool
-           , metaImagesDir :: Maybe T.Text  -- ^ folder of the "image:" links
-           , metaFilesDir :: Maybe T.Text   -- ^ folder of the "file:" links
            , metaCustom :: [CustomMetaData]  -- ^ in the order of the config
            -- | fields that kiwi can not use, as written: unknown keys, and
            -- values that can not be read (see 'Kiwi.Meta.invalidMetaValues')
@@ -231,8 +229,9 @@ data Page =
        , pageMTime :: !Time.UTCTime -- ^ time of file modification from filesystem
        -- , pageText :: !T.Text   -- ^ text of the file, metadata included
        , pageBody :: !T.Text   -- ^ markdown content of the file, without its header
-       , pageImagesDir :: !T.Text  -- ^ folder of its "image:" links (images-dir)
-       , pageFilesDir :: !T.Text   -- ^ folder of its "file:" links (files-dir)
+       -- | the files of its source that it links ("file:"), servable (see
+       -- 'Kiwi.Pandoc.servablePath'): paths from the top of the source, in NFC
+       , pageFiles :: ![T.Text]
        , pagePlainText :: !T.Text  -- ^ plain text of its content (search, excerpts)
        , pageTitle :: !T.Text
        , pageTags :: ![TagId]
@@ -257,13 +256,12 @@ data PandocPage =
              , pandocHeader :: MetaData   -- ^ the header of the file alone
              , pandocPageLinks :: [PageUID]
              , pandocBody :: T.Text       -- ^ markdown content, without the header
-             , pandocImagesDir :: T.Text  -- ^ folder of the "image:" links
-             , pandocFilesDir :: T.Text   -- ^ folder of the "file:" links
+             , pandocFiles :: [T.Text]    -- ^ the files linked (see 'pageFiles')
              }
   deriving (Show)
 
 data CollectedFromDoc = CollectedPageLink T.Text -- ^ TargetId
---                    | CollectedFoo ...
+                      | CollectedFile T.Text     -- ^ path of a file (see 'pageFiles')
 
 data CustomMetaData =
   CustomMetaData { cmdName :: T.Text

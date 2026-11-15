@@ -27,8 +27,9 @@ metaSpec = do
               \title: My: title\naccess: friends, family\nuid: x\ntags: a\n\
               \files-dir: f\nimages-dir: i\narchive: 1\ndate: 2020-1-5\n..."
       `shouldBe` "title: My: title\nuid: x\ntags: a, b\naccess: family, friends\n\
-                 \lang: french\narchive: yes\nimages-dir: i\nfiles-dir: f\n\
-                 \date: 2020-01-05\nauthors: Jack\\, Jr, John\naa: 1\nzz: 2\n"
+                 \lang: french\narchive: yes\n\
+                 \date: 2020-01-05\nauthors: Jack\\, Jr, John\naa: 1\nfiles-dir: f\n\
+                 \images-dir: i\nzz: 2\n"
 
   it "sorts the tags, expands their groups and removes duplicates" $
     normalize "tags: sport > {escalade, alpinisme}, b, sport>escalade, a\\, b, x \\> y"

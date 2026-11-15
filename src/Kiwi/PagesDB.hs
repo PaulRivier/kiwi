@@ -3,7 +3,6 @@
 module Kiwi.PagesDB
   ( updatePagesDB
   , reloadPages
-  , pagesFSDir
   , pagesCount
   , warmUpSearchEngine
   , emptyPagesDB
@@ -13,7 +12,7 @@ module Kiwi.PagesDB
 import           Control.Concurrent (forkIO, getNumCapabilities)
 import           Control.Concurrent.Async (mapConcurrently)
 import           Control.Exception (IOException, evaluate, try)
-import           Control.Monad (forM, forM_, unless, void, when)
+import           Control.Monad (filterM, forM, forM_, unless, void, when)
 import qualified Crypto.Random as CR
 import           Data.Bifunctor (first)
 import qualified Data.ByteString as BS
@@ -43,17 +42,13 @@ import           Kiwi.Tags (tagSubSegments, segmentsToTag)
 import           Kiwi.Utils (traverseDir, nodup, isDotFile, isValidMdFilename, timeIO)
 import qualified Utils.DocIndex as DI
 
--- | Folder of the pages, in a source folder
-pagesFSDir :: FP.FilePath
-pagesFSDir = "pages"
-
 -- | Reloads the pages of the kiwi (see 'updatePagesDB'). The caller holds
 -- 'pagesDBLock', so that two reloads (or a reload and a page save) can not
 -- overwrite each other; readers are never blocked.
 reloadPages :: ServerState -> IO ()
 reloadPages ss = do
   db' <- readIORef (pagesDB ss)
-  (db, t) <- timeIO $ updatePagesDB (logger ss) (gitCommit ss) (contentDir ss) pagesFSDir db'
+  (db, t) <- timeIO $ updatePagesDB (logger ss) (gitCommit ss) (contentDir ss) db'
   atomicWriteIORef (pagesDB ss) db
   warmUpSearchEngine (searchEngine db)
   logger ss L.Info $ T.pack $ concat [ "pages reloaded in ", printf "%.2f" t
@@ -72,9 +67,9 @@ warmUpSearchEngine se = void $ forkIO $ void $ evaluate $ SE.invariant se
 -- to "uid:" links, and loads the converted pages again (temporary, see
 -- "Kiwi.Migration"). The files written are committed when the boolean is
 -- true (git-commit).
-updatePagesDB :: L.Logger -> Bool -> FP.FilePath -> FP.FilePath -> PagesDB -> IO PagesDB
-updatePagesDB logger' git contentDir' pagesDir db = do
-  db1 <- loadPagesDB logger' git contentDir' pagesDir S.empty db
+updatePagesDB :: L.Logger -> Bool -> FP.FilePath -> PagesDB -> IO PagesDB
+updatePagesDB logger' git contentDir' db = do
+  db1 <- loadPagesDB logger' git contentDir' S.empty db
   converted <- Migration.convertLinks contentDir' db1
   forM_ converted $ \(p, _, missing) -> unless (null missing) $ logger' L.Warn $ T.concat
     [ "page: link not converted, ", T.pack p, " : ", T.intercalate ", " missing ]
@@ -82,7 +77,7 @@ updatePagesDB logger' git contentDir' pagesDir db = do
   if null texts then return db1 else do
     written <- writePageFiles logger' git "page: links converted to uid: in" texts
     -- a file written twice in a short time may keep its modification time
-    loadPagesDB logger' git contentDir' pagesDir
+    loadPagesDB logger' git contentDir'
                 (S.fromList [ p | (p, Right ()) <- written ]) db1
 
 -- | Loads the files of the pages that are new or modified since they were
@@ -94,20 +89,19 @@ updatePagesDB logger' git contentDir' pagesDir db = do
 -- page gets a uid unique in its source (see 'resolveUids'): the files whose
 -- uid changes are written, and committed when the boolean is true; a page
 -- whose file can not be written is not loaded.
-loadPagesDB :: L.Logger -> Bool -> FP.FilePath ->  FP.FilePath -> S.Set FP.FilePath ->
+loadPagesDB :: L.Logger -> Bool -> FP.FilePath -> S.Set FP.FilePath ->
                PagesDB ->  IO PagesDB
-loadPagesDB logger' git contentDir' pagesDir forced db = do
+loadPagesDB logger' git contentDir' forced db = do
     sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
-    -- dbOK <- getCondition
-    let pagesDirs = map (\s -> FP.joinPath [contentDir', s, pagesDir]) sources
-    -- case dbOK  of
-    --   True -> return db   -- nothing to do
-    --   False -> do         -- some work to do
-    -- pas de dossier caché
-    fsPathsRaw <- concat <$> mapM (\d -> traverseDir d (not . isDotFile)) pagesDirs
+    -- the pages are anywhere in the folder of their source, except in the
+    -- hidden folders (".git"…) and those starting with '_'
+    sourceDirs <- filterM D.doesDirectoryExist $ map (FP.combine contentDir') sources
+    fsPathsRaw <- concat <$> mapM (\d -> traverseDir d readName) sourceDirs
     let (fsPaths, ignoredPaths) = partition (isValidMdFilename . FP.takeFileName)
                                             fsPathsRaw
-    forM_ ignoredPaths $ \p -> logger' L.Debug $ T.pack $ concat
+    -- the other files (images…) are not pages
+    let isPageExt p = FP.takeExtension p `elem` [".md", ".markdown"]
+    forM_ (filter isPageExt ignoredPaths) $ \p -> logger' L.Debug $ T.pack $ concat
       [ "file ignored, ", p, " : a page file name starts with a letter or a digit"
       , ", and ends with .md or .markdown" ]
     fsPathsAndMTime <- mapM addMTime fsPaths
@@ -188,10 +182,12 @@ loadPagesDB logger' git contentDir' pagesDir forced db = do
       return ( [ l | (_, Right l) <- results ]
              , [ (p, e) | (p, Left e) <- results ] )
 
-    -- source of a file, and its path in the pages folder of the source
+    -- source of a file, and its path in the folder of the source
     sourcePath path =
       let source = fst $ pagePath contentDir' path
-      in (source, FP.makeRelative (FP.joinPath [contentDir', T.unpack source, pagesDir]) path)
+      in (source, FP.makeRelative (FP.joinPath [contentDir', T.unpack source]) path)
+    -- the files and folders that are not read: hidden, or starting with '_'
+    readName name = not (isDotFile name) && take 1 name /= "_"
     loadError path msg = let (source, rel) = sourcePath path in (source, rel, msg)
 
     -- file may have been removed since directory listing : no mtime, it
@@ -306,6 +302,7 @@ pageExtractKeys cmc = [ mkField FieldSource KeyText ((:[]) . fst . pageUID)
                       , mkField FieldTag KeyText extractTags
                       , mkField FieldAccess KeyText (map fst . pageAccess)
                       , mkField FieldLink KeyPairText pageLinks
+                      , mkField FieldFile KeyPairText (\p -> map (fst (pageUID p),) (pageFiles p))
                       , mkField FieldLang KeyLang ((:[]) . pageLang)
                       , mkField FieldArchive KeyBool ((:[]) . pageArchive)
                       ] ++

@@ -12,6 +12,7 @@ module Kiwi.HtmlWriter
   ( writeHtml5
   , pageTargetAttrs
   , lineKey
+  , brokenLinkClass
   ) where
 
 import           Control.Monad (forM_, unless)
@@ -61,7 +62,8 @@ pageTargetAttrs (s, i) = [(pageSourceKey, s), (pageIdKey, i)]
 lineKey :: T.Text
 lineKey = "kiwi-line"
 
--- | Class of the links to pages that do not exist
+-- | Class of the links to pages that do not exist, and to files that can not
+-- be served (see 'Kiwi.Pandoc.fileTarget')
 brokenLinkClass :: T.Text
 brokenLinkClass = "kiwi-link-broken"
 
@@ -260,14 +262,15 @@ inlineToHtml il = case il of
   PD.RawInline fmt raw -> rawToHtml fmt raw
   PD.Link attr ils (url, title) -> do
     attr' <- linkAttr attr
-    a_ ([href_ url] ++ titleAttr title ++ attrs attr') (inlinesToHtml ils)
+    -- a broken link to a file has no target (see 'Kiwi.Pandoc.fileTarget')
+    a_ ([href_ url | not (T.null url)] ++ titleAttr title ++ attrs attr') (inlinesToHtml ils)
   PD.Image attr ils target -> imageToHtml attr (inlinesToPlain ils) target
   PD.Note bs -> noteToHtml bs
   PD.Span attr ils -> span_ (attrs attr) (inlinesToHtml ils)
 
 imageToHtml :: PD.Attr -> T.Text -> PD.Target -> W ()
 imageToHtml attr alt (url, title) =
-  img_ ([src_ url, alt_ alt] ++ titleAttr title ++ attrs attr)
+  img_ ([src_ url | not (T.null url)] ++ [alt_ alt] ++ titleAttr title ++ attrs attr)
 
 titleAttr :: T.Text -> [Attributes]
 titleAttr t = [title_ t | not (T.null t)]
