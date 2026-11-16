@@ -272,6 +272,42 @@ viewSpec = do
         \</a></li>"
       liftIO $ body resp `shouldNotSatisfy` T.isInfixOf "search-more"
 
+  it "shows the page of a uid, its file, and the pages linking it" $
+    withKiwiApp [ ("q.md", "uid: Q\ntitle: Target\n\nText")
+                , ("a.md", "uid: a\ntitle: Beta\n\n[t](uid:Q)")
+                , ("b.md", "uid: b\ntitle: alpha\n\n![i](file:QQQQQQQQQQ) [t](<uid: Q>)")
+                , ("old.md", "uid: old\ntitle: Old\narchive: yes\n\n[t](uid:Q)")
+                , ("priv.md", "uid: priv\ntitle: Private\naccess: family\n\n[t](uid:Q)")
+                , ("d/pic__QQQQQQQQQQ.png", "PNG") ] $ WT.runSession $ do
+      let result url label source = T.concat
+            [ "<li><a href=\"", url, "\"><span class=\"title\">", label
+            , "</span><p class=\"excerpt\">", source, "</p></a></li>" ]
+      page' <- get "/search?query=uid:%20Q"
+      liftIO $ WT.simpleStatus page' `shouldBe` Net.status200
+      liftIO $ body page' `shouldSatisfy` T.isInfixOf
+        ("<h2>Page</h2><ul class=\"results\">" <> result "/page/s/Q" "Target" "s" <> "</ul>")
+      -- by title, without case; not the archived nor the private page
+      liftIO $ body page' `shouldSatisfy` T.isInfixOf
+        ("<h2>Pages linking this uid</h2><ul class=\"results\">" <>
+         result "/page/s/b" "alpha" "s" <> result "/page/s/a" "Beta" "s" <> "</ul>")
+      liftIO $ body page' `shouldNotSatisfy` T.isInfixOf "<h2>File</h2>"
+      -- the archived page in the archive mode
+      archived <- get "/search?query=uid:Q&archive=yes"
+      liftIO $ body archived `shouldSatisfy` T.isInfixOf
+        ("<ul class=\"results\">" <> result "/page/s/old?archive=yes" "Old" "s" <> "</ul>")
+      file <- get "/search?query=uid:QQQQQQQQQQ"
+      liftIO $ body file `shouldSatisfy` T.isInfixOf
+        "<h2>File</h2><ul class=\"results\"><li><a href=\"/file/s/QQQQQQQQQQ\" \
+        \target=\"_blank\"><span class=\"title\">pic.png</span><p class=\"excerpt\">s</p>\
+        \</a></li></ul>"
+      liftIO $ body file `shouldSatisfy` T.isInfixOf
+        ("<h2>Pages linking this uid</h2><ul class=\"results\">" <>
+         result "/page/s/b" "alpha" "s" <> "</ul>")
+      none <- get "/search?query=uid:nope"
+      liftIO $ body none `shouldSatisfy` T.isInfixOf
+        "<h2>Pages linking this uid</h2><p>No page for this uid</p>"
+      liftIO $ body none `shouldNotSatisfy` T.isInfixOf "<h2>Page</h2>"
+
   it "tells when other pages match but are not shown" $
     withKiwiApp [ (show n ++ ".md", "title: P\n\nA horse") | n <- [1 .. 13 :: Int] ] $
       WT.runSession $ do

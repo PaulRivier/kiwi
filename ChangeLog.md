@@ -50,6 +50,8 @@
 - **Breaking**: the `file:` links with a path are converted to links with
   a uid when Kiwi loads the page (temporary: a path that is not found is
   logged at each load); the `/file/SOURCE/path` addresses no longer work.
+- **Search by uid**: the search `uid:UID` shows the page and the file with
+  this uid, and the pages that link to it.
 - Git: the commits of Kiwi include the former path of a renamed file.
 - Git: before committing a page saved from the browser, Kiwi commits the
   changes of its file made outside of Kiwi (or the file not tracked yet),

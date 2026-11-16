@@ -382,31 +382,57 @@ metaIndex db ctx req =
 -- stemmed in the lang of the sources of the context (see 'searchLang'), unless
 -- it starts with a lang code ("fr:")
 serveSearch :: T.Text -> ActM ()
-serveSearch query = do
+serveSearch query
+  | Just uid <- T.strip <$> T.stripPrefix "uid:" (T.stripStart query), not (T.null uid) =
+      serveUidSearch query uid
+  | otherwise = do
+    db <- getRestrictedDB
+    allDB <- getDB
+    ctx <- asksK (K.context . K.requestState)
+    let sources = K.contextSources ctx
+        -- all the sources, as those the context can have (see 'withContext')
+        allSources = [ s | K.KeyText s <- DI.getFieldKeys (K.pagesIndex allDB) K.FieldSource ]
+        ctxLang = searchLang (fromMaybe K.defaultLangSetting $ K.metaLang $ K.defaultMeta allDB)
+                             (K.sourcesConfig allDB)
+                             allSources sources
+        -- the lang prefix of the query, if any, is displayed with the query
+        lang = fst $ queryLang ctxLang query
+        -- in the restricted index, and in the sources context
+        visible uid = isJust (findPage db uid) &&
+                      (S.null sources || S.member (fst uid) sources)
+        terms = queryTerms ctxLang query
+        (found, more) = searchPages (K.searchEngine db) visible terms
+        -- each page with the query terms found in its content
+        pages = [ (p, ts) | (uid, ts) <- found, Just p <- [findPage db uid] ]
+      in case pages of
+           -- un seul résultat, on y va
+           [(p, _)] -> redirect $ TL.fromStrict $ Url.inContext ctx $ Url.pageUrl p
+           _        -> do r <- V.renderSearchResults lang query
+                                 [ (p, excerpt ts p) | (p, ts) <- pages ] more
+                          htmlETag db r
+
+
+-- | Search of a uid ("uid:UID"), in the sources of the context: the pages
+-- with this uid, the file with this uid (when a page readable by the user
+-- links it, as for 'serveFile'), and the pages linking this uid, as a page
+-- ("uid:") or as a file ("file:"), in the archive mode of the context
+serveUidSearch :: T.Text -> T.Text -> ActM ()
+serveUidSearch query uid = do
   db <- getRestrictedDB
   allDB <- getDB
-  ctx <- asksK (K.context . K.requestState)
-  let sources = K.contextSources ctx
-      -- all the sources, as those the context can have (see 'withContext')
-      allSources = [ s | K.KeyText s <- DI.getFieldKeys (K.pagesIndex allDB) K.FieldSource ]
-      ctxLang = searchLang (fromMaybe K.defaultLangSetting $ K.metaLang $ K.defaultMeta allDB)
-                           (K.sourcesConfig allDB)
-                           allSources sources
-      -- the lang prefix of the query, if any, is displayed with the query
-      lang = fst $ queryLang ctxLang query
-      -- in the restricted index, and in the sources context
-      visible uid = isJust (findPage db uid) &&
-                    (S.null sources || S.member (fst uid) sources)
-      terms = queryTerms ctxLang query
-      (found, more) = searchPages (K.searchEngine db) visible terms
-      -- each page with the query terms found in its content
-      pages = [ (p, ts) | (uid, ts) <- found, Just p <- [findPage db uid] ]
-    in case pages of
-         -- un seul résultat, on y va
-         [(p, _)] -> redirect $ TL.fromStrict $ Url.inContext ctx $ Url.pageUrl p
-         _        -> do r <- V.renderSearchResults lang query
-                               [ (p, excerpt ts p) | (p, ts) <- pages ] more
-                        htmlETag db r
+  loginM <- asksK (K.login . K.requestState)
+  ctxSources <- asksK (K.contextSources . K.context . K.requestState)
+  let sources = [ s | K.KeyText s <- DI.getFieldKeys (K.pagesIndex allDB) K.FieldSource
+                    , S.null ctxSources || S.member s ctxSources ]
+      pages = mapMaybe (\s -> findPage db (s, uid)) sources
+      files = [ (s, servedName $ FP.takeFileName path)
+              | s <- sources, Just path <- [M.lookup (s, uid) (K.sourceFiles allDB)]
+              , not $ null $ DI.query (K.pagesIndex allDB) $
+                  DI.And [U.qOnly K.FieldFile (s, uid), Auth.readableAnyArchiveQuery loginM] ]
+      linking = sortOn (textOrder . K.pageTitle) $ DI.query (K.pagesIndex db) $
+                  DI.Or [ U.qOnly f (s, uid) | s <- sources, f <- [K.FieldLink, K.FieldFile] ]
+  r <- V.renderUidSearch query uid pages files linking
+  htmlETag db r
 
 
 -- | Runs the editor of the config (command and arguments) on the file of the

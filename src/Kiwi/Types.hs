@@ -492,6 +492,11 @@ data Locales = Locales
   , loc_Search :: T.Text
   , loc_SearchResults :: T.Text  -- ^ after the number of results
   , loc_SearchNothing :: T.Text
+  -- | search of a uid: the page, the file, the pages linking it, when none
+  , loc_UidPage :: T.Text
+  , loc_UidFile :: T.Text
+  , loc_UidLinking :: T.Text
+  , loc_UidNothing :: T.Text
   , loc_SearchQuery :: T.Text    -- ^ before the lang of the query, then the query
   , loc_SearchMore :: T.Text     -- ^ after the results, when some are not shown
   , loc_Colon :: T.Text          -- ^ ":", with a space before it in French

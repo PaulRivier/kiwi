@@ -6,6 +6,7 @@ module Kiwi.View
   , BrowseFilters
   , PagesListing (..)
   , renderSearchResults
+  , renderUidSearch
   , renderDoc
   , renderEditor
   , renderPreview
@@ -167,6 +168,18 @@ renderSearchResults lang query pages more = do
   return $ renderText $
     layout vctx { ctxQuery = query } (K.loc_Search loc) ReloadAction Nothing $
       searchView loc (ctxContext vctx) lang query pages more
+
+-- | Results of the search of a uid (see 'Kiwi.Controller.serveUidSearch'):
+-- the pages with this uid, the files with this uid (source, name), and the
+-- pages linking it
+renderUidSearch :: T.Text -> T.Text -> [K.Page] -> [(T.Text, FilePath)] -> [K.Page] ->
+                   ActM TL.Text
+renderUidSearch query uid pages files linking = do
+  vctx <- getViewCtx
+  let loc = ctxLocales vctx
+  return $ renderText $
+    layout vctx { ctxQuery = query } (K.loc_Search loc) ReloadAction Nothing $
+      uidSearchView loc (ctxContext vctx) uid pages files linking
 
 -- | The doctor page, source by source: the files not loaded (path and
 -- reason), the pages with broken links (with these links), and the files
@@ -526,6 +539,36 @@ searchView loc ctx lang query pages more = div_ [class_ "search-results-page"] $
         toHtml $ T.concat [ K.loc_SearchQuery loc, " [", K.langName lang, "]"
                           , K.loc_Colon loc, " " ]
         strong_ $ toHtml query
+
+
+-- | The pages with the uid, the files with the uid, then the pages linking
+-- it, each one with its source, in the style of the search results
+uidSearchView :: K.Locales -> K.Context -> T.Text -> [K.Page] -> [(T.Text, FilePath)] ->
+                 [K.Page] -> Html ()
+uidSearchView loc ctx uid pages files linking = div_ [class_ "search-results-page"] $ do
+  contextBar loc (S.toList $ K.contextSources ctx) mempty (K.contextArchive ctx)
+  h1_ $ toHtml $ "uid:" <> uid
+  unless (null pages) $ do
+    h2_ $ toHtml $ K.loc_UidPage loc
+    results [ (K.pageTitle p, Url.inContext ctx $ Url.pageUrl p, fst $ K.pageUID p, [])
+            | p <- pages ]
+  unless (null files) $ do
+    h2_ $ toHtml $ K.loc_UidFile loc
+    -- in a new tab, as the links of the pages to the files that are not images
+    results [ (T.pack name, T.concat ["/file/", Url.urlEncodeText s, "/", Url.urlEncodeText uid]
+              , s, [target_ "_blank"])
+            | (s, name) <- files ]
+  h2_ $ toHtml $ K.loc_UidLinking loc
+  if null linking
+    then p_ $ toHtml $ K.loc_UidNothing loc
+    else results [ (K.pageTitle p, Url.inContext ctx $ Url.pageUrl p, fst $ K.pageUID p, [])
+                 | p <- linking ]
+  where
+    results :: [(T.Text, T.Text, T.Text, [Attributes])] -> Html ()
+    results items = ul_ [class_ "results"] $ forM_ items $ \(label, url, source, attrs) ->
+      li_ $ a_ ([href_ url] <> attrs) $ do
+        span_ [class_ "title"] $ toHtml label
+        p_ [class_ "excerpt"] $ toHtml source
 
 
 -- | Bar of the navigation context, at the top of a page or of search results:

@@ -569,6 +569,18 @@ punctuation (apostrophes, hyphens, quotes…) and symbols: `chocolate-banana`
 searches the words *chocolate* and *banana*. Case and accents don't
 matter.
 
+## Search by uid
+
+A search that starts with `uid:` is not a full-text search: `uid:UID`
+shows the page with this uid, the file with this uid (the one of its
+name, see [Images and files](#images-and-files)), and the pages that
+link to this uid, with a `uid:` or a `file:` link. It searches the
+sources selected in the navigation (all of them if none), among the
+archived pages or not as the navigation, and only the pages that you
+can read:
+
+    uid:K3M9QW2TZ1
+
 
 # Edit pages in the browser
 
