@@ -394,7 +394,8 @@ ul.pages-list li a:hover {
   margin-top: 0.6em;
 }
 
-.doctor-page ul.load-errors > li {
+.doctor-page ul.load-errors > li,
+.doctor-page ul.unlinked-files > li {
   margin-top: 0.6em;
 }
 

@@ -36,7 +36,7 @@ import           Crypto.Hash (SHA1, hashlazy)
 import qualified Data.ByteString as BS
 import           Data.IORef (readIORef)
 import           Data.Function (on)
-import           Data.List (groupBy, isPrefixOf, sortOn)
+import           Data.List (groupBy, isPrefixOf, sort, sortOn)
 import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe, isJust, mapMaybe)
 import           Data.Ord (Down (..))
@@ -132,8 +132,19 @@ serveDoctor = do
                | es@((s, _, _) : _) <- groupBy ((==) `on` (\(src, _, _) -> src))
                                                (K.loadErrors db) ]
   admin <- Auth.isAdmin
+  -- the files that no page links, for admins only (the others can not know
+  -- the pages that they can not read), archives included: they are not served
+  unlinked <- if not admin then return [] else do
+    full <- getDB
+    let linked = S.fromList [ (fst $ K.pageUID pg, f)
+                            | pg <- DI.documentsList $ K.pagesIndex full, f <- K.pageFiles pg ]
+    return [ (s, map snd fs)
+           | fs@((s, _) : _) <- groupBy ((==) `on` fst)
+               [ (s, p) | ((s, u), p) <- M.toList $ K.sourceFiles full
+                        , S.notMember (s, u) linked ] ]
   r <- V.renderDoctor (if admin then sortOn (textOrder . fst) errors else [])
                       (sortOn (textOrder . fst) bySource)
+                      (sortOn (textOrder . fst) [ (s, sort ps) | (s, ps) <- unlinked ])
   htmlETag db r
 
 

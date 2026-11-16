@@ -68,6 +68,7 @@ loc_english = Locales
   , loc_BrokenLinks = "Broken links"
   , loc_NoBrokenLink = "No broken link"
   , loc_LoadErrors = "Load errors"
+  , loc_UnlinkedFiles = "Files linked by no page"
   , loc_Backlinks = "Backlinks"
   -- , loc_TimeLocale = enTimeLocale
   }
@@ -128,6 +129,7 @@ loc_french = Locales
   , loc_BrokenLinks = "Liens cassés"
   , loc_NoBrokenLink = "Aucun lien cassé"
   , loc_LoadErrors = "Erreurs de chargement"
+  , loc_UnlinkedFiles = "Fichiers liés par aucune page"
   , loc_Backlinks = "Rétroliens"
   -- , loc_TimeLocale = frTimeLocale
   }

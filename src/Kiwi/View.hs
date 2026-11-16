@@ -166,14 +166,15 @@ renderSearchResults lang query pages more = do
     layout vctx { ctxQuery = query } (K.loc_Search loc) ReloadAction Nothing $
       searchView loc (ctxContext vctx) lang query pages more
 
--- | The pages with links to pages that the user can not read, with these
--- links (page ids), source by source
+-- | The doctor page, source by source: the files not loaded (path and
+-- reason), the pages with broken links (with these links), and the files
+-- that no page links (paths)
 renderDoctor :: [(T.Text, [(FilePath, T.Text)])] -> [(T.Text, [(K.Page, [T.Text])])] ->
-                ActM TL.Text
-renderDoctor errors broken = do
+                [(T.Text, [FilePath])] -> ActM TL.Text
+renderDoctor errors broken unlinked = do
   loc <- getLocales
   ctx <- asksK (K.context . K.requestState)
-  renderView (K.loc_Doctor loc) NoActions Nothing $ doctorView loc ctx errors broken
+  renderView (K.loc_Doctor loc) NoActions Nothing $ doctorView loc ctx errors broken unlinked
 
 -- | A key of a field on the metadata page
 data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ as displayed
@@ -533,8 +534,8 @@ contextBar loc sources content archive = div_ [class_ "sources-selection"] $ do
 -- | The pages with broken links, each one with the ids of its broken links,
 -- in a section by source
 doctorView :: K.Locales -> K.Context -> [(T.Text, [(FilePath, T.Text)])] ->
-              [(T.Text, [(K.Page, [T.Text])])] -> Html ()
-doctorView loc ctx errors broken = div_ [class_ "doctor-page"] $ do
+              [(T.Text, [(K.Page, [T.Text])])] -> [(T.Text, [FilePath])] -> Html ()
+doctorView loc ctx errors broken unlinked = div_ [class_ "doctor-page"] $ do
   h1_ [class_ "page-title"] $ toHtml $ K.loc_Doctor loc
   -- the files that are not loaded (path in the pages folder, and reason),
   -- in a section by source: nothing at all without error
@@ -553,6 +554,13 @@ doctorView loc ctx errors broken = div_ [class_ "doctor-page"] $ do
       ul_ [class_ "broken-links"] $ forM_ pages $ \(pg, targets) -> li_ $ do
         link $ pageLink ctx pg
         ul_ $ forM_ targets $ li_ . toHtml
+  -- the files that no page links (path from the top of the source): nothing
+  -- at all without such a file
+  unless (null unlinked) $ do
+    h2_ $ toHtml $ K.loc_UnlinkedFiles loc
+    forM_ unlinked $ \(source, paths) -> section_ $ do
+      h3_ $ toHtml source
+      ul_ [class_ "unlinked-files"] $ forM_ paths $ li_ . span_ [class_ "file"] . toHtml
 
 metadataView :: K.Locales -> [(T.Text, [(K.MetaField, Maybe T.Text, Forest MetaEntry)])] ->
                 Html ()

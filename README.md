@@ -351,7 +351,9 @@ among those the reader can read, with these links (`file:` followed
 by the target for a missing file). For admins, it also lists the files
 that could not be loaded, with the reason (invalid metadata header,
 file that is not UTF-8, file where Kiwi could not write the uid of the
-page, file that Kiwi could not rename to give it a uid...).
+page, file that Kiwi could not rename to give it a uid...), and the
+files that no page links, archived pages included (Kiwi does not serve
+them).
 
 
 ### images and files

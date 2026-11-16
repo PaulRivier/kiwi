@@ -534,11 +534,13 @@ data Locales = Locales
   , loc_Access :: T.Text
   , loc_Copy :: T.Text
   , loc_Archives :: T.Text
-  -- | the /doctor page: title, broken links, when there is none
+  -- | the /doctor page: title, broken links, when there is none, files not
+  -- loaded, files linked by no page
   , loc_Doctor :: T.Text
   , loc_BrokenLinks :: T.Text
   , loc_NoBrokenLink :: T.Text
   , loc_LoadErrors :: T.Text
+  , loc_UnlinkedFiles :: T.Text
   -- | legend of the pages linking to a page
   , loc_Backlinks :: T.Text
   -- , loc_TimeLocale :: Time.TimeLocale

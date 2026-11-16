@@ -222,6 +222,29 @@ viewSpec = do
       liftIO $ body resp `shouldSatisfy` T.isInfixOf
         "<ul><li>file:BBBBBBBBBB</li><li>file:gone.png</li></ul>"
 
+  it "lists the files linked by no page on the doctor page, for admins only" $
+    withKiwiAccounts [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
+                     [ ("p.md", "uid: p\ntitle: P\n\n[a](file:AAAAAAAAAA)")
+                     , ("old.md", "uid: old\ntitle: O\narchive: yes\n\n[c](file:CCCCCCCCCC)")
+                     , ("a__AAAAAAAAAA.png", "PNG"), ("d/b__BBBBBBBBBB.pdf", "PDF")
+                     , ("c__CCCCCCCCCC.txt", "text"), ("e__EEEEEEEEEE.txt", "text") ] $
+    WT.runSession $ do
+      let section = "<h2>Files linked by no page</h2>"
+      anonymous <- get "/doctor"
+      liftIO $ body anonymous `shouldSatisfy` (not . T.isInfixOf section)
+      _ <- postForm "/login" "username=bob&password=secret"
+      reader <- get "/doctor"
+      liftIO $ body reader `shouldSatisfy` (not . T.isInfixOf section)
+      _ <- postForm "/logout" ""
+      _ <- postForm "/login" "username=ann&password=secret"
+      -- the file linked by an archived page only is linked, in both modes
+      forM_ ["/doctor", "/doctor?archive=yes"] $ \url -> do
+        admin <- get url
+        liftIO $ body admin `shouldSatisfy` T.isInfixOf
+          (section <> "<section><h3>s</h3><ul class=\"unlinked-files\">\
+                      \<li><span class=\"file\">d/b__BBBBBBBBBB.pdf</span></li>\
+                      \<li><span class=\"file\">e__EEEEEEEEEE.txt</span></li></ul></section>")
+
   it "reloads the pages and the accounts out of a request, as the reload signal does" $
     withKiwiState [] [("p.md", "uid: p\ntitle: Page\n\nHello")] $ \cd ss app -> do
       let run = flip WT.runSession app
