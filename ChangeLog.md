@@ -1,18 +1,8 @@
 # ChangeLog for Kiwi
 
-## Unreleased
+## v0.4.4.0 - 2026-11-16
 
-- **Upgrade from v0.4.2.0 or before**: first run the version tagged
-  `v0.4.3.2_migration_checkpoint` once on each source (with the content
-  of its `pages`, `images` and `files` folders moved to its top): it
-  gives the uids, and converts the `page:` and `file:` links written with
-  a path to `uid:UID` and `file:UID` links. Then, in the folder of each
-  source, replace the `uid:` links by `page:` links, for example:
-
-  ```sh
-  RE='(\]\(\s*<?\s*|\]:[ \t]*<?\s*)uid:'
-  grep -rlZE "$RE" --include='*.md' --include='*.markdown' . | xargs -0 sed -i -E "s/$RE/\1page:/g"
-  ```
+The source layout format is changing. Reach out if you need migration code.
 
 - **Page uids**: each page has a `uid` metadata, unique in its source.
   Kiwi writes one (10 random characters) in a page that has none when it
