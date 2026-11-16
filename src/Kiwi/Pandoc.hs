@@ -11,10 +11,8 @@ module Kiwi.Pandoc
   , checkPageText
   , pageSubDir
   , pageTarget
-  , servablePath
   , Loaded (..)
   , loadPage         -- exported for tests
-  , fileTarget       -- exported for tests
   ) where
 
 import           Control.Applicative ((<|>))
@@ -24,14 +22,13 @@ import qualified Commonmark.Extensions as CmEx
 import qualified Commonmark.Pandoc as CmP
 
 import qualified Data.ByteString as BS
-import           Data.Char (isAlphaNum, toLower)
 import qualified Data.List as L
+import qualified Data.Map.Strict as M
 import           Data.Functor.Identity (runIdentity)
 import           Data.Typeable (Typeable)
 import           Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import           Data.Text.Normalize (normalize, NormalizationMode(NFC))
 
 import qualified System.Directory as D
 import qualified System.FilePath as FP
@@ -42,6 +39,7 @@ import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 -- import qualified Text.Pandoc.Shared as PS
 
+import           Kiwi.Files (isFileUid, isImagePath)
 import           Kiwi.HtmlWriter (pageTargetAttrs, lineKey, brokenLinkClass)
 import           Kiwi.LangDetect (resolveLang)
 import           Kiwi.Meta (emptyMeta, mergeMeta, sourceMeta, splitPage,
@@ -61,17 +59,18 @@ loadPage :: FP.FilePath -> T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
 loadPage path c source md cmc dir = do
     (header, content) <- splitPage cmc c
     let meta = mergeMeta md header
-    (doc, colLinks, files) <- loadDoc False path source (T.pack dir) content
+    (doc, colLinks, files) <- loadDoc False path source (T.pack dir) (const Nothing) content
     return $ PandocPage doc meta header colLinks content files
 
 
--- | Document of a page from its markdown content, with its links fixed, the
--- links to other pages, and the files linked (see 'fileTarget'). Links are
--- relative to the folder of the page. With lines, each top-level block is
--- wrapped in a div holding its first line in the content (see 'lineKey').
-loadDoc :: Bool -> FP.FilePath -> T.Text -> T.Text -> T.Text ->
-           Either String (PD.Pandoc, [PageUID], [T.Text])
-loadDoc withLines path source dirT content =
+-- | Document of a page from its markdown content, with its links fixed (see
+-- 'walkDoc', given the files of the source by uid), the links to other
+-- pages, and the files linked. Links are relative to the folder of the
+-- page. With lines, each top-level block is wrapped in a div holding its
+-- first line in the content (see 'lineKey').
+loadDoc :: Bool -> FP.FilePath -> T.Text -> T.Text -> (T.Text -> Maybe FP.FilePath) ->
+           T.Text -> Either String (PD.Pandoc, [PageUID], [T.Text])
+loadDoc withLines path source dirT files content =
     -- the last row of a table is not read as a row without a newline after
     -- it. An extra newline only changes an unclosed fenced code block at the
     -- end, which gets one more empty line.
@@ -82,10 +81,10 @@ loadDoc withLines path source dirT content =
          Left e -> Left $ show e
          Right blocks ->
            let doc' = PD.Pandoc PD.nullMeta blocks
-               (doc, collected) = walkDoc source dirT doc'
+               (doc, collected) = walkDoc source dirT files doc'
                colLinks = [ (source, l) | CollectedPageLink l <- collected ]
-               files = U.nodup [ f | CollectedFile f <- collected ]
-           in Right (doc, colLinks, files)
+               linked = U.nodup [ f | CollectedFile f <- collected ]
+           in Right (doc, colLinks, linked)
 
 -- | Blocks of a markdown content, with the source ranges given by the type
 -- of the 'CmP.Cm' (none for '()', see 'BlockLines')
@@ -167,14 +166,15 @@ topLevelLines = map top . PB.toList
 
 
 -- | Document of a loaded page, parsed again from its content to be
--- displayed. The header is not read again: the page keeps what it gave.
-pageDoc :: FP.FilePath -> Page -> Either String PD.Pandoc
-pageDoc contentDir' p =
+-- displayed, given the files of the sources (see 'sourceFiles'). The header
+-- is not read again: the page keeps what it gave.
+pageDoc :: FP.FilePath -> M.Map (T.Text, T.Text) FP.FilePath -> Page -> Either String PD.Pandoc
+pageDoc contentDir' files p =
   let path = pageAbsoluteFSPath p
       source = fst $ pageUID p
       relPath = snd $ pagePath contentDir' path
   in (\(doc, _, _) -> doc) <$> loadDoc True path source (T.pack $ pageSubDir relPath)
-                                       (pageBody p)
+                                       (\u -> M.lookup (source, u) files) (pageBody p)
 
 
 -- | Document of a file embedded in kiwi (README, CommonMark cheatsheet), with
@@ -185,7 +185,7 @@ embeddedDoc name withHeader c = do
   (header, content) <- if withHeader then splitPage [] c
                        else Right (emptyMeta, c)
   let title = metaTitle header
-  (doc, _, _) <- loadDoc False name "" "" content
+  (doc, _, _) <- loadDoc False name "" "" (const Nothing) content
   return (title, doc)
 
 
@@ -237,19 +237,24 @@ data LinkType = PageLink T.Text
               | OtherLink T.Text
 
 -- | Fix links and images paths, and collect the links to other pages and
--- the files linked. Links are collected from the original document, before
--- paths are fixed. A "file:" link to a file that can not be served (see
--- 'fileTarget') is broken: it has no target, and the class of broken links.
-walkDoc :: T.Text -> T.Text -> PD.Pandoc -> (PD.Pandoc, [CollectedFromDoc])
-walkDoc source pageDir doc =
+-- the files linked, given the files of the source by uid (path from the top
+-- of the source). Links are collected from the original document, before
+-- paths are fixed. A "file:" link (or image) targets a file by its uid (see
+-- "Kiwi.Files"): when the target is not a uid of the source, the link is
+-- broken, without target, with the class of broken links. A link to an
+-- image opens in the viewer of the theme, a link to another file in a new
+-- tab.
+walkDoc :: T.Text -> T.Text -> (T.Text -> Maybe FP.FilePath) -> PD.Pandoc ->
+           (PD.Pandoc, [CollectedFromDoc])
+walkDoc source pageDir files doc =
   (PW.walk fixInlines doc, PW.query collect doc)
     where
       -- chemin des images
       fixInlines (PD.Image attr desc (rawLink, lName)) =
-        case fileTarget pageDir <$> T.stripPrefix "file:" rawLink of
-          Nothing       -> PD.Image attr desc (rawLink, lName)
-          Just (Just t) -> PD.Image attr desc (fileUrl t, lName)
-          Just Nothing  -> PD.Image (addClass brokenLinkClass attr) desc ("", lName)
+        case fileLink <$> T.stripPrefix "file:" rawLink of
+          Nothing             -> PD.Image attr desc (rawLink, lName)
+          Just (Just (url, _)) -> PD.Image attr desc (url, lName)
+          Just Nothing        -> PD.Image (addClass brokenLinkClass attr) desc ("", lName)
       -- chemin des pages, fichiers, liens externes
       fixInlines (PD.Link attr txt (rawLink, lName)) =
         case parseLink rawLink of
@@ -257,14 +262,12 @@ walkDoc source pageDir doc =
           UidLink l    -> pageLink attr txt lName $ uidTarget l
           AnchorLink l -> PD.Link (addClass "kiwi-link-anchor" attr) txt
                                   (l, lName)
-          -- the images open in the viewer of the theme, other files in a
-          -- new tab
-          FileLink l   -> case fileTarget pageDir l of
-            Just t@(segments, _)
-              | isImagePath segments -> PD.Link (addClass "kiwi-link-image" attr) txt
-                                                (fileUrl t, lName)
+          FileLink l   -> case fileLink l of
+            Just (url, path)
+              | isImagePath path -> PD.Link (addClass "kiwi-link-image" attr) txt
+                                            (url, lName)
               | otherwise -> PD.Link (newTab $ addClass "kiwi-link-file" attr) txt
-                                     (fileUrl t, lName)
+                                     (url, lName)
             Nothing -> PD.Link (addClass brokenLinkClass attr) txt ("", lName)
           OtherLink l  -> PD.Link (newTab $ addClass "kiwi-link-external" attr) txt
                                   (l, lName)
@@ -286,8 +289,18 @@ walkDoc source pageDir doc =
         maybe [] collectFile $ T.stripPrefix "file:" rawLink
       collect _ = []
 
-      collectFile l = [ CollectedFile (T.intercalate "/" segments)
-                      | Just (segments, _) <- [fileTarget pageDir l] ]
+      -- the target as written, uid or not: a target that is not a uid is
+      -- listed as broken on /doctor
+      collectFile l = [ CollectedFile u | let u = fst (uidTarget l), not (T.null u) ]
+
+      -- URL of the file of a link, served by kiwi (see
+      -- 'Kiwi.Controller.serveFile'), with the fragment of the link
+      -- ("#page=2"), and its path
+      fileLink l = do
+        let (u, fragment) = uidTarget l
+        path <- if isFileUid (T.unpack u) then files u else Nothing
+        return ( T.concat ["/file/", Url.urlEncodeText source, "/", u, fragment]
+               , path )
 
       parseLink :: T.Text -> LinkType
       parseLink l = let ltM = (PageLink  <$> T.stripPrefix ("page:") l) <|>
@@ -309,68 +322,10 @@ walkDoc source pageDir doc =
       -- setId :: T.Text -> PD.Attr -> PD.Attr
       -- setId i (_, classAttr, kvs) = (i, classAttr, kvs)
 
-      -- URL of a file served by kiwi: each segment is encoded, with the
-      -- source (see 'Kiwi.Controller.serveFile')
-      fileUrl (segments, fragment) =
-        T.intercalate "/" ("/file" : map Url.urlEncodeText (source : segments))
-        <> fragment
 
-
-
--- | Path of the file targeted by a "file:" link written in a page of the
--- given folder, as segments from the top of the source, and the fragment of
--- the link ("#page=2"), if any. The target may be percent-encoded; it is
--- relative to the folder, or absolute ("/a/b.png") from the top of the
--- source. Its "." and empty segments are ignored. 'Nothing' when the target
--- is empty or a folder (it ends with '/' or '.'), or when the file can not
--- be served (see 'servablePath'), in particular when the target has a ".."
--- segment: a link never goes up. The path is in NFC (see
--- 'Kiwi.Controller.serveFile').
-fileTarget :: T.Text -> T.Text -> Maybe ([T.Text], T.Text)
-fileTarget pageDir l =
-  let (path, fragment) = T.breakOn "#" l
-      decoded = Url.urlDecodeText path
-      full = case T.uncons decoded of
-        Just ('/', p) -> p
-        _             -> T.concat [pageDir, "/", decoded]
-      segments = filter (`notElem` ["", "."]) $ T.splitOn "/" $ normalize NFC full
-      folder = T.null decoded || "/" `T.isSuffixOf` decoded || decoded == "." ||
-               "/." `T.isSuffixOf` decoded
-  in if not folder && servablePath segments then Just (segments, fragment) else Nothing
-
--- | Whether kiwi may serve the file of this path, given as segments from the
--- top of its source (see 'Kiwi.Controller.serveFile'). Not served: an empty
--- path, a path with an empty segment, or a segment that starts with '.'
--- (hidden files, ".", "..") or '_', and the files of pages and the copies
--- that editors leave next to them: a segment that starts with '#', ends with
--- '~', or holds ".md" or ".markdown" (in any case) followed by the end of
--- the name or by a character that is neither a letter nor a digit
--- ("page.md~", "#page.md#", "page.md.orig"…).
-servablePath :: [T.Text] -> Bool
-servablePath segments = not (null segments) && all servable segments
-  where
-    servable s = case T.uncons s of
-      Nothing -> False
-      Just (c, _) -> c `notElem` ['.', '_', '#'] && not ("~" `T.isSuffixOf` s) &&
-                     T.all (`notElem` ['/', '\0']) s && not (pageName $ T.toLower s)
-    pageName n = any (ends n) [".md", ".markdown"]
-    ends n ext = any (\(_, after) -> case T.uncons (T.drop (T.length ext) after) of
-                                       Nothing     -> True
-                                       Just (c, _) -> not (isAlphaNum c))
-                     (T.breakOnAll ext n)
-
--- | Whether a path, given as segments, is the one of an image (by its
--- extension, in any case): its links open in the image viewer of the theme
-isImagePath :: [T.Text] -> Bool
-isImagePath segments = case segments of
-  [] -> False
-  _  -> map toLower (FP.takeExtension $ T.unpack $ last segments) `elem`
-          [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif"]
-
-
--- | Uid of the page targeted by a "uid:" link, and the fragment of the link
--- ("#anchor"), if any. The uid may be percent-encoded, and surrounded by
--- spaces ("<uid: XYZ>").
+-- | Uid of the page targeted by a "uid:" link (or of the file targeted by a
+-- "file:" link), and the fragment of the link ("#anchor"), if any. The uid
+-- may be percent-encoded, and surrounded by spaces ("<uid: XYZ>").
 uidTarget :: T.Text -> (T.Text, T.Text)
 uidTarget l = let (u, fragment) = T.breakOn "#" l
               in (T.strip $ Url.urlDecodeText u, fragment)

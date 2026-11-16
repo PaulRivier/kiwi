@@ -133,13 +133,11 @@ kiwiRoute ss = do
 
   middleware serveTheme
 
-  -- the files of the sources linked by the pages (see 'serveFile'): the path
-  -- of the request is decoded by WAI
-  get (regex "^/file/") $ do
-    segments <- Wai.pathInfo <$> request
-    case segments of
-      _ : source : path -> withLogin $ serveFile source path
-      _ -> withLogin serveNotFound
+  -- the files of the sources linked by the pages, by uid (see 'serveFile')
+  get "/file/:source/:uid" $ do
+    source <- captureParam "source"
+    uid <- captureParam "uid"
+    withLogin $ serveFile source uid
 
   notFound $ withLogin serveNotFound
 

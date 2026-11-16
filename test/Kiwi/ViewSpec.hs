@@ -152,56 +152,75 @@ viewSpec = do
       missing <- get "/page/s/bad"
       liftIO $ WT.simpleStatus missing `shouldBe` Net.status404
 
-  it "serves the files linked by the pages that the user can read" $
+  it "serves the files linked by the pages that the user can read, by uid" $
     withKiwiState [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])
                   , ("eve", "secret", ["friends"])]
-                  [ ("pub.md", "uid: pub\ntitle: P\n\n![a](<file:img/a.png>) [t](<file:notes.txt>) \
-                               \[g](<file:.git/config>) [m](<file:priv.md>) [e](<file:\xe9.png>)")
-                  , ("img/a.png", "PNG"), ("notes.txt", "text"), (".git/config", "G")
-                  , ("e\x301.png", "NFD")
-                  , ("priv.md", "uid: priv\ntitle: Priv\naccess: family\n\n[s](<file:/secret.pdf>)")
-                  , ("secret.pdf", "PDF")
-                  , ("old.md", "uid: old\ntitle: Old\narchive: yes\n\n[o](<file:old.pdf>)")
-                  , ("old.pdf", "OLD"), ("alone.pdf", "X") ] $ \cd ss app ->
+                  [ ("pub.md", "uid: pub\ntitle: P\n\n![a](file:AAAAAAAAAA) [t](file:BBBBBBBBBB) \
+                               \[e](file:CCCCCCCCCC) [g](file:GGGGGGGGGG)")
+                  , ("img/a__AAAAAAAAAA.png", "PNG"), ("notes__BBBBBBBBBB.txt", "text")
+                  , ("\xe9t\xe9 1__CCCCCCCCCC.pdf", "PDF1"), (".git/x__GGGGGGGGGG.png", "G")
+                  , ("priv.md", "uid: priv\ntitle: Priv\naccess: family\n\n[s](file:DDDDDDDDDD)")
+                  , ("secret__DDDDDDDDDD.pdf", "PDF")
+                  , ("old.md", "uid: old\ntitle: Old\narchive: yes\n\n[o](file:EEEEEEEEEE)")
+                  , ("old__EEEEEEEEEE.pdf", "OLD"), ("alone__FFFFFFFFFF.pdf", "X") ] $ \cd ss app ->
     flip WT.runSession app $ do
       let status path = WT.simpleStatus <$> get path
           header h = lookup h . WT.simpleHeaders
-      png <- get "/file/s/img/a.png"
+      png <- get "/file/s/AAAAAAAAAA"
       liftIO $ do
         WT.simpleStatus png `shouldBe` Net.status200
         WT.simpleBody png `shouldBe` "PNG"
         header "Content-Type" png `shouldBe` Just "image/png"
+        header "Content-Disposition" png
+          `shouldBe` Just "inline; filename=\"a.png\"; filename*=UTF-8''a.png"
         header "Cache-Control" png `shouldBe` Just "private, no-cache"
         etagOf png `shouldSatisfy` (/= "")
-      cached <- getWith (etagOf png) "/file/s/img/a.png"
+      cached <- getWith (etagOf png) "/file/s/AAAAAAAAAA"
       liftIO $ WT.simpleStatus cached `shouldBe` Net.status304
       liftIO $ WT.simpleBody cached `shouldBe` ""
-      txt <- get "/file/s/notes.txt"
+      txt <- get "/file/s/BBBBBBBBBB"
       liftIO $ header "Content-Type" txt `shouldBe` Just "text/plain; charset=utf-8"
-      -- linked by a page in NFC, written in NFD on the disk
-      nfd <- get "/file/s/%C3%A9.png"
-      liftIO $ WT.simpleBody nfd `shouldBe` "NFD"
+      pdf <- get "/file/s/CCCCCCCCCC"
+      liftIO $ header "Content-Disposition" pdf `shouldBe`
+        Just "inline; filename=\"_t_ 1.pdf\"; filename*=UTF-8''%C3%A9t%C3%A9%201.pdf"
       -- linked by an archived page: served out of the archive mode
-      status "/file/s/old.pdf" >>= liftIO . (`shouldBe` Net.status200)
-      -- not linked, not servable even when linked, in another source
-      forM_ [ "/file/s/alone.pdf", "/file/s/.git/config", "/file/s/priv.md"
-            , "/file/s/img/../notes.txt", "/file/x/img/a.png", "/file/s", "/file/" ] $ \path -> do
-        st <- status path
-        liftIO $ (path, st) `shouldBe` (path, Net.status404)
+      status "/file/s/EEEEEEEEEE" >>= liftIO . (`shouldBe` Net.status200)
+      -- not linked, ignored file, unknown uid, in another source
+      forM_ [ "/file/s/FFFFFFFFFF", "/file/s/GGGGGGGGGG", "/file/s/HHHHHHHHHH"
+            , "/file/x/AAAAAAAAAA", "/file/s/img/a__AAAAAAAAAA.png", "/file/s", "/file/" ] $
+        \path -> do
+          st <- status path
+          liftIO $ (path, st) `shouldBe` (path, Net.status404)
       -- linked by a page that the user can not read
-      status "/file/s/secret.pdf" >>= liftIO . (`shouldBe` Net.status401)
+      status "/file/s/DDDDDDDDDD" >>= liftIO . (`shouldBe` Net.status401)
       _ <- postForm "/login" "username=eve&password=secret"
-      status "/file/s/secret.pdf" >>= liftIO . (`shouldBe` Net.status403)
+      status "/file/s/DDDDDDDDDD" >>= liftIO . (`shouldBe` Net.status403)
       _ <- postForm "/logout" ""
       _ <- postForm "/login" "username=bob&password=secret"
-      status "/file/s/secret.pdf" >>= liftIO . (`shouldBe` Net.status200)
+      status "/file/s/DDDDDDDDDD" >>= liftIO . (`shouldBe` Net.status200)
       _ <- postForm "/logout" ""
       _ <- postForm "/login" "username=ann&password=secret"
-      status "/file/s/secret.pdf" >>= liftIO . (`shouldBe` Net.status200)
+      status "/file/s/DDDDDDDDDD" >>= liftIO . (`shouldBe` Net.status200)
+      -- moved and renamed: still served by its uid
+      liftIO $ D.createDirectoryIfMissing True (cd FP.</> "s" FP.</> "docs")
+      liftIO $ D.renameFile (cd FP.</> "s" FP.</> "secret__DDDDDDDDDD.pdf")
+                            (cd FP.</> "s" FP.</> "docs" FP.</> "plan__DDDDDDDDDD.pdf")
+      liftIO $ reloadKiwi ss
+      moved <- get "/file/s/DDDDDDDDDD"
+      liftIO $ WT.simpleBody moved `shouldBe` "PDF"
       -- no page links it any more
       liftIO $ D.removeFile (cd FP.</> "s" FP.</> "old.md")
       liftIO $ reloadKiwi ss
-      status "/file/s/old.pdf" >>= liftIO . (`shouldBe` Net.status404)
+      status "/file/s/EEEEEEEEEE" >>= liftIO . (`shouldBe` Net.status404)
+
+  it "lists the links to missing files on the doctor page" $
+    withKiwiAccounts [("ann", "secret", ["admin"])]
+                     [ ("p.md", "uid: p\ntitle: P\n\n[a](file:AAAAAAAAAA) [b](file:BBBBBBBBBB) \
+                                \[c](<file:gone.png>)")
+                     , ("a__AAAAAAAAAA.png", "PNG") ] $ WT.runSession $ do
+      resp <- get "/doctor"
+      liftIO $ body resp `shouldSatisfy` T.isInfixOf
+        "<ul><li>file:BBBBBBBBBB</li><li>file:gone.png</li></ul>"
 
   it "reloads the pages and the accounts out of a request, as the reload signal does" $
     withKiwiState [] [("p.md", "uid: p\ntitle: Page\n\nHello")] $ \cd ss app -> do

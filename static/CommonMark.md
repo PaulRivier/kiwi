@@ -288,20 +288,22 @@ clipboard. Paste it as usual in your document to make the link. The
 link stays valid when the file of the page is renamed or moved.
 
 
-You can make a link to one of your files, put next to the page (or in
-a subfolder: `file:docs/my-spreadsheet.xls`; from the top of the source:
-`file:/docs/my-spreadsheet.xls`). Only the readers of the page can get
-the file.
+You can make a link to one of your files, put anywhere in the folder
+of the source. Kiwi gives each file a uid, written in its name when
+Kiwi loads it: `my-spreadsheet.xls` becomes
+`my-spreadsheet__XJD54PM77T.xls`. Link the file with this uid: the
+link stays valid when the file is renamed or moved in the source. Only
+the readers of the page can get the file.
 
 ```
-[My best spreadsheet](<file:my-spreadsheet.xls>)
+[My best spreadsheet](file:XJD54PM77T)
 ```
 
 A link to an image opens it in an image viewer, without displaying it
 in the page.
 
 ```
-[This flower](<file:flower.jpg>)
+[This flower](file:K3M9QW2TZ1)
 ```
 
 You can also make a link to an external page:
@@ -319,7 +321,7 @@ Images have a similar syntax to links but include a preceding
 exclamation point. This will display the image in the page.
 
 ```
-![Flower](<file:flower.png>)
+![Flower](file:K3M9QW2TZ1)
 ```
 
 

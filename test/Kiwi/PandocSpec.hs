@@ -14,20 +14,25 @@ import           Data.Either (isLeft)
 import           Data.Maybe (fromMaybe)
 import           Kiwi.Meta (parseHeader, parseHeaderFields, sourceMeta, splitPage,
                             unknownMetaKeys, invalidMetaValues)
-import           Kiwi.Pandoc (fileTarget, linksInContext, loadPage, pageDoc, pagePath,
-                              servablePath)
+import           Kiwi.Pandoc (linksInContext, loadPage, pageDoc, pagePath)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
 import           TestUtils
 
 -- | (classes, url) of every link, and url of every image
 links :: PandocPage -> [([T.Text], T.Text)]
-links = PW.query f . pandocDoc
+links = docLinks . pandocDoc
+
+docLinks :: PD.Pandoc -> [([T.Text], T.Text)]
+docLinks = PW.query f
   where f (PD.Link (_, cls, _) _ (url, _)) = [(cls, url)]
         f _ = []
 
 images :: PandocPage -> [T.Text]
-images = PW.query f . pandocDoc
+images = docImages . pandocDoc
+
+docImages :: PD.Pandoc -> [T.Text]
+docImages = PW.query f
   where f (PD.Image _ _ (url, _)) = [url]
         f _ = []
 
@@ -154,48 +159,28 @@ loadPageSpec = do
     map snd (links p) `shouldBe` [ "/page/src/a:x", "/page/src/a:b:y", "/page/src/z"
                                  , "/page/src/r", "/page/src/a:b:s:t" ]
 
-  it "encodes file paths, keeping their fragment" $ do
-    let p = loadIn "a b" "title: t\n\n![i](<file:x y?.png>) [f](<file:C%23.pdf#page=2>) \
-                         \[g](<file:/100%.ods>)"
-    images p `shouldBe` ["/file/src/a%20b/x%20y%3F.png"]
-    map snd (links p) `shouldBe` ["/file/src/a%20b/C%23.pdf#page=2", "/file/src/100%25.ods"]
-    -- the files linked, decoded, without fragment, from the top of the source
-    pandocFiles p `shouldBe` ["100%.ods", "a b/C#.pdf", "a b/x y?.png"]
+  it "links the files by uid, the class given by the extension of the file" $ do
+    let doc = displayWith [ ("AAAAAAAAAA", "sub/a.png"), ("BBBBBBBBBB", "b.JPG")
+                          , ("CCCCCCCCCC", "c d/e.ods") ]
+                "[i](<file:AAAAAAAAAA>) [j](file:BBBBBBBBBB) [f](<file: CCCCCCCCCC#page=2>) \
+                \![x](file:AAAAAAAAAA)"
+    docLinks doc `shouldBe` [ (["kiwi-link-image"], "/file/src/AAAAAAAAAA")
+                            , (["kiwi-link-image"], "/file/src/BBBBBBBBBB")
+                            , (["kiwi-link-file"], "/file/src/CCCCCCCCCC#page=2") ]
+    docImages doc `shouldBe` ["/file/src/AAAAAAAAAA"]
 
-  it "fixes file links, the class given by the extension of the target" $ do
-    let p = load "title: t\n\n[i](<file:a.png>) [j](<file:/b.JPG>) \
-                 \[f](<file:c.ods>) [g](<file:/d.ods>) [h](<file:./e//./f.pdf>)"
-    links p `shouldBe` [ (["kiwi-link-image"], "/file/src/sub/a.png")
-                       , (["kiwi-link-image"], "/file/src/b.JPG")
-                       , (["kiwi-link-file"], "/file/src/sub/c.ods")
-                       , (["kiwi-link-file"], "/file/src/d.ods")
-                       , (["kiwi-link-file"], "/file/src/sub/e/f.pdf") ]
-    pandocPageLinks p `shouldBe` []
-    pandocFiles p `shouldBe` ["b.JPG", "d.ods", "sub/a.png", "sub/c.ods", "sub/e/f.pdf"]
+  it "breaks the file links whose target is not the uid of a file of the source" $
+    forM_ [ "a.png", "DDDDDDDDDD", "aaaaaaaaaa", "AAAAAAAAA", "AAAAAAAAAAA", "", "#x"
+          , "sub/a.png" ] $ \t -> do
+      let doc = displayWith [("AAAAAAAAAA", "sub/a.png")] $
+                  T.concat ["[l](<file:", t, ">) ![i](<file:", t, ">)"]
+      (t, docLinks doc) `shouldBe` (t, [(["kiwi-link-broken"], "")])
+      (t, docImages doc) `shouldBe` (t, [""])
 
-  it "breaks the file links that go up, or to hidden, page or editor files" $ do
-    let targets = [ "../a.png", "/x/../a.png", ".git/config", "_a.pdf", "x/_b/c.png"
-                  , "p.md", "P.MARKDOWN", "p.md~", "%23p.md%23", "p.md.orig", "a~"
-                  , "x/.hidden", "", "#anchor", "./" ]
-    forM_ targets $ \t -> do
-      let p = load $ T.concat ["title: t\n\n[l](<file:", t, ">) ![i](<file:", t, ">)"]
-      (t, links p) `shouldBe` (t, [(["kiwi-link-broken"], "")])
-      (t, images p) `shouldBe` (t, [""])
-      (t, pandocFiles p) `shouldBe` (t, [])
-
-  it "puts the paths of the files linked in NFC" $ do
-    fileTarget "" "e\x301\&te\x301\&e\x301.png" `shouldBe` Just (["\xe9t\xe9\xe9.png"], "")
-    fileTarget "re\x301" "a.png#x" `shouldBe` Just (["r\xe9", "a.png"], "#x")
-
-  it "tells which paths can be served" $ do
-    let ok = [ ["a.png"], ["notes.mdx"], ["cmd.txt"], ["x.mdb"], ["d", "e.pdf"]
-             , ["a.b", "md"] ]
-        refused = [ [], [""], ["."], [".."], ["a", ""], [".git", "config"], ["_x"]
-                  , ["a", "_b", "c"], ["p.md"], ["P.Md"], ["p.markdown"], ["p.md~"]
-                  , ["#p.md#"], ["p.md.bak"], ["p.md-20250101"], ["rapport.md.pdf"]
-                  , ["a~"], ["#a"], ["a/b"], ["a\0"], ["notes.md", "a.png"] ]
-    filter (not . servablePath) ok `shouldBe` []
-    filter servablePath refused `shouldBe` []
+  it "collects the files linked, as written" $
+    pandocFiles (load "title: t\n\n[a](<file:AAAAAAAAAA#p>) ![b](<file: BBBBBBBBBB >) \
+                      \[c](<file:x%20y.png>) [d](file:) [e](file:AAAAAAAAAA)")
+      `shouldBe` ["AAAAAAAAAA", "BBBBBBBBBB", "x y.png"]
 
   it "keeps anchors and external links" $ do
     let p = load "title: t\n\n[a](#section) [b](https://example.org)"
@@ -238,17 +223,11 @@ loadPageSpec = do
     -- the default lang is used
     metaLang (pandocMeta $ load "title: t\nlang: fr\n\nx") `shouldBe` Just (LangFixed English)
 
-  it "fixes images paths" $ do
-    let p = load "title: t\n\n![x](<file:a.png>) ![y](<file:/b.png>) ![z](http://e.org/c.png)"
-    images p `shouldBe` ["/file/src/sub/a.png", "/file/src/b.png", "http://e.org/c.png"]
-
   it "does not read image: links any more, nor images-dir and files-dir" $ do
     let p = load "title: t\nimages-dir: pics\nfiles-dir: docs\n\n\
-                 \![x](<image:a.png>) [i](<image:b.png>) [f](<file:c.ods>)"
+                 \![x](<image:a.png>) [i](<image:b.png>)"
     images p `shouldBe` ["image:a.png"]
-    links p `shouldBe` [ (["kiwi-link-external"], "image:b.png")
-                       , (["kiwi-link-file"], "/file/src/sub/c.ods") ]
-    pandocFiles p `shouldBe` ["sub/c.ods"]
+    links p `shouldBe` [(["kiwi-link-external"], "image:b.png")]
     unknownKeys [] "title: t\nimages-dir: pics\nfiles-dir: docs\n\nx"
       `shouldBe` ["files-dir", "images-dir"]
 
@@ -259,7 +238,7 @@ loadPageSpec = do
                     , pageAbsoluteFSPath = "/k/content/src/sub/p.md"
                     , pageMTime = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
                     , pageBody = body
-                    , pageFiles = ["sub/a.png", "sub/c.ods"]
+                    , pageFiles = ["a.png", "c.ods"]
                     , pagePlainText = ""
                     , pageTitle = "t"
                     , pageTags = []
@@ -271,13 +250,13 @@ loadPageSpec = do
                     , pagePreviousUids = []
                     }
     pandocBody (load c) `shouldBe` body
-    pandocFiles (load c) `shouldBe` ["sub/a.png", "sub/c.ods"]
+    pandocFiles (load c) `shouldBe` ["a.png", "c.ods"]
     -- with the lines of the top-level blocks (a paragraph: in a div)
     let noLines (PD.Pandoc m bs) = PD.Pandoc m (concatMap unwrap bs)
         unwrap (PD.Div ("", [], [("kiwi-line", _)]) [b]) = [b]
         unwrap b = [b]
-    fmap noLines (pageDoc "/k/content" page) `shouldBe` Right (pandocDoc $ load c)
-    fmap (\(PD.Pandoc _ bs) -> length bs) (pageDoc "/k/content" page) `shouldBe` Right 1
+    fmap noLines (pageDoc "/k/content" M.empty page) `shouldBe` Right (pandocDoc $ load c)
+    fmap (\(PD.Pandoc _ bs) -> length bs) (pageDoc "/k/content" M.empty page) `shouldBe` Right 1
     pagePath "/k/content" "/k/content/src/sub/p.md" `shouldBe` ("src", "sub/p")
 
 metaDataSpec :: Spec

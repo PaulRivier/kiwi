@@ -326,41 +326,32 @@ Link to a heading of a page, headings get an anchor from their text
     [link to a section](uid:UID#baking-time)
     [link to a section of this page](#baking-time)
 
-Link to a file of the source (an image, a spreadsheet…): its path is
-relative to the folder of the page. From *recipes/cake.md*,
-`file:cake.jpg` is *recipes/cake.jpg*, and `file:img/cacao.png` is
-*recipes/img/cacao.png*. A link to an image opens it in the image
-viewer of the page, a link to another file in a new tab.
+Link to a file of the source (an image, a spreadsheet…) by its uid
+(see [images and files](#images-and-files)): the link stays valid when
+the file is renamed or moved in the source. A link to an image opens it
+in the image viewer of the page, a link to another file in a new tab.
 
-    [link to an image](<file:cake.jpg>)
-    [link to a file](<file:spreadsheet.ods>)
+    [link to an image](file:K3M9QW2TZ1)
+    [link to a file](file:XJD54PM77T)
+    [link to a page of a PDF](file:XJD54PM77T#page=2)
 
 Insert an image:
 
-    ![a cake](<file:cake.jpg>)
+    ![a cake](file:K3M9QW2TZ1)
 
-A path that starts with */* starts at the top of the source: from any
-page, `file:/images/flower.png` is *images/flower.png* in the folder of
-the source.
-
-    [link to a file](<file:/spreadsheet.ods>)
-
-A file link never goes up: a path with `..` is refused, as well as the
-paths to files that Kiwi never serves (see [images and
-files](#images-and-files)); such a link is broken. `.` is allowed
-(`file:./cake.jpg`). Targets may be percent-encoded, which is needed
-for the characters with a meaning in links: `file:C%23.pdf` links to
-the file *C#.pdf* (a `#` starts an anchor, `file:doc.pdf#page=2`).
+A file link whose target is not the uid of a file of the source is
+broken.
 
 Broken links get the `kiwi-link-broken` class, that the theme shows in
 red with a dashed underline. For a reader, a link to a page they can
 not read, or between an archived page and a non archived one (see
 [Archives](#archives)), is broken too. The *Doctor* page (`/doctor`,
 linked at the bottom of every page) lists the pages with broken links,
-among those the reader can read, with these links. For admins, it also
-lists the files that could not be loaded as pages, with the reason
-(invalid metadata header, file that is not UTF-8, file where Kiwi could
-not write the uid of the page...).
+among those the reader can read, with these links (`file:` followed
+by the target for a missing file). For admins, it also lists the files
+that could not be loaded, with the reason (invalid metadata header,
+file that is not UTF-8, file where Kiwi could not write the uid of the
+page, file that Kiwi could not rename to give it a uid...).
 
 
 ### images and files
@@ -368,26 +359,57 @@ not write the uid of the page...).
 Images and other files go anywhere in the folder of the source, next to
 the pages or in subfolders, as the pages.
 
-Kiwi serves a file (`/file/SOURCE/path`) only when a page links to it
-with a `file:` link, and only to the readers of at least one of the
-pages that link to it (archived or not): a file linked by a private
-page only is private, a file linked by no page is never served. A
-reader who can not read any of these pages gets the same answer as for
-a page (401, or 403 when logged in). Links written in raw HTML
-(`<img src="/file/…">`) do not count. As a consequence, a writer of a
-page can make any file of the source readable by the readers of this
-page, by linking to it.
+Each file gets a uid, unique in its source, written in its name: when
+Kiwi loads a file without one, it renames it, `cake.jpg` becoming
+`cake__K3M9QW2TZ1.jpg` (10 characters of Crockford base32 after `__`,
+before the first `.` of the name). The uid is read in the name: `__`,
+then 10 upper case characters of the Crockford base32 alphabet, then
+the end of the name or a character that is neither a letter nor a
+digit. A file can then be renamed or moved anywhere in its source, as
+long as it keeps this `__UID` part in its name: its links still work.
+A copy of a file (`cake__K3M9QW2TZ1 (copy).jpg`) has the same uid: the
+file already known keeps it (else the first one by path), the other
+one gets a new uid, written in place of the former. The renamed files
+are committed, as the pages whose uid is written (see [content
+versioning](#content-versioning-and-backup)), first as they are, then
+renamed.
 
-Kiwi never serves, even when a page links to them: the files of the
-pages (`.md`, `.markdown`) and the copies that editors leave next to
-them (`page.md~`, `#page.md#`, `page.md.orig`…: a name holding `.md` or
-`.markdown` followed by anything but a letter or a digit), the names
-that start with `.`, `_` or `#` or end with `~`, and anything in a
-folder whose name is one of those. The text files are served as UTF-8.
+Kiwi serves a file (`/file/SOURCE/UID`, with its name without its uid)
+only when a page links to it with a `file:` link, and only to the
+readers of at least one of the pages that link to it (archived or
+not): a file linked by a private page only is private, a file linked by
+no page is never served. A reader who can not read any of these pages
+gets the same answer as for a page (401, or 403 when logged in). Links
+written in raw HTML (`<img src="/file/…">`) do not count. As a
+consequence, a writer of a page can make any file of the source
+readable by the readers of this page, by linking to it.
 
-A file linked by a new page, or added to the disk, is served once the
-pages are reloaded. In the editor of the browser, the preview does not
-show a file that the page links for the first time, until it is saved.
+Kiwi never gives a uid to, nor serves, these files, nor anything in a
+folder whose name is one of those:
+
+- the files of the pages (`.md`, `.markdown`) and the copies that
+  editors leave next to them (`page.md~`, `#page.md#`, `page.md.orig`…:
+  a name holding `.md` or `.markdown` followed by anything but a letter
+  or a digit);
+- the names that start with `.`, `_`, `#` or `~`, or end with `#` or
+  `~` (temporary files of editors, of Office, of syncthing on Windows…);
+- the conflict copies of syncthing (a name holding `.sync-conflict-`);
+- the temporary and backup files, by their extension, in any case:
+  `tmp`, `temp`, `part`, `partial`, `crdownload`, `download`, `swp`,
+  `swo`, `bak`, `orig`, `rej`, `lock`, `lck`, `kiwi-migration`;
+- `Thumbs.db` and `desktop.ini`.
+
+These files are listed in debug mode (`kiwi serve --log-level debug`).
+The text files are served as UTF-8.
+
+A file added to the disk gets its uid, and is served, once the pages
+are reloaded.
+
+Temporary, for the sources written for the previous versions: a
+`file:` link written with the path of a file (relative to the folder of
+the page, or from the top of the source with `/`) is converted to a
+link with its uid when Kiwi loads the page, and the page is written
+again and committed. A path that is not found is logged, at each load.
 
 
 # Documents reload
@@ -668,7 +690,10 @@ Kiwi commits the files it writes when it loads the pages (the uids it
 writes, see [pages](#pages)) the same way: one commit by repository,
 with *Kiwi* as author and the message `Kiwi: uid assigned to N pages`,
 after a commit `Kiwi: pre-update commit of N pages` of those that
-differed from their last commit.
+differed from their last commit. The files of the sources that it
+renames to give them a uid (see [images and files](#images-and-files))
+are committed the same way, with the messages `Kiwi: pre-update commit
+of N files` and `Kiwi: uid assigned to N files`: git sees the renames.
 
 Set `git-commit: no` in the `[kiwi]` section of kiwi.ini to disable these
 commits. Kiwi does not push, and the files changed with your local

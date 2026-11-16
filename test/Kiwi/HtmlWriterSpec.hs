@@ -22,11 +22,14 @@ htmlWriterSpec = do
         , "<a href=\"/page/src/sub:Gone\" class=\"kiwi-link-page kiwi-link-broken\">b</a> "
         , "<a href=\"http://e.org\" class=\"kiwi-link-external\" target=\"_blank\">c</a></p>" ]
 
-  it "renders the links to files, a refused one broken and without target" $
-    html "t: t\n\n[a](<file:a.pdf>) [b](<file:b.png>) [c](<file:../c.pdf>) ![d](<file:_d.png>)"
+  it "renders the links to files, a missing one broken and without target" $
+    TL.toStrict (renderText $ writeHtml5 (const True) $
+      displayWith [("AAAAAAAAAA", "x/a.pdf"), ("BBBBBBBBBB", "b.png")]
+        "[a](file:AAAAAAAAAA) [b](file:BBBBBBBBBB) [c](<file:c.pdf>) ![d](file:CCCCCCCCCC)")
       `shouldBe` T.concat
-        [ "<p><a href=\"/file/src/sub/a.pdf\" class=\"kiwi-link-file\" target=\"_blank\">a</a> "
-        , "<a href=\"/file/src/sub/b.png\" class=\"kiwi-link-image\">b</a> "
+        [ "<p data-line=\"1\"><a href=\"/file/src/AAAAAAAAAA\" class=\"kiwi-link-file\" "
+        , "target=\"_blank\">a</a> "
+        , "<a href=\"/file/src/BBBBBBBBBB\" class=\"kiwi-link-image\">b</a> "
         , "<a class=\"kiwi-link-broken\">c</a> "
         , "<img alt=\"d\" class=\"kiwi-link-broken\"></p>" ]
 

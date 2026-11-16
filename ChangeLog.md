@@ -37,6 +37,19 @@
   page, or to the top of the source with `/`. A file link with `..` is
   broken. Move the content of `pages`, `images` and `files` to the top of
   the folder of each source before starting this version.
+- **File uids**: each file of a source that is not a page gets a uid,
+  unique in its source, written in its name: Kiwi renames `cake.jpg` to
+  `cake__K3M9QW2TZ1.jpg` when it loads it, and commits the rename. A file
+  is linked by its uid (`![a cake](file:K3M9QW2TZ1)`), and served at
+  `/file/SOURCE/UID` with its name without uid: it can be renamed or moved
+  anywhere in its source without breaking its links. A copy of a file gets
+  a new uid. Temporary and backup files (`x.tmp`, `x.part`, `x.bak`,
+  `~$x.docx`, syncthing conflict copies…) get no uid and are never served.
+  The Doctor page lists the links to missing files.
+- **Breaking**: the `file:` links with a path are converted to links with
+  a uid when Kiwi loads the page (temporary: a path that is not found is
+  logged at each load); the `/file/SOURCE/path` addresses no longer work.
+- Git: the commits of Kiwi include the former path of a renamed file.
 - Git: before committing a page saved from the browser, Kiwi commits the
   changes of its file made outside of Kiwi (or the file not tracked yet),
   with "Kiwi" as author and the message "Pre-update commit of SOURCE:UID

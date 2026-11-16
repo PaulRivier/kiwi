@@ -6,6 +6,7 @@ import qualified Data.ByteString as BS
 import           Control.Monad (forM_, when)
 import           Data.IORef (modifyIORef, newIORef, readIORef)
 import           Data.List (find, sort)
+import qualified Data.Map.Strict as M
 import qualified Data.SearchEngine as SE
 import qualified Data.Text as T
 import qualified Data.Time as Time
@@ -17,6 +18,7 @@ import           Test.Hspec
 
 import           Kiwi.Auth (readableQuery)
 import qualified Kiwi.DefaultPages as DP
+import qualified Kiwi.Files as Files
 import qualified Kiwi.Log as L
 import qualified Kiwi.PagesDB as DB
 import           Kiwi.Search (queryTerms)
@@ -75,6 +77,10 @@ dbUidOf db path = maybe (error $ "no page for " ++ path) (snd . pageUID) $ dbPag
 -- | Whether the uid is one drawn by kiwi: 10 characters of Crockford base32
 isDrawn :: T.Text -> Bool
 isDrawn u = T.length u == 10 && T.all (`elem` ("0123456789ABCDEFGHJKMNPQRSTVWXYZ" :: String)) u
+
+-- | The files of a folder and its subfolders, by path from the folder
+traverseFiles :: FilePath -> IO [FilePath]
+traverseFiles top = map (FP.makeRelative top) <$> U.traverseDir top (const True)
 
 warnings :: [(L.LogLevel, T.Text)] -> [T.Text]
 warnings msgs = [ m | (L.Warn, m) <- msgs ]
@@ -292,8 +298,8 @@ pagesDBSpec = do
       readFile (pageFile cd "sub/b.md") `shouldReturn` T.unpack (T.concat
         [ "title: B\nuid: ", b, "\nprevious-uids: sub:b\n\nkiwiword [a](<uid:", a, ">) "
         , "[c](uid:", c, ")\n" ])
-      filter (not . T.isPrefixOf "unknown metadata") (warnings msgs) `shouldBe` [T.concat ["page: link not converted, ", T.pack (pageFile cd "a.md")
-                                        , " : missing"]]
+      filter (not . T.isPrefixOf "unknown metadata") (warnings msgs) `shouldBe` [T.concat ["link not converted, ", T.pack (pageFile cd "a.md")
+                                        , " : page:missing"]]
       -- the converted pages are loaded again, with their links
       let backlinks :: PageUID -> [PageUID]
           backlinks uid = map pageUID $ DI.query (pagesIndex db) (U.qOnly FieldLink uid)
@@ -346,9 +352,76 @@ pagesDBSpec = do
       dbIds db `shouldReturn` []
       -- only a page file whose name is refused is logged (in debug)
       [ m | (L.Debug, m) <- msgs, T.isPrefixOf "file ignored, " m ]
-        `shouldBe` [T.pack $ "file ignored, " ++ pageFile cd "-draft.md" ++
-                    " : a page file name starts with a letter or a digit, and ends with \
-                    \.md or .markdown"]
+        `shouldBe` [ T.pack $ "file ignored, " ++ pageFile cd "-draft.md" ++
+                     " : a page file name starts with a letter or a digit, and ends with \
+                     \.md or .markdown"
+                   , T.pack $ "file ignored, " ++ pageFile cd "page.md~" ++
+                     " : temporary or backup file (see the README)" ]
+      -- the other files get a uid
+      M.keys (sourceFiles db) `shouldSatisfy` ((== 1) . length)
+
+  it "gives a uid to the files, renamed, and converts the links written with a path" $
+    withContentDir $ \cd -> do
+      writeFileAt (pageFile cd "p.md") 0
+        "uid: p\n\n![a](file:img/a.png) [b](<file:/b c.pdf#page=2>) \
+        \[k](file:k__XJD54PM77T.txt) [g](file:gone.png) kiwiword"
+      forM_ [ "img/a.png", "b c.pdf", "k__XJD54PM77T.txt", "z/k__XJD54PM77T (copie).txt"
+            , "x.tmp", "_y.png", "p.md~", ".hidden.png" ] $ \name ->
+        writeFileAt (pageFile cd name) 0 name
+      (db, msgs) <- loadDB cd
+      files <- sort <$> traverseFiles (cd FP.</> "s")
+      let named prefix = [ f | f <- files, prefix `T.isPrefixOf` T.pack f ]
+          uidOf f = maybe (error f) T.pack $ Files.fileUid (FP.takeFileName f)
+      [a] <- return $ named "img/a__"
+      [b] <- return $ named "b c__"
+      [c] <- return $ named "z/k__"
+      uidOf c `shouldNotBe` "XJD54PM77T"
+      FP.takeFileName c `shouldBe` ("k__" ++ T.unpack (uidOf c) ++ " (copie).txt")
+      -- the excluded files are not renamed
+      files `shouldBe` sort [a, b, c, "k__XJD54PM77T.txt", "p.md", "x.tmp", "_y.png", "p.md~"
+                            , ".hidden.png"]
+      sourceFiles db `shouldBe` M.fromList [ (("s", uidOf f), f)
+                                           | f <- [a, b, c, "k__XJD54PM77T.txt"] ]
+      readFile (pageFile cd "p.md") `shouldReturn` T.unpack (T.concat
+        [ "uid: p\n\n![a](file:", uidOf a, ") [b](<file:", uidOf b, "#page=2>) \
+          \[k](file:XJD54PM77T) [g](file:gone.png) kiwiword" ])
+      fmap pageFiles (dbPageOf db (pageFile cd "p.md"))
+        `shouldBe` Just (sort ["XJD54PM77T", uidOf a, uidOf b, "gone.png"])
+      warnings msgs `shouldBe` [T.pack $ "link not converted, " ++ pageFile cd "p.md" ++
+                                " : file:gone.png"]
+      -- nothing to do at the next load (the link not found is still reported)
+      (db', msgs') <- reloadDB cd db
+      sourceFiles db' `shouldBe` sourceFiles db
+      warnings msgs' `shouldBe` warnings msgs
+      sort <$> traverseFiles (cd FP.</> "s") `shouldReturn` files
+
+  it "keeps the uid of a known file, a new copy of it gets another one" $
+    withContentDir $ \cd -> do
+      writeFileAt (pageFile cd "k__XJD54PM77T.txt") 0 "k"
+      (db, _) <- loadDB cd
+      writeFileAt (pageFile cd "a/k__XJD54PM77T.txt") 0 "copy"
+      (db', _) <- reloadDB cd db
+      M.lookup ("s", "XJD54PM77T") (sourceFiles db') `shouldBe` Just "k__XJD54PM77T.txt"
+      M.size (sourceFiles db') `shouldBe` 2
+      D.doesFileExist (pageFile cd "a/k__XJD54PM77T.txt") `shouldReturn` False
+
+  it "commits the files renamed to get their uid, and the pages converted" $ withGit $
+    withContentDir $ \cd -> do
+      git cd ["init", "-q"]
+      writeFileAt (pageFile cd "p.md") 0 "uid: p\n\n![a](file:a.png) kiwiword"
+      writeFileAt (pageFile cd "a.png") 0 "PNG"
+      git cd ["add", "."]
+      git cd ["commit", "-q", "-m", "init"]
+      writeFileAt (pageFile cd "new.png") 0 "NEW"
+      db <- DB.updatePagesDB (\_ _ -> return ()) True cd (DB.emptyPagesDB defMeta [] [])
+      gitOut cd ["log", "--format=%an|%s"] `shouldReturn`
+        "Kiwi|Kiwi: links converted to uids in 1 pages\nKiwi|Kiwi: uid assigned to 2 files\n\
+        \Kiwi|Kiwi: pre-update commit of 2 files\ntest|init\n"
+      [a] <- return [ p | p <- M.elems (sourceFiles db), "a__" `T.isPrefixOf` T.pack p ]
+      gitOut cd ["show", "-M", "--name-status", "--format=", "HEAD~1", "--", "s/a.png"
+                , "s/" ++ a ]
+        `shouldReturn` ("R100\ts/a.png\ts/" ++ a ++ "\n")
+      gitOut cd ["status", "--porcelain"] `shouldReturn` ""
 
   it "lists the files that are not loaded, until they are fixed" $
     withContentDir $ \cd -> do

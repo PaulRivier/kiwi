@@ -7,6 +7,7 @@ import           Kiwi.BrowseSpec (browseReqSpec)
 import           Kiwi.ConfigFileSpec (configSpec)
 import           Kiwi.ControllerSpec (metaIndexSpec)
 import           Kiwi.EditSpec (editSpec)
+import           Kiwi.FilesSpec (filesSpec)
 import           Kiwi.GitSpec (gitSpec)
 import           Kiwi.HtmlWriterSpec (htmlWriterSpec)
 import           Kiwi.LangDetectSpec (langDetectSpec)
@@ -36,6 +37,7 @@ main = hspec $ do
   describe "Utils.DocIndex" docIndexSpec
   describe "Kiwi.LangDetect" langDetectSpec
   describe "Kiwi.Search" searchSpec
+  describe "Kiwi.Files" filesSpec
   describe "Kiwi.PagesDB.updatePagesDB" pagesDBSpec
   describe "Kiwi.Migration (temporary)" migrationSpec
   describe "Kiwi.HtmlWriter" htmlWriterSpec

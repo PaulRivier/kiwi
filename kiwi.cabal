@@ -83,6 +83,7 @@ library
       Kiwi.Controller
       Kiwi.DefaultPages
       Kiwi.Edit
+      Kiwi.Files
       Kiwi.Git
       Kiwi.LangDetect
       Kiwi.Locales
@@ -144,6 +145,7 @@ test-suite kiwi-test
       Kiwi.ConfigFileSpec
       Kiwi.ControllerSpec
       Kiwi.EditSpec
+      Kiwi.FilesSpec
       Kiwi.GitSpec
       Kiwi.HtmlWriterSpec
       Kiwi.LangDetectSpec

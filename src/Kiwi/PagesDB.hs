@@ -24,6 +24,7 @@ import           Data.SearchEngine (insertDocs, deleteDoc)
 import qualified Data.SearchEngine as SE
 import qualified Data.Set as S
 import qualified Data.Text as T
+import           Data.Text.Normalize (normalize, NormalizationMode(NFC))
 -- import qualified Data.Time.Calendar as Cal
 -- import qualified Data.Time.Clock as C
 import qualified System.Directory as D
@@ -31,6 +32,7 @@ import qualified System.FilePath as FP
 import           Text.Printf (printf)
 
 import           Kiwi.Edit (writePageFile)
+import qualified Kiwi.Files as Files
 import qualified Kiwi.Git as Git
 import qualified Kiwi.Log as L
 import           Kiwi.Meta (isValidUid, uidFromBytes, writePage)
@@ -63,22 +65,23 @@ warmUpSearchEngine :: PageSearchEngine -> IO ()
 warmUpSearchEngine se = void $ forkIO $ void $ evaluate $ SE.invariant se
 
 
--- | Loads the pages (see 'loadPagesDB'), then converts their "page:" links
--- to "uid:" links, and loads the converted pages again (temporary, see
--- "Kiwi.Migration"). The files written are committed when the boolean is
--- true (git-commit).
+-- | Loads the pages and the files of the sources (see 'loadPagesDB'), then
+-- converts the "page:" links of the pages to "uid:" links, and their "file:"
+-- links with a path to links with a uid, and loads the converted pages
+-- again (temporary, see "Kiwi.Migration"). The files written or renamed are
+-- committed when the boolean is true (git-commit).
 updatePagesDB :: L.Logger -> Bool -> FP.FilePath -> PagesDB -> IO PagesDB
 updatePagesDB logger' git contentDir' db = do
-  db1 <- loadPagesDB logger' git contentDir' S.empty db
-  converted <- Migration.convertLinks contentDir' db1
+  (db1, renamed) <- loadPagesDB logger' git contentDir' S.empty db
+  converted <- Migration.convertLinks contentDir' renamed db1
   forM_ converted $ \(p, _, missing) -> unless (null missing) $ logger' L.Warn $ T.concat
-    [ "page: link not converted, ", T.pack p, " : ", T.intercalate ", " missing ]
+    [ "link not converted, ", T.pack p, " : ", T.intercalate ", " missing ]
   let texts = [ (p, t) | (p, Just t, _) <- converted ]
   if null texts then return db1 else do
-    written <- writePageFiles logger' git "page: links converted to uid: in" texts
+    written <- writePageFiles logger' git "links converted to uids in" texts
     -- a file written twice in a short time may keep its modification time
-    loadPagesDB logger' git contentDir'
-                (S.fromList [ p | (p, Right ()) <- written ]) db1
+    fst <$> loadPagesDB logger' git contentDir'
+                        (S.fromList [ p | (p, Right ()) <- written ]) db1
 
 -- | Loads the files of the pages that are new or modified since they were
 -- loaded, and removes the pages of the files that are gone, or reloaded. A
@@ -89,8 +92,12 @@ updatePagesDB logger' git contentDir' db = do
 -- page gets a uid unique in its source (see 'resolveUids'): the files whose
 -- uid changes are written, and committed when the boolean is true; a page
 -- whose file can not be written is not loaded.
+--
+-- The other files of the sources get a uid (see 'resolveFiles'), and are
+-- listed in 'sourceFiles'. Also returns the uids of the files renamed to get
+-- their uid, by (source, path before the renaming, in NFC).
 loadPagesDB :: L.Logger -> Bool -> FP.FilePath -> S.Set FP.FilePath ->
-               PagesDB ->  IO PagesDB
+               PagesDB -> IO (PagesDB, M.Map (T.Text, T.Text) T.Text)
 loadPagesDB logger' git contentDir' forced db = do
     sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
     -- the pages are anywhere in the folder of their source, except in the
@@ -104,6 +111,13 @@ loadPagesDB logger' git contentDir' forced db = do
     forM_ (filter isPageExt ignoredPaths) $ \p -> logger' L.Debug $ T.pack $ concat
       [ "file ignored, ", p, " : a page file name starts with a letter or a digit"
       , ", and ends with .md or .markdown" ]
+    let (servable, excluded) =
+          partition (Files.servablePath . map T.pack . FP.splitDirectories . snd . sourcePath)
+                    (filter (not . isPageExt) ignoredPaths)
+    forM_ excluded $ \p -> logger' L.Debug $ T.pack $ concat
+      [ "file ignored, ", p, " : temporary or backup file (see the README)" ]
+    (files, renamed, fileErrors) <- resolveFiles logger' git contentDir' (sourceFiles db)
+                                                 (map sourcePath servable)
     fsPathsAndMTime <- mapM addMTime fsPaths
     let toReload = [ p | (p, mt) <- fsPathsAndMTime, isModified p mt ]
         keptPaths = S.difference (S.fromList fsPaths) (S.fromList toReload)
@@ -139,10 +153,12 @@ loadPagesDB logger' git contentDir' forced db = do
                     | (p, Left e) <- M.toList written ]
     -- the links to missing pages are listed on the /doctor page, not logged:
     -- they are an issue of the content, not of the server
-    return $ db { dbGeneration = dbGeneration db + 1
-                , loadErrors = sortOn (\(src, p, _) -> (src, p)) errors
+    return ( db { dbGeneration = dbGeneration db + 1
+                , loadErrors = sortOn (\(src, p, _) -> (src, p)) (errors ++ fileErrors)
+                , sourceFiles = files
                 , pagesIndex = newIndex
                 , searchEngine = insertDocs inserted searchEngineClean }
+           , renamed )
   where
     -- TODO : gérer des conditions de rechargement
     -- getCondition = return False
@@ -252,24 +268,93 @@ resolveUids logger' contentDir' used (l : ls) = do
 writePageFiles :: L.Logger -> Bool -> T.Text -> [(FP.FilePath, T.Text)] ->
                   IO [(FP.FilePath, Either String ())]
 writePageFiles logger' git what texts = do
-  when git $ commit "Kiwi: pre-update commit of" (map fst texts)
+  when git $ commitPaths logger' "Kiwi: pre-update commit of" (count "pages" texts) (map fst texts)
   results <- forM texts $ \(p, t) ->
     (p,) . first (\(e :: IOException) -> show e) <$> try (writePageFile p t)
   forM_ [ (p, e) | (p, Left e) <- results ] $ \(p, e) ->
     logger' L.Error $ T.pack $ concat [ "unable to write the file ", p, " : ", e ]
   let ok = [ p | (p, Right ()) <- results ]
   logger' L.Info $ T.concat [ what, " ", T.pack (show $ length ok), " pages" ]
-  when (git && not (null ok)) $ commit (T.concat ["Kiwi: ", what]) ok
+  when (git && not (null ok)) $
+    commitPaths logger' (T.concat ["Kiwi: ", what]) (count "pages" ok) ok
   return results
+
+-- | "N WHAT", N being the number of items
+count :: T.Text -> [a] -> T.Text
+count what xs = T.concat [T.pack (show $ length xs), " ", what]
+
+-- | Commits these files, with the message "PREFIX COUNT" (see
+-- 'Git.commitFiles'); the failures are logged
+commitPaths :: L.Logger -> T.Text -> T.Text -> [FP.FilePath] -> IO ()
+commitPaths logger' prefix n paths = do
+  rs <- Git.commitFiles paths "Kiwi" (T.concat [prefix, " ", n])
+  let committed = length [ () | (_, Right Git.Committed) <- rs ]
+  when (committed > 0) $ logger' L.Info $ T.concat
+    [ prefix, ": ", T.pack (show committed), " files committed" ]
+  forM_ (nodup [ e | (_, Left e) <- rs ]) $ \e ->
+    logger' L.Warn $ T.pack $ concat [ "files not committed: ", e ]
+
+
+-- | The files of the sources that are not pages, given as (source, path
+-- from the top of the source), each one with a uid unique in its source
+-- (see "Kiwi.Files"): a file keeps the uid of its name when it is not used,
+-- else it gets a new one, and is renamed. The files of the given table (the
+-- previous load) that keep their path are considered first, then the others
+-- in the order of their paths: a copy of a file gets a new uid, not the
+-- file. The files renamed are committed when the boolean is true
+-- (git-commit), first as they are, then renamed, as for the pages (see
+-- 'writePageFiles'). Returns the table of the files, the uids of the files
+-- renamed by (source, path before the renaming, in NFC), and the files that
+-- could not be renamed (they have no uid), as load errors.
+resolveFiles :: L.Logger -> Bool -> FP.FilePath -> M.Map (T.Text, T.Text) FP.FilePath ->
+                [(T.Text, FP.FilePath)] ->
+                IO ( M.Map (T.Text, T.Text) FP.FilePath, M.Map (T.Text, T.Text) T.Text
+                   , [(T.Text, FP.FilePath, T.Text)] )
+resolveFiles logger' git contentDir' previous files = do
+  assigned <- assign S.empty $ known ++ others
+  let renames = [ x | x@(_, path, new) <- assigned, path /= new ]
+      full (source, _) path = FP.joinPath [contentDir', T.unpack source, path]
+  when (git && not (null renames)) $
+    commitPaths logger' "Kiwi: pre-update commit of" (count "files" renames)
+                [ full k p | (k, p, _) <- renames ]
+  results <- forM renames $ \(k, path, new) -> do
+    let target = full k new
+    exists <- D.doesPathExist target
+    r <- if exists then return $ Left "the new name is already used"
+         else first (\(e :: IOException) -> show e) <$> try (D.renamePath (full k path) target)
+    case r of
+      Left e -> logger' L.Error $ T.pack $ concat
+                  [ "unable to rename the file ", full k path, " : ", e ]
+      Right () -> logger' L.Debug $ T.concat [ "uid assigned, ", T.pack (full k new) ]
+    return (k, path, new, r)
+  let ok = [ (k, path, new) | (k, path, new, Right ()) <- results ]
+  unless (null renames) $ logger' L.Info $ T.concat
+    [ "uid assigned to ", T.pack (show $ length ok), " files" ]
+  when (git && not (null ok)) $
+    commitPaths logger' "Kiwi: uid assigned to" (count "files" ok)
+                (concat [ [full k path, full k new] | (k, path, new) <- ok ])
+  let failed = S.fromList [ k | (k, _, _, Left _) <- results ]
+  return ( M.fromList [ (k, new) | (k, _, new) <- assigned, not (S.member k failed) ]
+         , M.fromList [ ((fst k, normalize NFC $ T.pack path), snd k) | (k, path, _) <- ok ]
+         , [ (fst k, path, T.pack $ "unable to rename the file to give it a uid : " ++ e)
+           | (k, path, _, Left e) <- results ] )
   where
-    commit prefix paths = do
-      rs <- Git.commitFiles paths "Kiwi"
-              (T.concat [prefix, " ", T.pack (show $ length paths), " pages"])
-      let committed = length [ () | (_, Right Git.Committed) <- rs ]
-      when (committed > 0) $ logger' L.Info $ T.concat
-        [ prefix, ": ", T.pack (show committed), " files committed" ]
-      forM_ (nodup [ e | (_, Left e) <- rs ]) $ \e ->
-        logger' L.Warn $ T.pack $ concat [ "files not committed: ", e ]
+    nameUid path = T.pack <$> Files.fileUid (FP.takeFileName path)
+    (known, others) = partition (\(source, path) -> case nameUid path of
+                                   Just u -> M.lookup (source, u) previous == Just path
+                                   Nothing -> False)
+                                (sortOn id files)
+    assign _ [] = return []
+    assign used ((source, path) : fs) = case nameUid path of
+      Just u | not (S.member (source, u) used) ->
+        (((source, u), path, path) :) <$> assign (S.insert (source, u) used) fs
+      _ -> do
+        u <- newUid used source
+        let new = FP.replaceFileName path $ Files.withFileUid (T.unpack u) (FP.takeFileName path)
+        (((source, u), path, new) :) <$> assign (S.insert (source, u) used) fs
+    newUid used source = do
+      u <- uidFromBytes <$> (CR.getRandomBytes 10 :: IO BS.ByteString)
+      if S.member (source, u) used then newUid used source else return u
 
 
 
@@ -292,6 +377,7 @@ emptyPagesDB md cmc sc =
             , sourcesConfig = sc
             , dbGeneration = 0
             , loadErrors = []
+            , sourceFiles = M.empty
             -- , lastUpdate = oldDate
             , pagesIndex = DI.empty pageUID (pageExtractKeys cmc)
             , searchEngine = initPageSearchEngine }

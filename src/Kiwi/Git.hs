@@ -81,8 +81,9 @@ commitFiles paths author message = do
             keptPaths = nulList $ map snd kept
         if null kept then return [] else do
           _ <- run ["add", "--pathspec-from-file=-", "--pathspec-file-nul"] keptPaths
-          -- every staged file, those of the admin too
-          staged <- splitNul <$> run ["diff", "--cached", "--name-only", "-z"] ""
+          -- every staged file, those of the admin too; without rename
+          -- detection, which would hide the former path of a renamed file
+          staged <- splitNul <$> run ["diff", "--cached", "--name-only", "--no-renames", "-z"] ""
           let changed = [ f | f@(_, c) <- kept, FP.makeRelative root c `elem` staged ]
           unless (null changed) $ void $
             run [ "commit", "--quiet", "-m", T.unpack message

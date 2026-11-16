@@ -1,8 +1,9 @@
-module TestUtils (defMeta, display, load, loadIn, mkPage, mkPagesDB, mkPagesDBWith, withContentDir, withKiwiApp,
+module TestUtils (defMeta, display, displayWith, load, loadIn, mkPage, mkPagesDB, mkPagesDBWith, withContentDir, withKiwiApp,
                   withKiwiAccounts, withKiwiState, withKiwiConfig, withGit, git, gitOut) where
 
 import           Control.Exception (bracket, try)
 import           Control.Monad (forM_)
+import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Time as Time
 import qualified Network.Wai as Wai
@@ -62,8 +63,12 @@ mkPagesDBWith cmc pages = let db = DB.emptyPagesDB defMeta cmc []
 
 -- | Document of a page content, as displayed (see 'pageDoc')
 display :: T.Text -> PD.Pandoc
-display body =
-  either error id $ pageDoc "/k/content"
+display = displayWith []
+
+-- | 'display', with these files of the source "src": (uid, path)
+displayWith :: [(T.Text, FilePath)] -> T.Text -> PD.Pandoc
+displayWith files body =
+  either error id $ pageDoc "/k/content" (M.fromList [ (("src", u), p) | (u, p) <- files ])
     (mkPage ("src", "p") [] [] False 1) { pageAbsoluteFSPath = "/k/content/src/p.md"
                                         , pageBody = body }
 

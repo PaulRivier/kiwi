@@ -174,6 +174,9 @@ data PagesDB =
           -- | files that are not loaded: (source, path in its pages folder,
           -- reason), by source then path
           , loadErrors :: [(T.Text, FP.FilePath, T.Text)]
+          -- | (source, uid) of the files of the sources that are not pages
+          -- (see "Kiwi.Files"), and their path from the top of their source
+          , sourceFiles :: M.Map (T.Text, T.Text) FP.FilePath
           -- , lastUpdate :: Time.UTCTime
           , pagesIndex :: DI.DocIndex Page PageUID MetaField DocIndexKey
           , searchEngine :: PageSearchEngine }
@@ -184,7 +187,7 @@ data MetaField = FieldSource
                | FieldAccess
                | FieldLang
                | FieldLink
-               | FieldFile     -- ^ (source, path) of the files linked
+               | FieldFile     -- ^ (source, uid) of the files linked
                | FieldArchive  -- ^ every page, archived or not
                | FieldCustom T.Text
   deriving (Show, Read, Eq, Ord)
@@ -229,8 +232,8 @@ data Page =
        , pageMTime :: !Time.UTCTime -- ^ time of file modification from filesystem
        -- , pageText :: !T.Text   -- ^ text of the file, metadata included
        , pageBody :: !T.Text   -- ^ markdown content of the file, without its header
-       -- | the files of its source that it links ("file:"), servable (see
-       -- 'Kiwi.Pandoc.servablePath'): paths from the top of the source, in NFC
+       -- | the files of its source that it links ("file:"): their uid (see
+       -- "Kiwi.Files"), or the target as written when it is not a uid
        , pageFiles :: ![T.Text]
        , pagePlainText :: !T.Text  -- ^ plain text of its content (search, excerpts)
        , pageTitle :: !T.Text

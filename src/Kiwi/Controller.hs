@@ -45,7 +45,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLE
-import           Data.Text.Normalize (normalize, NormalizationMode(NFC, NFD))
 import qualified Data.Time as Time
 import qualified Data.Tree as Tree
 import qualified Network.HTTP.Types as Net
@@ -66,7 +65,8 @@ import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
 import qualified Kiwi.Git as Git
 import           Kiwi.Meta (splitPage)
-import           Kiwi.Pandoc (pageDoc, embeddedDoc, servablePath)
+import           Kiwi.Files (servedName)
+import           Kiwi.Pandoc (pageDoc, embeddedDoc)
 import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, stripAccents,
                               excerpt)
 import           Kiwi.PagesDB (brokenLinks)
@@ -88,7 +88,7 @@ servePage pgId = do
     Just p -> do
       cd <- asksK K.contentDir
       -- the page was parsed when loaded, so this should not fail
-      doc <- orRenderError (K.pageAbsoluteFSPath p) $ pageDoc cd p
+      doc <- orRenderError (K.pageAbsoluteFSPath p) $ pageDoc cd (K.sourceFiles db) p
       level <- accessLevel p
       let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
           -- links to the pages the user can not read are shown as broken
@@ -108,16 +108,22 @@ orRenderError path (Left e) = do
 
 -- | Issues of the content, among the pages the user can read, archived or not
 -- according to the context (not in the sources context): the links to pages
--- that the user can not read (missing, or not readable), as displayed with
--- the class kiwi-link-broken.
+-- that the user can not read (missing, or not readable), and the links to
+-- files that are not in the source ("file:" followed by the target), as
+-- displayed with the class kiwi-link-broken.
 serveDoctor :: ActM ()
 serveDoctor = do
   db <- getRestrictedDB
-  -- brokenLinks gives the links page by page, in the order of the file
-  -- paths, so source by source
-  let byPage = [ (pg, map (snd . snd) links)
-               | links@((pg, _) : _) <- groupBy ((==) `on` (K.pageUID . fst))
-                                                (brokenLinks $ K.pagesIndex db) ]
+  let brokenPages = M.fromListWith (flip (++))
+                      [ (K.pageUID pg, [snd uid]) | (pg, uid) <- brokenLinks $ K.pagesIndex db ]
+      -- page by page, in the order of the file paths, so source by source
+      byPage = [ (pg, targets)
+               | pg <- sortOn K.pageAbsoluteFSPath $ DI.documentsList $ K.pagesIndex db
+               , let source = fst $ K.pageUID pg
+                     targets = M.findWithDefault [] (K.pageUID pg) brokenPages ++
+                               [ "file:" <> f | f <- K.pageFiles pg
+                                              , M.notMember (source, f) (K.sourceFiles db) ]
+               , not (null targets) ]
       bySource = [ (fst $ K.pageUID pg, pages)
                  | pages@((pg, _) : _) <- groupBy ((==) `on` (fst . K.pageUID . fst)) byPage ]
       -- the files that are not loaded, for admins only: their access is
@@ -544,7 +550,7 @@ servePreview uid sent = withEditablePage uid $ \p _ -> withEditRequest sent $ do
   db <- getRestrictedDB
   cd <- asksK K.contentDir
   case splitPage (K.customMetaConfig db) sent >>= \(_, content) ->
-         pageDoc cd p { K.pageBody = content } of
+         pageDoc cd (K.sourceFiles db) p { K.pageBody = content } of
     Left e -> do
       status Net.status400
       Scotty.text $ TL.pack e
@@ -602,58 +608,57 @@ logMsg level msg = do
   liftIO $ logger level msg
 
 
--- | Serves a file of a source, given by the segments of its path from the top
--- of the source, when a page that the user can read links it (see
--- 'K.pageFiles'), archived or not: the request of an image has no archive
--- mode. The path is put in NFC, as the paths of the links; the file is then
--- opened with this path, or else with its NFD form (names written on macOS).
--- A path that can not be served (see 'servablePath'), or that no page links,
--- is not found; a file linked by pages that the user can not read is
--- forbidden. The browser checks its ETag at each use.
-serveFile :: T.Text -> [T.Text] -> ActM ()
-serveFile source rawSegments = do
-  let segments = map (normalize NFC) rawSegments
-      key = (source, T.intercalate "/" segments)
+-- | A file of a source that is not a page, by its uid (see "Kiwi.Files"):
+-- only when a page that the user can read links it (archives included), 404
+-- when no page links it, 401 or 403 otherwise (see 'serveForbidden'). Its
+-- type is given by its extension, and its name without its uid
+-- (Content-Disposition). Browsers check its ETag (size and modification
+-- time) at each use.
+serveFile :: T.Text -> T.Text -> ActM ()
+serveFile source uid = do
+  let key = (source, uid)
       linked q = DI.query (K.pagesIndex q) . DI.And . (U.qOnly K.FieldFile key :)
   db <- getDB
   loginM <- asksK (K.login . K.requestState)
-  if not (servablePath segments) || null (linked db []) then serveNotFound
-  else if null (linked db [Auth.readableAnyArchiveQuery loginM]) then serveForbidden
-  else do
-    cd <- asksK K.contentDir
-    let fsPath form = FP.joinPath (cd : map T.unpack (source : map (normalize form) segments))
-    found <- liftIO $ firstFile [fsPath NFC, fsPath NFD]
-    case found of
-      Nothing -> serveNotFound
-      Just (path, size, mtime) -> do
-        let etag = T.concat [ "\"", T.pack (show size), "-"
-                            , T.pack (show (Time.diffUTCTime mtime epoch)), "\"" ]
-        sent <- lookup Net.hIfNoneMatch . Wai.requestHeaders <$> request
-        setHeader "ETag" $ TL.fromStrict etag
-        setHeader "Cache-Control" "private, no-cache"
-        if sent == Just (TE.encodeUtf8 etag) then status Net.status304 else do
-          setHeader "Content-Type" $ TL.fromStrict $ contentType $ last segments
-          Scotty.file path
+  case M.lookup key (K.sourceFiles db) of
+    Nothing -> serveNotFound
+    Just relPath
+      | null (linked db []) -> serveNotFound
+      | null (linked db [Auth.readableAnyArchiveQuery loginM]) -> serveForbidden
+      | otherwise -> do
+          cd <- asksK K.contentDir
+          let path = FP.joinPath [cd, T.unpack source, relPath]
+              name = servedName $ FP.takeFileName relPath
+          -- symbolic links followed
+          infoE <- liftIO $ try $ do
+            isFile <- D.doesFileExist path
+            if isFile then Just <$> ((,) <$> D.getFileSize path <*> D.getModificationTime path)
+            else return Nothing
+          case infoE of
+            Right (Just (size, mtime)) -> do
+              let etag = T.concat [ "\"", T.pack (show size), "-"
+                                  , T.pack (show (Time.diffUTCTime mtime epoch)), "\"" ]
+              sent <- lookup Net.hIfNoneMatch . Wai.requestHeaders <$> request
+              setHeader "ETag" $ TL.fromStrict etag
+              setHeader "Cache-Control" "private, no-cache"
+              if sent == Just (TE.encodeUtf8 etag) then status Net.status304 else do
+                setHeader "Content-Type" $ TL.fromStrict $ contentType $ T.pack name
+                setHeader "Content-Disposition" $ TL.fromStrict $ disposition $ T.pack name
+                Scotty.file path
+            Right Nothing -> serveNotFound
+            Left (_ :: IOException) -> serveNotFound
   where
     epoch = Time.UTCTime (Time.fromGregorian 1970 1 1) 0
-    -- the first path that is a file (symbolic links followed), with its size
-    -- and modification time
-    firstFile [] = return Nothing
-    firstFile (p : ps) = do
-      r <- try $ do
-        isFile <- D.doesFileExist p
-        if isFile then (\s t -> Just (p, s, t)) <$> D.getFileSize p
-                                                 <*> D.getModificationTime p
-        else return Nothing
-      case r of
-        Right (Just x) -> return (Just x)
-        Right Nothing -> firstFile ps
-        Left (_ :: IOException) -> firstFile ps
     -- by the extension of the name; the texts are in UTF-8, as the pages
     contentType name =
       let t = TE.decodeUtf8 $ defaultMimeLookup name
       in if "text/" `T.isPrefixOf` t && not ("charset" `T.isInfixOf` t)
          then t <> "; charset=utf-8" else t
+    -- the name in ASCII for the old browsers, and in UTF-8 (RFC 6266)
+    disposition name =
+      let ascii = T.map (\c -> if c < ' ' || c > '~' || c == '"' || c == '\\' then '_' else c) name
+      in T.concat [ "inline; filename=\"", ascii, "\"; filename*=UTF-8''"
+                  , Url.urlEncodeText name ]
 
 
 serveNotFound :: ActM ()
