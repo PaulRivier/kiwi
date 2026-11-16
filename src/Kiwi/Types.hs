@@ -541,6 +541,7 @@ data Locales = Locales
   , loc_NoBrokenLink :: T.Text
   , loc_LoadErrors :: T.Text
   , loc_UnlinkedFiles :: T.Text
+  , loc_CopyFileLink :: T.Text
   -- | legend of the pages linking to a page
   , loc_Backlinks :: T.Text
   -- , loc_TimeLocale :: Time.TimeLocale

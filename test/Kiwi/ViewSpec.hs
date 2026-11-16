@@ -226,10 +226,14 @@ viewSpec = do
     withKiwiAccounts [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
                      [ ("p.md", "uid: p\ntitle: P\n\n[a](file:AAAAAAAAAA)")
                      , ("old.md", "uid: old\ntitle: O\narchive: yes\n\n[c](file:CCCCCCCCCC)")
-                     , ("a__AAAAAAAAAA.png", "PNG"), ("d/b__BBBBBBBBBB.pdf", "PDF")
+                     , ("a__AAAAAAAAAA.png", "PNG"), ("d/b[1]__BBBBBBBBBB.pdf", "PDF")
                      , ("c__CCCCCCCCCC.txt", "text"), ("e__EEEEEEEEEE.txt", "text") ] $
     WT.runSession $ do
       let section = "<h2>Files linked by no page</h2>"
+          -- button copying a link to the file: name without uid, brackets escaped
+          copy name u = "<button type=\"button\" class=\"icon copy\" \
+                        \title=\"Copy a link to this file\" data-copy=\"[" <> name <>
+                        "](file:" <> T.replicate 10 u <> ")\"><span class=\"glyph\">\x29C9</span></button>"
       anonymous <- get "/doctor"
       liftIO $ body anonymous `shouldSatisfy` (not . T.isInfixOf section)
       _ <- postForm "/login" "username=bob&password=secret"
@@ -242,8 +246,8 @@ viewSpec = do
         admin <- get url
         liftIO $ body admin `shouldSatisfy` T.isInfixOf
           (section <> "<section><h3>s</h3><ul class=\"unlinked-files\">\
-                      \<li><span class=\"file\">d/b__BBBBBBBBBB.pdf</span></li>\
-                      \<li><span class=\"file\">e__EEEEEEEEEE.txt</span></li></ul></section>")
+                      \<li><span class=\"file\">d/b[1]__BBBBBBBBBB.pdf</span>" <> copy "b\\[1\\].pdf" "B" <> "</li>\
+                      \<li><span class=\"file\">e__EEEEEEEEEE.txt</span>" <> copy "e.txt" "E" <> "</li></ul></section>")
 
   it "reloads the pages and the accounts out of a request, as the reload signal does" $
     withKiwiState [] [("p.md", "uid: p\ntitle: Page\n\nHello")] $ \cd ss app -> do

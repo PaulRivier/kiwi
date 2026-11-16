@@ -32,6 +32,7 @@ import           Lucid
 import           Lucid.Base (makeAttributes)
 import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
+import qualified System.FilePath as FP
 
 import qualified Kiwi.Locales as Loc
 import qualified Kiwi.Types as K
@@ -43,6 +44,7 @@ import qualified Kiwi.Url as Url
 import           Kiwi.Utils (asksK, inlinesText)
 import           Kiwi.HtmlWriter (writeHtml5)
 import           Kiwi.Pandoc (linksInContext)
+import           Kiwi.Files (servedName)
 
 
 -- | What the layout needs to know about the current request
@@ -168,9 +170,9 @@ renderSearchResults lang query pages more = do
 
 -- | The doctor page, source by source: the files not loaded (path and
 -- reason), the pages with broken links (with these links), and the files
--- that no page links (paths)
+-- that no page links (path and uid)
 renderDoctor :: [(T.Text, [(FilePath, T.Text)])] -> [(T.Text, [(K.Page, [T.Text])])] ->
-                [(T.Text, [FilePath])] -> ActM TL.Text
+                [(T.Text, [(FilePath, T.Text)])] -> ActM TL.Text
 renderDoctor errors broken unlinked = do
   loc <- getLocales
   ctx <- asksK (K.context . K.requestState)
@@ -284,10 +286,20 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
              , data_ "error-failed" (K.loc_ActionFailed loc) ]
 
 -- | CommonMark link to the page, by its uid, to paste in another page of its
--- source. The brackets of the title are escaped (and the backslashes, which
--- would escape them); a valid uid needs no angle brackets.
+-- source (see 'cmLinkTo': a valid uid needs no angle brackets)
 cmLink :: K.Page -> T.Text
-cmLink p = T.concat ["[", escape (K.pageTitle p), "](uid:", snd (K.pageUID p), ")"]
+cmLink p = cmLinkTo (K.pageTitle p) ("uid:" <> snd (K.pageUID p))
+
+-- | CommonMark link to a file of the source, by its uid, with its name
+-- without uid as text ("[cake.jpg](file:K3M9QW2TZ1)")
+cmFileLink :: FilePath -> T.Text -> T.Text
+cmFileLink path uid = cmLinkTo (T.pack $ servedName $ FP.takeFileName path) ("file:" <> uid)
+
+-- | CommonMark link with this text and target (that needs no angle
+-- brackets). The brackets of the text are escaped (and the backslashes,
+-- which would escape them).
+cmLinkTo :: T.Text -> T.Text -> T.Text
+cmLinkTo text target = T.concat ["[", escape text, "](", target, ")"]
   where
     escape = T.concatMap $ \c -> if c `elem` ['[', ']', '\\'] then T.pack ['\\', c]
                                  else T.singleton c
@@ -534,7 +546,7 @@ contextBar loc sources content archive = div_ [class_ "sources-selection"] $ do
 -- | The pages with broken links, each one with the ids of its broken links,
 -- in a section by source
 doctorView :: K.Locales -> K.Context -> [(T.Text, [(FilePath, T.Text)])] ->
-              [(T.Text, [(K.Page, [T.Text])])] -> [(T.Text, [FilePath])] -> Html ()
+              [(T.Text, [(K.Page, [T.Text])])] -> [(T.Text, [(FilePath, T.Text)])] -> Html ()
 doctorView loc ctx errors broken unlinked = div_ [class_ "doctor-page"] $ do
   h1_ [class_ "page-title"] $ toHtml $ K.loc_Doctor loc
   -- the files that are not loaded (path in the pages folder, and reason),
@@ -554,13 +566,15 @@ doctorView loc ctx errors broken unlinked = div_ [class_ "doctor-page"] $ do
       ul_ [class_ "broken-links"] $ forM_ pages $ \(pg, targets) -> li_ $ do
         link $ pageLink ctx pg
         ul_ $ forM_ targets $ li_ . toHtml
-  -- the files that no page links (path from the top of the source): nothing
-  -- at all without such a file
+  -- the files that no page links (path from the top of the source), each
+  -- one with a button copying a link to it: nothing at all without such a file
   unless (null unlinked) $ do
     h2_ $ toHtml $ K.loc_UnlinkedFiles loc
-    forM_ unlinked $ \(source, paths) -> section_ $ do
+    forM_ unlinked $ \(source, files) -> section_ $ do
       h3_ $ toHtml source
-      ul_ [class_ "unlinked-files"] $ forM_ paths $ li_ . span_ [class_ "file"] . toHtml
+      ul_ [class_ "unlinked-files"] $ forM_ files $ \(path, uid) -> li_ $ do
+        span_ [class_ "file"] $ toHtml path
+        copyTextButton (K.loc_CopyFileLink loc) (cmFileLink path uid)
 
 metadataView :: K.Locales -> [(T.Text, [(K.MetaField, Maybe T.Text, Forest MetaEntry)])] ->
                 Html ()

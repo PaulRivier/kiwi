@@ -46,7 +46,7 @@
   a new uid. Temporary and backup files (`x.tmp`, `x.part`, `x.bak`,
   `~$x.docx`, syncthing conflict copies…) get no uid and are never served.
   The Doctor page lists the links to missing files and, for admins, the
-  files that no page links.
+  files that no page links, with a button copying a link to each one.
 - **Breaking**: the `file:` links with a path are converted to links with
   a uid when Kiwi loads the page (temporary: a path that is not found is
   logged at each load); the `/file/SOURCE/path` addresses no longer work.

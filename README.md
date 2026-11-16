@@ -353,7 +353,8 @@ that could not be loaded, with the reason (invalid metadata header,
 file that is not UTF-8, file where Kiwi could not write the uid of the
 page, file that Kiwi could not rename to give it a uid...), and the
 files that no page links, archived pages included (Kiwi does not serve
-them).
+them), each one with a button that copies a link to it
+(`[cake.jpg](file:K3M9QW2TZ1)`).
 
 
 ### images and files

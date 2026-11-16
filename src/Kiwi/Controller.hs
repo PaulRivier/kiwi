@@ -140,7 +140,7 @@ serveDoctor = do
                             | pg <- DI.documentsList $ K.pagesIndex full, f <- K.pageFiles pg ]
     return [ (s, map snd fs)
            | fs@((s, _) : _) <- groupBy ((==) `on` fst)
-               [ (s, p) | ((s, u), p) <- M.toList $ K.sourceFiles full
+               [ (s, (p, u)) | ((s, u), p) <- M.toList $ K.sourceFiles full
                         , S.notMember (s, u) linked ] ]
   r <- V.renderDoctor (if admin then sortOn (textOrder . fst) errors else [])
                       (sortOn (textOrder . fst) bySource)
