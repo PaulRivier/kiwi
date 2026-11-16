@@ -20,7 +20,6 @@ module Kiwi.Utils
     -- * Files and pages ids
   , isDotFile
   , isValidMdFilename
-  , pathToPageId
     -- * Caching
     -- * IO
   , traverseDir
@@ -194,13 +193,6 @@ isValidMdFilename [] = False
 isValidMdFilename fp@(first:_) = isAlphaNum first &&
                                  elem (FP.takeExtension fp) [".md", ".markdown"]
 
-pathToPageId :: FP.FilePath -> T.Text
-pathToPageId = normalizePageId . T.pack
-
-normalizePageId :: T.Text -> T.Text
-normalizePageId = T.replace "/" ":"
-
--- links written in pages are resolved by Kiwi.Pandoc.absoluteSegments
 -- joinPathT :: [T.Text] -> T.Text
 -- joinPathT = T.pack . FP.joinPath . map T.unpack
 

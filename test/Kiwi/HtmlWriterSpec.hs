@@ -14,12 +14,12 @@ htmlWriterSpec = do
   let html = TL.toStrict . renderText . writeHtml5 (const True) . pandocDoc . load
 
   it "marks the links to missing pages as broken, without their target attributes" $ do
-    let exists uid = uid == ("src", "sub:Here")
+    let exists uid = uid == ("src", "Here")
         render = TL.toStrict . renderText . writeHtml5 exists . pandocDoc . load
     render "t: t\n\n[a](<page:Here#x>) [b](<page:Gone>) [c](http://e.org)"
       `shouldBe` T.concat
-        [ "<p><a href=\"/page/src/sub:Here#x\" class=\"kiwi-link-page\">a</a> "
-        , "<a href=\"/page/src/sub:Gone\" class=\"kiwi-link-page kiwi-link-broken\">b</a> "
+        [ "<p><a href=\"/page/src/Here#x\" class=\"kiwi-link-page\">a</a> "
+        , "<a href=\"/page/src/Gone\" class=\"kiwi-link-page kiwi-link-broken\">b</a> "
         , "<a href=\"http://e.org\" class=\"kiwi-link-external\" target=\"_blank\">c</a></p>" ]
 
   it "renders the links to files, a missing one broken and without target" $

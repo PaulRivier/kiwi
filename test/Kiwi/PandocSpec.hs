@@ -106,58 +106,17 @@ loadPageSpec = do
     metaTitle (pandocMeta p) `shouldBe` Just "Only header"
     blocks p `shouldBe` []
 
-  it "fixes relative and absolute page links, and collects them" $ do
-    let p = load "title: t\n\n[a](<page:Other>) [b](<page:/Top/Page>)"
-    links p `shouldBe` [ (["kiwi-link-page"], "/page/src/sub:Other")
-                       , (["kiwi-link-page"], "/page/src/Top:Page") ]
-    pandocPageLinks p `shouldBe` [("src", "sub:Other"), ("src", "Top:Page")]
-
-  it "fixes uid links, with spaces around the uid, and collects them" $ do
-    let p = load "title: t\n\n[a](uid:ABC) [b](<uid: XYZ >) [c](<uid: XYZ #part 2>) \
-                 \[d](uid:A%20B#x)"
+  it "fixes page links by uid, with spaces around the uid, and collects them" $ do
+    let p = load "title: t\n\n[a](page:ABC) [b](<page: XYZ >) [c](<page: XYZ #part 2>) \
+                 \[d](page:A%20B#x) [e](uid:ABC)"
     links p `shouldBe` [ (["kiwi-link-page"], "/page/src/ABC")
                        , (["kiwi-link-page"], "/page/src/XYZ")
                        , (["kiwi-link-page"], "/page/src/XYZ#part 2")
-                       , (["kiwi-link-page"], "/page/src/A%20B#x") ]
+                       , (["kiwi-link-page"], "/page/src/A%20B#x")
+                       -- no longer a page link
+                       , (["kiwi-link-external"], "uid:ABC") ]
     pandocPageLinks p `shouldBe` [ ("src", "ABC"), ("src", "XYZ"), ("src", "XYZ")
                                  , ("src", "A B") ]
-
-  it "fixes page links from a page at top of pages folder" $ do
-    let p = loadIn "" "title: t\n\n[a](<page:Other>)"
-    links p `shouldBe` [(["kiwi-link-page"], "/page/src/Other")]
-    pandocPageLinks p `shouldBe` [("src", "Other")]
-
-  it "separates the anchor of a page link from the page id" $ do
-    let p = load "title: t\n\n[a](<page:Other#part 2>) [b](<page:/Top.md#x>)"
-    links p `shouldBe` [ (["kiwi-link-page"], "/page/src/sub:Other#part 2")
-                       , (["kiwi-link-page"], "/page/src/Top#x") ]
-    pandocPageLinks p `shouldBe` [("src", "sub:Other"), ("src", "Top")]
-
-  it "encodes the page id of a link, which may be percent-encoded" $ do
-    let p = load "title: t\n\n[a](<page:Chiffon Cake>) [b](<page:Pourquoi ?>) \
-                 \[c](<page:C%23>) [d](<page:100%>) [e](<page:100%25.md>) \
-                 \[f](page:a%20b)"
-    map snd (links p) `shouldBe` [ "/page/src/sub:Chiffon%20Cake"
-                                 , "/page/src/sub:Pourquoi%20%3F"
-                                 , "/page/src/sub:C%23"
-                                 , "/page/src/sub:100%25"
-                                 , "/page/src/sub:100%25"
-                                 , "/page/src/sub:a%20b" ]
-    pandocPageLinks p `shouldBe` [ ("src", "sub:Chiffon Cake"), ("src", "sub:Pourquoi ?")
-                                 , ("src", "sub:C#"), ("src", "sub:100%")
-                                 , ("src", "sub:100%"), ("src", "sub:a b") ]
-
-  it "removes the extension of a page link" $ do
-    let p = load "title: t\n\n[a](<page:a.md>) [b](<page:b.markdown>) [c](<page:c.txt>)"
-    pandocPageLinks p `shouldBe` [("src", "sub:a"), ("src", "sub:b"), ("src", "sub:c.txt")]
-
-  it "resolves the . and .. segments of page links, inside the source" $ do
-    let p = loadIn "a/b" "title: t\n\n[a](<page:../x>) [b](<page:./y>) \
-                         \[c](<page:../../../z>) [d](<page:/q/../r>) [e](<page:s//t/>)"
-    pandocPageLinks p `shouldBe` [ ("src", "a:x"), ("src", "a:b:y"), ("src", "z")
-                                 , ("src", "r"), ("src", "a:b:s:t") ]
-    map snd (links p) `shouldBe` [ "/page/src/a:x", "/page/src/a:b:y", "/page/src/z"
-                                 , "/page/src/r", "/page/src/a:b:s:t" ]
 
   it "links the files by uid, the class given by the extension of the file" $ do
     let doc = displayWith [ ("AAAAAAAAAA", "sub/a.png"), ("BBBBBBBBBB", "b.JPG")
@@ -191,17 +150,17 @@ loadPageSpec = do
     let p = load "title: t\n\n[a](<page:Other#part>) [b](#section) [c](https://example.org)"
         inCtx archive = links p { pandocDoc = linksInContext
                                     (Context (S.fromList ["x"]) archive) (pandocDoc p) }
-    inCtx False `shouldBe` [ (["kiwi-link-page"], "/page/src/sub:Other?source=x#part")
+    inCtx False `shouldBe` [ (["kiwi-link-page"], "/page/src/Other?source=x#part")
                            , (["kiwi-link-anchor"], "#section")
                            , (["kiwi-link-external"], "https://example.org") ]
     take 1 (inCtx True)
-      `shouldBe` [(["kiwi-link-page"], "/page/src/sub:Other?source=x&archive=yes#part")]
+      `shouldBe` [(["kiwi-link-page"], "/page/src/Other?source=x&archive=yes#part")]
 
   it "keeps the navigation context before the anchor of a page with a '#'" $ do
     let p = load "title: t\n\n[a](<page:C%23#part>)"
         inCtx = links p { pandocDoc = linksInContext
                             (Context (S.fromList ["x"]) False) (pandocDoc p) }
-    inCtx `shouldBe` [(["kiwi-link-page"], "/page/src/sub:C%23?source=x#part")]
+    inCtx `shouldBe` [(["kiwi-link-page"], "/page/src/C%23?source=x#part")]
 
   it "reads the archive metadata" $ do
     let archived = fromMaybe False . metaArchive . pandocMeta . load
@@ -255,8 +214,8 @@ loadPageSpec = do
     let noLines (PD.Pandoc m bs) = PD.Pandoc m (concatMap unwrap bs)
         unwrap (PD.Div ("", [], [("kiwi-line", _)]) [b]) = [b]
         unwrap b = [b]
-    fmap noLines (pageDoc "/k/content" M.empty page) `shouldBe` Right (pandocDoc $ load c)
-    fmap (\(PD.Pandoc _ bs) -> length bs) (pageDoc "/k/content" M.empty page) `shouldBe` Right 1
+    fmap noLines (pageDoc M.empty page) `shouldBe` Right (pandocDoc $ load c)
+    fmap (\(PD.Pandoc _ bs) -> length bs) (pageDoc M.empty page) `shouldBe` Right 1
     pagePath "/k/content" "/k/content/src/sub/p.md" `shouldBe` ("src", "sub/p")
 
 metaDataSpec :: Spec
@@ -275,7 +234,7 @@ metaDataSpec = do
 
   it "uses the access of the source config, unless the page has one" $ do
     let sc = SourceConfig "src" [] (Just [("family", AccessWrite)]) Nothing
-        access sM c = case loadPage "test.md" c "src" (sourceMeta sM defMeta) [] "" of
+        access sM c = case loadPage "test.md" c "src" (sourceMeta sM defMeta) [] of
           Left e -> error e
           Right p -> map fst <$> metaAccess (pandocMeta p)
     access (Just sc) "title: t\n\n" `shouldBe` Just ["family"]
@@ -301,7 +260,7 @@ metaDataSpec = do
       Right (M.fromList [("my field", ["x"]), ("my-key_2", ["y"])])
 
   it "refuses a page whose first block is not its metadata" $ do
-    let loaded c = either Left (const $ Right ()) $ loadPage "test.md" c "src" defMeta [] ""
+    let loaded c = either Left (const $ Right ()) $ loadPage "test.md" c "src" defMeta []
     loaded "# Title\n\nText" `shouldBe` Left "invalid metadata header, line 1"
     loaded "Just some text, without blank line" `shouldBe`
       Left "invalid metadata header, line 1"
@@ -309,7 +268,7 @@ metaDataSpec = do
     -- an empty header: the content starts after the first blank line
     loaded "\n\n# Title" `shouldBe` Right ()
     loaded "" `shouldBe` Right ()
-    fmap (metaTitle . pandocMeta) (loadPage "test.md" "\n\n# Title" "src" defMeta [] "")
+    fmap (metaTitle . pandocMeta) (loadPage "test.md" "\n\n# Title" "src" defMeta [])
       `shouldBe` Right (Just "untitled")
 
   it "parses custom metadata according to their type" $ do
@@ -363,7 +322,7 @@ metaDataSpec = do
 
   it "uses the lang of the source config, unless the page has one" $ do
     let sc = SourceConfig "src" [] Nothing (Just (LangAuto Spanish))
-        lang c = case loadPage "test.md" c "src" (sourceMeta (Just sc) defMeta) [] "" of
+        lang c = case loadPage "test.md" c "src" (sourceMeta (Just sc) defMeta) [] of
           Left e -> error e
           Right p -> metaLang $ pandocMeta p
     lang "title: t\n\n" `shouldBe` Just (LangAuto Spanish)

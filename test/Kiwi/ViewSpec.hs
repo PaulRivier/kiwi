@@ -28,7 +28,7 @@ viewSpec = do
 
   it "escapes the brackets and backslashes of the title in the copied link" $
     V.cmLink (page "a [b] \\c")
-      `shouldBe` "[a \\[b\\] \\\\c](uid:p)"
+      `shouldBe` "[a \\[b\\] \\\\c](page:p)"
 
   it "copies a link whose text is the title, once parsed" $ do
     let title = "a [b] ]c[ \\"
@@ -281,10 +281,10 @@ viewSpec = do
 
   it "shows the page of a uid, its file, and the pages linking it" $
     withKiwiApp [ ("q.md", "uid: Q\ntitle: Target\n\nText")
-                , ("a.md", "uid: a\ntitle: Beta\n\n[t](uid:Q)")
-                , ("b.md", "uid: b\ntitle: alpha\n\n![i](file:QQQQQQQQQQ) [t](<uid: Q>)")
-                , ("old.md", "uid: old\ntitle: Old\narchive: yes\n\n[t](uid:Q)")
-                , ("priv.md", "uid: priv\ntitle: Private\naccess: family\n\n[t](uid:Q)")
+                , ("a.md", "uid: a\ntitle: Beta\n\n[t](page:Q)")
+                , ("b.md", "uid: b\ntitle: alpha\n\n![i](file:QQQQQQQQQQ) [t](<page: Q>)")
+                , ("old.md", "uid: old\ntitle: Old\narchive: yes\n\n[t](page:Q)")
+                , ("priv.md", "uid: priv\ntitle: Private\naccess: family\n\n[t](page:Q)")
                 , ("d/pic__QQQQQQQQQQ.png", "PNG") ] $ WT.runSession $ do
       let result url label source = T.concat
             [ "<li><a href=\"", url, "\"><span class=\"title\">", label

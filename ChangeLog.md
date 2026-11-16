@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Upgrade from v0.4.2.0 or before**: first run the version tagged
+  `v0.4.3.2_migration_checkpoint` once on each source (with the content
+  of its `pages`, `images` and `files` folders moved to its top): it
+  gives the uids, and converts the `page:` and `file:` links written with
+  a path to `uid:UID` and `file:UID` links. Then replace the `uid:` links
+  by `page:` links, for example
+  `sed -i -E 's/(\]\(\s*<?\s*|\]:[ \t]*<?\s*)uid:/\1page:/g' FILES.md`.
 - **Page uids**: each page has a `uid` metadata, unique in its source.
   Kiwi writes one (10 random characters) in a page that has none when it
   loads it, and gives a new one to a page whose uid is invalid or already
@@ -10,20 +17,19 @@
   metadata header, and committed (one commit by repository, "Kiwi: uid
   assigned to N pages"). A page whose file can not be written is not
   loaded, and listed on the Doctor page. The page address is
-  `/page/SOURCE/UID`, and the links to a page are `[text](uid:UID)` or
-  `[text](uid:UID#anchor)`: they no longer depend on the path of its file.
+  `/page/SOURCE/UID`, and the links to a page are `[text](page:UID)` or
+  `[text](page:UID#anchor)`: they no longer depend on the path of its file.
   The copied link of a page uses its uid. `uid` and `previous-uids` can not
   be changed from the browser editor, whatever the right.
-- **Breaking**: the `page:` links and the `id` metadata are no longer
-  supported. Page files with Windows line endings (CRLF) or a byte order
+- **Breaking**: the `page:` links with a path and the `id` metadata are no
+  longer supported (a `page:` link targets a uid). Page files with Windows line endings (CRLF) or a byte order
   mark are no longer loaded (the browser editor saves LF line endings).
 - The pages created by `kiwi init` have the uids `Home` and `CommonMark`.
 - **Free layout of the sources**: pages, images and other files go
   anywhere in the folder of a source (no more `pages`, `images` and
   `files` folders). Hidden files and folders, and those whose name starts
   with `_`, are ignored.
-- **Files served by their links**: a file of a source (`/file/SOURCE/path`)
-  is served only when a page links to it with `file:`, and only to the
+- **Files served by their links**: a file of a source is served only when a page links to it with `file:`, and only to the
   readers of at least one of these pages, archived or not (401/403
   otherwise, 404 when no page links to it). The files of the pages, the
   copies left by editors (`page.md~`, `#page.md#`…), and the names starting
@@ -33,9 +39,7 @@
   extension of the file.
 - **Breaking**: the `image:` links, the `/image/` addresses and the
   `images-dir` and `files-dir` metadata are no longer supported: use
-  `file:` (`![a cake](<file:cake.jpg>)`), relative to the folder of the
-  page, or to the top of the source with `/`. A file link with `..` is
-  broken. Move the content of `pages`, `images` and `files` to the top of
+  `file:` (see the file uids below). Move the content of `pages`, `images` and `files` to the top of
   the folder of each source before starting this version.
 - **File uids**: each file of a source that is not a page gets a uid,
   unique in its source, written in its name: Kiwi renames `cake.jpg` to
@@ -47,9 +51,8 @@
   `~$x.docx`, syncthing conflict copies…) get no uid and are never served.
   The Doctor page lists the links to missing files and, for admins, the
   files that no page links, with a button copying a link to each one.
-- **Breaking**: the `file:` links with a path are converted to links with
-  a uid when Kiwi loads the page (temporary: a path that is not found is
-  logged at each load); the `/file/SOURCE/path` addresses no longer work.
+- **Breaking**: the `file:` links with a path are broken (a `file:` link
+  targets a uid); the `/file/SOURCE/path` addresses no longer work.
 - **Search by uid**: the search `uid:UID` shows the page and the file with
   this uid, and the pages that link to it.
 - Git: the commits of Kiwi include the former path of a renamed file.

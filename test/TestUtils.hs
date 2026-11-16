@@ -1,4 +1,4 @@
-module TestUtils (defMeta, display, displayWith, load, loadIn, mkPage, mkPagesDB, mkPagesDBWith, withContentDir, withKiwiApp,
+module TestUtils (defMeta, display, displayWith, load, mkPage, mkPagesDB, mkPagesDBWith, withContentDir, withKiwiApp,
                   withKiwiAccounts, withKiwiState, withKiwiConfig, withGit, git, gitOut) where
 
 import           Control.Exception (bracket, try)
@@ -68,16 +68,13 @@ display = displayWith []
 -- | 'display', with these files of the source "src": (uid, path)
 displayWith :: [(T.Text, FilePath)] -> T.Text -> PD.Pandoc
 displayWith files body =
-  either error id $ pageDoc "/k/content" (M.fromList [ (("src", u), p) | (u, p) <- files ])
+  either error id $ pageDoc (M.fromList [ (("src", u), p) | (u, p) <- files ])
     (mkPage ("src", "p") [] [] False 1) { pageAbsoluteFSPath = "/k/content/src/p.md"
                                         , pageBody = body }
 
--- | Load a page from source "src", located in pages subfolder "sub"
+-- | Load a page from source "src"
 load :: T.Text -> PandocPage
-load = loadIn "sub"
-
-loadIn :: FilePath -> T.Text -> PandocPage
-loadIn dir c = case loadPage "test.md" c "src" defMeta [] dir of
+load c = case loadPage "test.md" c "src" defMeta [] of
   Left e -> error e
   Right p -> p
 

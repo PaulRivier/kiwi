@@ -24,7 +24,6 @@ import           Data.SearchEngine (insertDocs, deleteDoc)
 import qualified Data.SearchEngine as SE
 import qualified Data.Set as S
 import qualified Data.Text as T
-import           Data.Text.Normalize (normalize, NormalizationMode(NFC))
 -- import qualified Data.Time.Calendar as Cal
 -- import qualified Data.Time.Clock as C
 import qualified System.Directory as D
@@ -36,7 +35,6 @@ import qualified Kiwi.Files as Files
 import qualified Kiwi.Git as Git
 import qualified Kiwi.Log as L
 import           Kiwi.Meta (isValidUid, uidFromBytes, writePage)
-import qualified Kiwi.Migration as Migration
 import           Kiwi.Search
 import           Kiwi.Types
 import           Kiwi.Pandoc (Loaded (..), loadPageIO, pagePath)
@@ -65,40 +63,20 @@ warmUpSearchEngine :: PageSearchEngine -> IO ()
 warmUpSearchEngine se = void $ forkIO $ void $ evaluate $ SE.invariant se
 
 
--- | Loads the pages and the files of the sources (see 'loadPagesDB'), then
--- converts the "page:" links of the pages to "uid:" links, and their "file:"
--- links with a path to links with a uid, and loads the converted pages
--- again (temporary, see "Kiwi.Migration"). The files written or renamed are
--- committed when the boolean is true (git-commit).
-updatePagesDB :: L.Logger -> Bool -> FP.FilePath -> PagesDB -> IO PagesDB
-updatePagesDB logger' git contentDir' db = do
-  (db1, renamed) <- loadPagesDB logger' git contentDir' S.empty db
-  converted <- Migration.convertLinks contentDir' renamed db1
-  forM_ converted $ \(p, _, missing) -> unless (null missing) $ logger' L.Warn $ T.concat
-    [ "link not converted, ", T.pack p, " : ", T.intercalate ", " missing ]
-  let texts = [ (p, t) | (p, Just t, _) <- converted ]
-  if null texts then return db1 else do
-    written <- writePageFiles logger' git "links converted to uids in" texts
-    -- a file written twice in a short time may keep its modification time
-    fst <$> loadPagesDB logger' git contentDir'
-                        (S.fromList [ p | (p, Right ()) <- written ]) db1
-
 -- | Loads the files of the pages that are new or modified since they were
 -- loaded, and removes the pages of the files that are gone, or reloaded. A
 -- file is reloaded when its modification time differs from the one of its
 -- loaded page, so that renamed files, and files with an old date (copied,
--- synchronized), are loaded; the given files are reloaded in any case. The
+-- synchronized), are loaded. The
 -- index and the search engine get the same removals and insertions. Each
 -- page gets a uid unique in its source (see 'resolveUids'): the files whose
 -- uid changes are written, and committed when the boolean is true; a page
 -- whose file can not be written is not loaded.
 --
 -- The other files of the sources get a uid (see 'resolveFiles'), and are
--- listed in 'sourceFiles'. Also returns the uids of the files renamed to get
--- their uid, by (source, path before the renaming, in NFC).
-loadPagesDB :: L.Logger -> Bool -> FP.FilePath -> S.Set FP.FilePath ->
-               PagesDB -> IO (PagesDB, M.Map (T.Text, T.Text) T.Text)
-loadPagesDB logger' git contentDir' forced db = do
+-- listed in 'sourceFiles'.
+updatePagesDB :: L.Logger -> Bool -> FP.FilePath -> PagesDB -> IO PagesDB
+updatePagesDB logger' git contentDir' db = do
     sources <- filter (not . isDotFile) <$> D.listDirectory contentDir'
     -- the pages are anywhere in the folder of their source, except in the
     -- hidden folders (".git"…) and those starting with '_'
@@ -116,7 +94,7 @@ loadPagesDB logger' git contentDir' forced db = do
                     (filter (not . isPageExt) ignoredPaths)
     forM_ excluded $ \p -> logger' L.Debug $ T.pack $ concat
       [ "file ignored, ", p, " : temporary or backup file (see the README)" ]
-    (files, renamed, fileErrors) <- resolveFiles logger' git contentDir' (sourceFiles db)
+    (files, fileErrors) <- resolveFiles logger' git contentDir' (sourceFiles db)
                                                  (map sourcePath servable)
     fsPathsAndMTime <- mapM addMTime fsPaths
     let toReload = [ p | (p, mt) <- fsPathsAndMTime, isModified p mt ]
@@ -153,12 +131,11 @@ loadPagesDB logger' git contentDir' forced db = do
                     | (p, Left e) <- M.toList written ]
     -- the links to missing pages are listed on the /doctor page, not logged:
     -- they are an issue of the content, not of the server
-    return ( db { dbGeneration = dbGeneration db + 1
-                , loadErrors = sortOn (\(src, p, _) -> (src, p)) (errors ++ fileErrors)
-                , sourceFiles = files
-                , pagesIndex = newIndex
-                , searchEngine = insertDocs inserted searchEngineClean }
-           , renamed )
+    return db { dbGeneration = dbGeneration db + 1
+              , loadErrors = sortOn (\(src, p, _) -> (src, p)) (errors ++ fileErrors)
+              , sourceFiles = files
+              , pagesIndex = newIndex
+              , searchEngine = insertDocs inserted searchEngineClean }
   where
     -- TODO : gérer des conditions de rechargement
     -- getCondition = return False
@@ -168,7 +145,7 @@ loadPagesDB logger' git contentDir' forced db = do
 
     -- unknown file, or modification time different from the one of its page
     -- (a removed file has no time, and is then reloaded: loadPage reports it)
-    isModified path mt = S.member path forced || case M.lookup path loadedByPath of
+    isModified path mt = case M.lookup path loadedByPath of
       Nothing -> True
       Just pg -> mt /= Just (pageMTime pg)
 
@@ -214,19 +191,18 @@ loadPagesDB logger' git contentDir' forced db = do
 
     loadPage :: FP.FilePath -> FP.FilePath -> IO (Either String Loaded)
     loadPage cd fullPath =
-      let (source, relPath) = pagePath cd fullPath
+      let source = fst $ pagePath cd fullPath
           md = defaultMeta db
           cmc = customMetaConfig db
           sc = find (\c -> scSourceName c == source) $ sourcesConfig db
-      in loadPageIO fullPath relPath source md cmc sc
+      in loadPageIO fullPath source md cmc sc
 
 
 -- | The loaded pages (in this order), each one with a uid unique in its
 -- source, given the uids already used: a page keeps the uid of its file when
 -- it is valid and not used, else it gets a new one, with a header to write
 -- (that of the file, with this uid). The uid replaced, if any, goes to the
--- previous-uids; a page without uid gets its former id there (see
--- 'Migration.formerIds').
+-- previous-uids.
 resolveUids :: L.Logger -> FP.FilePath -> S.Set PageUID -> [Loaded] ->
                IO [(Page, Maybe MetaData)]
 resolveUids _ _ _ [] = return []
@@ -234,23 +210,25 @@ resolveUids logger' contentDir' used (l : ls) = do
   let pg = loadedPage l
       path = pageAbsoluteFSPath pg
       header = loadedHeader l
-      (source, relPath) = pagePath contentDir' path
+      source = fst $ pagePath contentDir' path
   (uid, newHeader) <- case metaUid header of
     Just u | isValidUid u, not (S.member (source, u) used) -> return (u, Nothing)
     fileUid -> do
       u <- newUid source
-      (former, h) <- case fileUid of
+      former <- case fileUid of
         Just old -> do
           logger' L.Warn $ T.concat
             [ "uid ", old, if isValidUid old then " already used" else " invalid"
             , ", ", T.pack path, " : new uid ", u ]
-          return ([old], header)
+          return [old]
         Nothing -> do
           logger' L.Debug $ T.concat [ "uid assigned, ", T.pack path, " : ", u ]
-          return $ Migration.formerIds relPath header
-      let previous = fromMaybe [] (metaPreviousUids h)
+          return []
+      let previous = fromMaybe [] (metaPreviousUids header)
           previous' = previous ++ filter (`notElem` previous) former
-      return (u, Just h { metaUid = Just u, metaPreviousUids = Just previous' })
+          -- no empty previous-uids
+          previousM = if null previous' then metaPreviousUids header else Just previous'
+      return (u, Just header { metaUid = Just u, metaPreviousUids = previousM })
   let pg' = pg { pageUID = (source, uid)
                , pagePreviousUids = maybe (pagePreviousUids pg)
                                           (fromMaybe [] . metaPreviousUids) newHeader }
@@ -303,13 +281,11 @@ commitPaths logger' prefix n paths = do
 -- in the order of their paths: a copy of a file gets a new uid, not the
 -- file. The files renamed are committed when the boolean is true
 -- (git-commit), first as they are, then renamed, as for the pages (see
--- 'writePageFiles'). Returns the table of the files, the uids of the files
--- renamed by (source, path before the renaming, in NFC), and the files that
+-- 'writePageFiles'). Returns the table of the files, and the files that
 -- could not be renamed (they have no uid), as load errors.
 resolveFiles :: L.Logger -> Bool -> FP.FilePath -> M.Map (T.Text, T.Text) FP.FilePath ->
                 [(T.Text, FP.FilePath)] ->
-                IO ( M.Map (T.Text, T.Text) FP.FilePath, M.Map (T.Text, T.Text) T.Text
-                   , [(T.Text, FP.FilePath, T.Text)] )
+                IO (M.Map (T.Text, T.Text) FP.FilePath, [(T.Text, FP.FilePath, T.Text)])
 resolveFiles logger' git contentDir' previous files = do
   assigned <- assign S.empty $ known ++ others
   let renames = [ x | x@(_, path, new) <- assigned, path /= new ]
@@ -335,7 +311,6 @@ resolveFiles logger' git contentDir' previous files = do
                 (concat [ [full k path, full k new] | (k, path, new) <- ok ])
   let failed = S.fromList [ k | (k, _, _, Left _) <- results ]
   return ( M.fromList [ (k, new) | (k, _, new) <- assigned, not (S.member k failed) ]
-         , M.fromList [ ((fst k, normalize NFC $ T.pack path), snd k) | (k, path, _) <- ok ]
          , [ (fst k, path, T.pack $ "unable to rename the file to give it a uid : " ++ e)
            | (k, path, _, Left e) <- results ] )
   where

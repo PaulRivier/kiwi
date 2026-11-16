@@ -9,8 +9,6 @@ module Kiwi.Pandoc
   , pagePath
   , linksInContext
   , checkPageText
-  , pageSubDir
-  , pageTarget
   , Loaded (..)
   , loadPage         -- exported for tests
   ) where
@@ -55,22 +53,21 @@ import qualified Kiwi.Utils as U
 -- merged over the given defaults. Fails when the header is invalid (see
 -- 'Kiwi.Meta.splitPage'), or the markdown unreadable.
 loadPage :: FP.FilePath -> T.Text -> T.Text -> MetaData -> [CustomMetaConfig] ->
-              FP.FilePath -> Either String PandocPage
-loadPage path c source md cmc dir = do
+            Either String PandocPage
+loadPage path c source md cmc = do
     (header, content) <- splitPage cmc c
     let meta = mergeMeta md header
-    (doc, colLinks, files) <- loadDoc False path source (T.pack dir) (const Nothing) content
+    (doc, colLinks, files) <- loadDoc False path source (const Nothing) content
     return $ PandocPage doc meta header colLinks content files
 
 
 -- | Document of a page from its markdown content, with its links fixed (see
 -- 'walkDoc', given the files of the source by uid), the links to other
--- pages, and the files linked. Links are relative to the folder of the
--- page. With lines, each top-level block is wrapped in a div holding its
--- first line in the content (see 'lineKey').
-loadDoc :: Bool -> FP.FilePath -> T.Text -> T.Text -> (T.Text -> Maybe FP.FilePath) ->
+-- pages, and the files linked. With lines, each top-level block is wrapped
+-- in a div holding its first line in the content (see 'lineKey').
+loadDoc :: Bool -> FP.FilePath -> T.Text -> (T.Text -> Maybe FP.FilePath) ->
            T.Text -> Either String (PD.Pandoc, [PageUID], [T.Text])
-loadDoc withLines path source dirT files content =
+loadDoc withLines path source files content =
     -- the last row of a table is not read as a row without a newline after
     -- it. An extra newline only changes an unclosed fenced code block at the
     -- end, which gets one more empty line.
@@ -81,7 +78,7 @@ loadDoc withLines path source dirT files content =
          Left e -> Left $ show e
          Right blocks ->
            let doc' = PD.Pandoc PD.nullMeta blocks
-               (doc, collected) = walkDoc source dirT files doc'
+               (doc, collected) = walkDoc source files doc'
                colLinks = [ (source, l) | CollectedPageLink l <- collected ]
                linked = U.nodup [ f | CollectedFile f <- collected ]
            in Right (doc, colLinks, linked)
@@ -168,12 +165,10 @@ topLevelLines = map top . PB.toList
 -- | Document of a loaded page, parsed again from its content to be
 -- displayed, given the files of the sources (see 'sourceFiles'). The header
 -- is not read again: the page keeps what it gave.
-pageDoc :: FP.FilePath -> M.Map (T.Text, T.Text) FP.FilePath -> Page -> Either String PD.Pandoc
-pageDoc contentDir' files p =
-  let path = pageAbsoluteFSPath p
-      source = fst $ pageUID p
-      relPath = snd $ pagePath contentDir' path
-  in (\(doc, _, _) -> doc) <$> loadDoc True path source (T.pack $ pageSubDir relPath)
+pageDoc :: M.Map (T.Text, T.Text) FP.FilePath -> Page -> Either String PD.Pandoc
+pageDoc files p =
+  let source = fst $ pageUID p
+  in (\(doc, _, _) -> doc) <$> loadDoc True (pageAbsoluteFSPath p) source
                                        (\u -> M.lookup (source, u) files) (pageBody p)
 
 
@@ -185,7 +180,7 @@ embeddedDoc name withHeader c = do
   (header, content) <- if withHeader then splitPage [] c
                        else Right (emptyMeta, c)
   let title = metaTitle header
-  (doc, _, _) <- loadDoc False name "" "" (const Nothing) content
+  (doc, _, _) <- loadDoc False name "" (const Nothing) content
   return (title, doc)
 
 
@@ -193,10 +188,9 @@ embeddedDoc name withHeader c = do
 -- when the page can not be loaded (see 'loadPageIO')
 checkPageText :: FP.FilePath -> PagesDB -> FP.FilePath -> T.Text -> Either String ()
 checkPageText contentDir' db fullPath c = do
-  let (source, relPath) = pagePath contentDir' fullPath
+  let source = fst $ pagePath contentDir' fullPath
       scM = L.find ((== source) . scSourceName) (sourcesConfig db)
   _ <- loadPage fullPath c source (sourceMeta scM (defaultMeta db)) (customMetaConfig db)
-                (pageSubDir relPath)
   return ()
 
 
@@ -207,12 +201,6 @@ pagePath contentDir' fullPath =
   let splitPath = FP.splitDirectories $ FP.makeRelative contentDir' fullPath
   in ( T.pack $ concat $ take 1 splitPath
      , FP.dropExtension $ FP.joinPath $ drop 1 $ splitPath )
-
--- | Subfolder of a page in the folder of its source, from its path there
-pageSubDir :: FP.FilePath -> FP.FilePath
-pageSubDir relPath = case FP.takeDirectory relPath of
-  "." -> ""
-  x   -> x
 
 
 
@@ -231,7 +219,6 @@ linksInContext ctx = PW.walk inContext
 
 
 data LinkType = PageLink T.Text
-              | UidLink T.Text
               | AnchorLink T.Text
               | FileLink T.Text
               | OtherLink T.Text
@@ -244,9 +231,9 @@ data LinkType = PageLink T.Text
 -- broken, without target, with the class of broken links. A link to an
 -- image opens in the viewer of the theme, a link to another file in a new
 -- tab.
-walkDoc :: T.Text -> T.Text -> (T.Text -> Maybe FP.FilePath) -> PD.Pandoc ->
+walkDoc :: T.Text -> (T.Text -> Maybe FP.FilePath) -> PD.Pandoc ->
            (PD.Pandoc, [CollectedFromDoc])
-walkDoc source pageDir files doc =
+walkDoc source files doc =
   (PW.walk fixInlines doc, PW.query collect doc)
     where
       -- chemin des images
@@ -258,8 +245,7 @@ walkDoc source pageDir files doc =
       -- chemin des pages, fichiers, liens externes
       fixInlines (PD.Link attr txt (rawLink, lName)) =
         case parseLink rawLink of
-          PageLink l   -> pageLink attr txt lName $ pageTarget pageDir l
-          UidLink l    -> pageLink attr txt lName $ uidTarget l
+          PageLink l   -> pageLink attr txt lName $ uidTarget l
           AnchorLink l -> PD.Link (addClass "kiwi-link-anchor" attr) txt
                                   (l, lName)
           FileLink l   -> case fileLink l of
@@ -281,8 +267,7 @@ walkDoc source pageDir files doc =
 
       collect :: PD.Inline -> [CollectedFromDoc]
       collect (PD.Link _ _ (rawLink, _)) = case parseLink rawLink of
-        PageLink l -> [CollectedPageLink $ fst $ pageTarget pageDir l]
-        UidLink l  -> [CollectedPageLink $ fst $ uidTarget l]
+        PageLink l -> [CollectedPageLink $ fst $ uidTarget l]
         FileLink l -> collectFile l
         _          -> []
       collect (PD.Image _ _ (rawLink, _)) =
@@ -304,7 +289,6 @@ walkDoc source pageDir files doc =
 
       parseLink :: T.Text -> LinkType
       parseLink l = let ltM = (PageLink  <$> T.stripPrefix ("page:") l) <|>
-                              (UidLink   <$> T.stripPrefix ("uid:") l) <|>
                               (FileLink  <$> T.stripPrefix ("file:") l) <|>
                               (if T.isPrefixOf "#" l then Just (AnchorLink l) else Nothing)
                     in fromMaybe (OtherLink l) ltM
@@ -323,42 +307,12 @@ walkDoc source pageDir files doc =
       -- setId i (_, classAttr, kvs) = (i, classAttr, kvs)
 
 
--- | Uid of the page targeted by a "uid:" link (or of the file targeted by a
+-- | Uid of the page targeted by a "page:" link (or of the file targeted by a
 -- "file:" link), and the fragment of the link ("#anchor"), if any. The uid
--- may be percent-encoded, and surrounded by spaces ("<uid: XYZ>").
+-- may be percent-encoded, and surrounded by spaces ("<page: XYZ>").
 uidTarget :: T.Text -> (T.Text, T.Text)
 uidTarget l = let (u, fragment) = T.breakOn "#" l
               in (T.strip $ Url.urlDecodeText u, fragment)
-
--- | Id of the page targeted by a "page:" link written in a page of the
--- given folder, and the fragment of the link ("#anchor"), if any. The target
--- may be percent-encoded, and may end with the extension of the page file
--- (.md or .markdown), which is removed. See 'absoluteSegments' for the
--- resolution of relative targets.
-pageTarget :: T.Text -> T.Text -> (T.Text, T.Text)
-pageTarget pageDir l =
-  let (path, fragment) = T.breakOn "#" l
-      noExt p = fromMaybe p $ T.stripSuffix ".md" p <|> T.stripSuffix ".markdown" p
-      pId = T.intercalate ":" $ absoluteSegments pageDir $ noExt $ Url.urlDecodeText path
-  in (pId, fragment)
-
--- | Segments of a path written in a page of the given folder: an absolute
--- path ("/a/b") starts at the top of the folder of the source, a relative
--- one from the folder. The "." and ".." segments of the path are resolved,
--- and its empty segments removed. A ".." at the top of the source folder is
--- ignored (as by browsers at the root of a site), so that a link never
--- leaves its source.
-absoluteSegments :: T.Text -> T.Text -> [T.Text]
-absoluteSegments dir path =
-  let full = case T.uncons path of
-        Just ('/', l) -> l
-        _             -> T.concat [dir, "/", path]
-  in reverse $ foldl resolve [] $ T.splitOn "/" full
-  where
-    resolve acc ""   = acc
-    resolve acc "."  = acc
-    resolve acc ".." = drop 1 acc
-    resolve acc s    = s : acc
 
 
 
@@ -372,10 +326,9 @@ data Loaded = Loaded { loadedPage :: !Page
                      , loadedInvalidValues :: ![(T.Text, T.Text)]
                      }
 
-loadPageIO :: FP.FilePath -> FP.FilePath -> T.Text ->
-              MetaData -> [CustomMetaConfig] -> Maybe SourceConfig ->
+loadPageIO :: FP.FilePath -> T.Text -> MetaData -> [CustomMetaConfig] -> Maybe SourceConfig ->
               IO (Either String Loaded)
-loadPageIO fullPath relPath source md cmc scM = do
+loadPageIO fullPath source md cmc scM = do
   -- file may have been removed since directory listing. The time is read
   -- first: a file modified while it is read then gets another time, and is
   -- loaded again at the next reload.
@@ -387,7 +340,7 @@ loadPageIO fullPath relPath source md cmc scM = do
     Left (e :: IOException) -> Left $ "unable to read file : " ++ ioeGetErrorString e
     Right (bytes, mt) -> case TE.decodeUtf8' bytes of
      Left e -> Left $ "not a valid UTF-8 file : " ++ show e
-     Right c -> case (loadPage fullPath c source (sourceMeta scM md) cmc (pageSubDir relPath)) of
+     Right c -> case (loadPage fullPath c source (sourceMeta scM md) cmc) of
       Left e -> Left $ "unable to load the page : " ++ e
       -- the page, the plain text of its content and the issues of its
       -- header are evaluated here, so that the document can be freed

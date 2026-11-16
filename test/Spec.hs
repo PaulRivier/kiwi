@@ -12,7 +12,6 @@ import           Kiwi.GitSpec (gitSpec)
 import           Kiwi.HtmlWriterSpec (htmlWriterSpec)
 import           Kiwi.LangDetectSpec (langDetectSpec)
 import           Kiwi.MetaSpec (metaSpec)
-import           Kiwi.MigrationSpec (migrationSpec)
 import           Kiwi.PagesDBSpec (pagesDBSpec)
 import           Kiwi.PandocSpec (loadPageSpec, metaDataSpec)
 import           Kiwi.SearchSpec (searchSpec)
@@ -39,7 +38,6 @@ main = hspec $ do
   describe "Kiwi.Search" searchSpec
   describe "Kiwi.Files" filesSpec
   describe "Kiwi.PagesDB.updatePagesDB" pagesDBSpec
-  describe "Kiwi.Migration (temporary)" migrationSpec
   describe "Kiwi.HtmlWriter" htmlWriterSpec
   describe "Kiwi.View and Kiwi.Server" viewSpec
   describe "Kiwi.Edit and the page editor" editSpec

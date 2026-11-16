@@ -209,7 +209,7 @@ editSpec = do
   it "previews the content of a text, relative to its page" $ onKiwi $ \_ -> do
     _ <- login "bob"
     preview <- post "/preview" [ ("source", "s"), ("id", "p")
-                               , ("text", "title: T\n\n*Hi* [o](uid:q) [x](<uid: none>)") ]
+                               , ("text", "title: T\n\n*Hi* [o](page:q) [x](<page: none>)") ]
     liftIO $ status preview `shouldBe` 200
     liftIO $ body preview `shouldSatisfy` T.isInfixOf "<em>Hi</em>"
     liftIO $ body preview `shouldSatisfy`

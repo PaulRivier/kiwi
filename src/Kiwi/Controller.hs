@@ -86,9 +86,8 @@ servePage pgId = do
   db <- getRestrictedDB
   case findPage db pgId of
     Just p -> do
-      cd <- asksK K.contentDir
       -- the page was parsed when loaded, so this should not fail
-      doc <- orRenderError (K.pageAbsoluteFSPath p) $ pageDoc cd (K.sourceFiles db) p
+      doc <- orRenderError (K.pageAbsoluteFSPath p) $ pageDoc (K.sourceFiles db) p
       level <- accessLevel p
       let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
           -- links to the pages the user can not read are shown as broken
@@ -415,7 +414,7 @@ serveSearch query
 -- | Search of a uid ("uid:UID"), in the sources of the context: the pages
 -- with this uid, the file with this uid (when a page readable by the user
 -- links it, as for 'serveFile'), and the pages linking this uid, as a page
--- ("uid:") or as a file ("file:"), in the archive mode of the context
+-- ("page:") or as a file ("file:"), in the archive mode of the context
 serveUidSearch :: T.Text -> T.Text -> ActM ()
 serveUidSearch query uid = do
   db <- getRestrictedDB
@@ -585,9 +584,8 @@ commitPage ss author what prefix path (source, pid) = do
 servePreview :: K.PageUID -> T.Text -> ActM ()
 servePreview uid sent = withEditablePage uid $ \p _ -> withEditRequest sent $ do
   db <- getRestrictedDB
-  cd <- asksK K.contentDir
   case splitPage (K.customMetaConfig db) sent >>= \(_, content) ->
-         pageDoc cd (K.sourceFiles db) p { K.pageBody = content } of
+         pageDoc (K.sourceFiles db) p { K.pageBody = content } of
     Left e -> do
       status Net.status400
       Scotty.text $ TL.pack e

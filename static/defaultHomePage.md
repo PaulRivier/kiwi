@@ -14,6 +14,6 @@ tags: kiwi, help
 
 Make sure you read the README file.
 
-[You can also read the CommonMark Page](uid:CommonMark)
+[You can also read the CommonMark Page](page:CommonMark)
 
 This page is yours. You can edit it and write what you want here.

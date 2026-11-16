@@ -273,13 +273,13 @@ recognized as valid autolinks by markdown parsers.
 ### Inline links
 
 Make a link to an other Kiwi document of the same source. Syntax is
-`[text of the link](uid:UID)` where UID is the `uid` of the page, found
+`[text of the link](page:UID)` where UID is the `uid` of the page, found
 in its metadata header. For example to link to the page whose uid is
 *Home*, and to its section *What to do now*:
 
 ```
-[Home page](uid:Home)
-[What to do now](uid:Home#what-to-do-now)
+[Home page](page:Home)
+[What to do now](page:Home#what-to-do-now)
 ```
 
 The easiest way to get the link of a page: click the chainlink button

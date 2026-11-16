@@ -301,7 +301,7 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
 -- | CommonMark link to the page, by its uid, to paste in another page of its
 -- source (see 'cmLinkTo': a valid uid needs no angle brackets)
 cmLink :: K.Page -> T.Text
-cmLink p = cmLinkTo (K.pageTitle p) ("uid:" <> snd (K.pageUID p))
+cmLink p = cmLinkTo (K.pageTitle p) ("page:" <> snd (K.pageUID p))
 
 -- | CommonMark link to a file of the source, by its uid, with its name
 -- without uid as text ("[cake.jpg](file:K3M9QW2TZ1)")

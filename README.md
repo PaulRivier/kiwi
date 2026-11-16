@@ -316,14 +316,14 @@ are ignored.
 
 Link to a page of the same source, by its uid (the chainlink button of
 a page copies a link to it; spaces around the uid are allowed:
-`<uid: cake>`). A page can not link to a page of another source.
+`<page: cake>`). A page can not link to a page of another source.
 
-    [link to a page](uid:UID)
+    [link to a page](page:UID)
 
 Link to a heading of a page, headings get an anchor from their text
 (`## Baking time` gives `#baking-time`)
 
-    [link to a section](uid:UID#baking-time)
+    [link to a section](page:UID#baking-time)
     [link to a section of this page](#baking-time)
 
 Link to a file of the source (an image, a spreadsheet…) by its uid
@@ -407,12 +407,6 @@ The text files are served as UTF-8.
 
 A file added to the disk gets its uid, and is served, once the pages
 are reloaded.
-
-Temporary, for the sources written for the previous versions: a
-`file:` link written with the path of a file (relative to the folder of
-the page, or from the top of the source with `/`) is converted to a
-link with its uid when Kiwi loads the page, and the page is written
-again and committed. A path that is not found is logged, at each load.
 
 
 # Documents reload
@@ -574,7 +568,7 @@ matter.
 A search that starts with `uid:` is not a full-text search: `uid:UID`
 shows the page with this uid, the file with this uid (the one of its
 name, see [images and files](#images-and-files)), and the pages that
-link to this uid, with a `uid:` or a `file:` link. It searches the
+link to this uid, with a `page:` or a `file:` link. It searches the
 sources selected in the navigation (all of them if none), among the
 archived pages or not as the navigation, and only the pages that you
 can read:
@@ -632,7 +626,7 @@ the file is saved to see the changes.
 # Copy link
 
 Clicking on the chain link will copy a link to current page to your
-clipboard (`[Title](uid:UID)`), so that it is easier for you to link
+clipboard (`[Title](page:UID)`), so that it is easier for you to link
 between the documents of a source. This button is only shown to admins and to the users with the
 write right on the page, and the browser only allows it over HTTPS or on
 localhost.
