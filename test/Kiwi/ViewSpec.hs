@@ -233,7 +233,8 @@ viewSpec = do
           -- button copying a link to the file: name without uid, brackets escaped
           copy name u = "<button type=\"button\" class=\"icon copy\" \
                         \title=\"Copy a link to this file\" data-copy=\"[" <> name <>
-                        "](file:" <> T.replicate 10 u <> ")\"><span class=\"glyph\">\x29C9</span></button>"
+                        "](file:" <> T.replicate 10 u <> ")\">\
+                        \<img src=\"/static/images/copy-link.svg\" alt=\"\"></button>"
       anonymous <- get "/doctor"
       liftIO $ body anonymous `shouldSatisfy` (not . T.isInfixOf section)
       _ <- postForm "/login" "username=bob&password=secret"

@@ -574,7 +574,7 @@ doctorView loc ctx errors broken unlinked = div_ [class_ "doctor-page"] $ do
       h3_ $ toHtml source
       ul_ [class_ "unlinked-files"] $ forM_ files $ \(path, uid) -> li_ $ do
         span_ [class_ "file"] $ toHtml path
-        copyTextButton (K.loc_CopyFileLink loc) (cmFileLink path uid)
+        copyButton (K.loc_CopyFileLink loc) (cmFileLink path uid)
 
 metadataView :: K.Locales -> [(T.Text, [(K.MetaField, Maybe T.Text, Forest MetaEntry)])] ->
                 Html ()
