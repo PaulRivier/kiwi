@@ -405,6 +405,7 @@ ul.pages-list li a:hover {
 }
 
 .doctor-page ul.unlinked-files button.copy {
+  display: inline-block;
   margin-left: 0.5em;
 }
 
