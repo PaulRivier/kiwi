@@ -117,7 +117,7 @@ In your kiwi folder you should have this layout.
       - CommonMark.md
       - recipes
         - cake.md
-        - cake.jpg
+        - cake__K3M9QW2TZ1.jpg
 
 *content* is the folder that will contain all your *sources*. A
 *source* is an independent module of content, with its own pages,

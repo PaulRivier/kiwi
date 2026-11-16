@@ -6,9 +6,14 @@
   `v0.4.3.2_migration_checkpoint` once on each source (with the content
   of its `pages`, `images` and `files` folders moved to its top): it
   gives the uids, and converts the `page:` and `file:` links written with
-  a path to `uid:UID` and `file:UID` links. Then replace the `uid:` links
-  by `page:` links, for example
-  `sed -i -E 's/(\]\(\s*<?\s*|\]:[ \t]*<?\s*)uid:/\1page:/g' FILES.md`.
+  a path to `uid:UID` and `file:UID` links. Then, in the folder of each
+  source, replace the `uid:` links by `page:` links, for example:
+
+  ```sh
+  RE='(\]\(\s*<?\s*|\]:[ \t]*<?\s*)uid:'
+  grep -rlZE "$RE" --include='*.md' --include='*.markdown' . | xargs -0 sed -i -E "s/$RE/\1page:/g"
+  ```
+
 - **Page uids**: each page has a `uid` metadata, unique in its source.
   Kiwi writes one (10 random characters) in a page that has none when it
   loads it, and gives a new one to a page whose uid is invalid or already
@@ -22,25 +27,28 @@
   The copied link of a page uses its uid. `uid` and `previous-uids` can not
   be changed from the browser editor, whatever the right.
 - **Breaking**: the `page:` links with a path and the `id` metadata are no
-  longer supported (a `page:` link targets a uid). Page files with Windows line endings (CRLF) or a byte order
-  mark are no longer loaded (the browser editor saves LF line endings).
+  longer supported (a `page:` link targets a uid). Page files with Windows
+  line endings (CRLF) or a byte order mark are no longer loaded (the browser
+  editor saves LF line endings).
 - The pages created by `kiwi init` have the uids `Home` and `CommonMark`.
 - **Free layout of the sources**: pages, images and other files go
   anywhere in the folder of a source (no more `pages`, `images` and
   `files` folders). Hidden files and folders, and those whose name starts
   with `_`, are ignored.
-- **Files served by their links**: a file of a source is served only when a page links to it with `file:`, and only to the
-  readers of at least one of these pages, archived or not (401/403
-  otherwise, 404 when no page links to it). The files of the pages, the
-  copies left by editors (`page.md~`, `#page.md#`…), and the names starting
-  with `.`, `_` or `#`, or ending with `~`, are never served. The files are
+- **Files served by their links**: a file of a source is served only when
+  a page links to it with `file:`, and only to the readers of at least one
+  of these pages, archived or not (401/403 otherwise, 404 when no page
+  links to it). The files of the pages, the copies left by editors
+  (`page.md~`, `#page.md#`…), and the temporary and backup files (see the
+  README) are never served. The files are
   revalidated by the browser at each use (ETag), and the text files are
   served as UTF-8. A file link to an image opens the image viewer, by the
   extension of the file.
 - **Breaking**: the `image:` links, the `/image/` addresses and the
   `images-dir` and `files-dir` metadata are no longer supported: use
-  `file:` (see the file uids below). Move the content of `pages`, `images` and `files` to the top of
-  the folder of each source before starting this version.
+  `file:` (see the file uids below). Move the content of `pages`, `images`
+  and `files` to the top of the folder of each source before starting this
+  version.
 - **File uids**: each file of a source that is not a page gets a uid,
   unique in its source, written in its name: Kiwi renames `cake.jpg` to
   `cake__K3M9QW2TZ1.jpg` when it loads it, and commits the rename. A file
@@ -55,6 +63,7 @@
   targets a uid); the `/file/SOURCE/path` addresses no longer work.
 - **Search by uid**: the search `uid:UID` shows the page and the file with
   this uid, and the pages that link to it.
+- The Doctor and Metadata pages have the reload button (admins).
 - Git: the commits of Kiwi include the former path of a renamed file.
 - Git: before committing a page saved from the browser, Kiwi commits the
   changes of its file made outside of Kiwi (or the file not tracked yet),
