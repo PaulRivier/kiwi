@@ -142,13 +142,17 @@ viewSpec = do
       _ <- postForm "/login" "username=bob&password=secret"
       reader <- get "/doctor"
       liftIO $ body reader `shouldSatisfy` (not . T.isInfixOf "bad.md")
-      -- the reload button, for admins only
+      -- the reload button, for admins only, here and on the metadata page
       liftIO $ body reader `shouldNotSatisfy` T.isInfixOf "class=\"icon reload\""
+      readerMeta <- get "/metadata"
+      liftIO $ body readerMeta `shouldNotSatisfy` T.isInfixOf "class=\"icon reload\""
       _ <- postForm "/logout" ""
       _ <- postForm "/login" "username=ann&password=secret"
       admin <- get "/doctor"
       liftIO $ body admin `shouldSatisfy` T.isInfixOf section
       liftIO $ body admin `shouldSatisfy` T.isInfixOf "class=\"icon reload\""
+      adminMeta <- get "/metadata"
+      liftIO $ body adminMeta `shouldSatisfy` T.isInfixOf "class=\"icon reload\""
       liftIO $ body admin `shouldSatisfy` T.isInfixOf "<span class=\"file\">bad.md</span>"
       liftIO $ body admin `shouldSatisfy` T.isInfixOf "invalid metadata header, line 1"
       -- the page is not served

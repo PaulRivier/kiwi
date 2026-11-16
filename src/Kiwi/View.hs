@@ -203,7 +203,7 @@ data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ as displayed
 renderMetadata :: [(T.Text, [(K.MetaField, Maybe T.Text, Forest MetaEntry)])] -> ActM TL.Text
 renderMetadata sources = do
   loc <- getLocales
-  renderView (K.loc_Metadata loc) NoActions Nothing $ metadataView loc sources
+  renderView (K.loc_Metadata loc) ReloadAction Nothing $ metadataView loc sources
 
 -- | Login form, with an error message if previous attempt failed
 renderLoginForm :: Bool -> ActM TL.Text
