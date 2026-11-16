@@ -189,7 +189,7 @@ renderDoctor :: [(T.Text, [(FilePath, T.Text)])] -> [(T.Text, [(K.Page, [T.Text]
 renderDoctor errors broken unlinked = do
   loc <- getLocales
   ctx <- asksK (K.context . K.requestState)
-  renderView (K.loc_Doctor loc) NoActions Nothing $ doctorView loc ctx errors broken unlinked
+  renderView (K.loc_Doctor loc) ReloadAction Nothing $ doctorView loc ctx errors broken unlinked
 
 -- | A key of a field on the metadata page
 data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ as displayed
