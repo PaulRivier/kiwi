@@ -554,6 +554,12 @@ data Locales = Locales
   , loc_CopyFileLink :: T.Text
   -- | legend of the pages linking to a page
   , loc_Backlinks :: T.Text
+  -- | form of the metadata scripts (admins, /metadata): title, help, source,
+  -- button
+  , loc_MetaScript :: T.Text
+  , loc_MetaScriptHelp :: T.Text
+  , loc_Source :: T.Text
+  , loc_Apply :: T.Text
   -- , loc_TimeLocale :: Time.TimeLocale
   }
   deriving (Show)

@@ -352,3 +352,28 @@ viewSpec = do
       liftIO $ map (`T.isInfixOf` meta) legends `shouldBe` map (const True) legends
       liftIO $ map position legends `shouldSatisfy` (\ps -> and $ zipWith (<) ps (drop 1 ps))
       liftIO $ meta `shouldSatisfy` T.isInfixOf "<fieldset class=\"flex internal-meta\"><legend>Language"
+
+  it "runs the metadata scripts of the form of the metadata page, for admins only" $
+    withKiwiAccounts [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
+                     [ ("a.md", "uid: a\ntitle: A\ntags: x > y\naccess: family:w\n\nText")
+                     , ("b.md", "uid: b\ntitle: B\ntags: x\naccess: family:w\n\nText") ] $
+    WT.runSession $ do
+      let form = "/metadata-script"
+          script s = "source=s&script=" <> s
+      _ <- postForm "/login" "username=bob&password=secret"
+      readerMeta <- get "/metadata"
+      liftIO $ body readerMeta `shouldNotSatisfy` T.isInfixOf "metadata-script"
+      refused <- postForm form (script "meta+tags+move+x+z")
+      liftIO $ WT.simpleStatus refused `shouldBe` Net.status403
+      _ <- postForm "/logout" ""
+      _ <- postForm "/login" "username=ann&password=secret"
+      adminMeta <- get "/metadata"
+      liftIO $ body adminMeta `shouldSatisfy` T.isInfixOf "action=\"/metadata-script#metadata-script\""
+      bad <- postForm form (script "meta+tags+move+nothing+z")
+      liftIO $ body bad `shouldSatisfy` T.isInfixOf "it changes no page"
+      -- the script stays in the form
+      liftIO $ body bad `shouldSatisfy` T.isInfixOf "meta tags move nothing z</textarea>"
+      ok <- postForm form (script "meta+tags+move+x+z")
+      liftIO $ body ok `shouldSatisfy` T.isInfixOf "line 1: meta tags move x z: 2 pages"
+      -- the page shows the new vocabulary
+      liftIO $ body ok `shouldSatisfy` T.isInfixOf "tag=z"

@@ -12,6 +12,7 @@ module Kiwi.View
   , renderPreview
   , MetaEntry (..)
   , renderMetadata
+  , ScriptForm (..)
   , renderDoctor
   , renderLoginForm
   , renderNotFound
@@ -200,10 +201,19 @@ data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ as displayed
 
 -- | Metadata of the pages, by source: the fields, with a link to the pages
 -- having them, if any, and their keys with their sub-keys (sub-tags)
-renderMetadata :: [(T.Text, [(K.MetaField, Maybe T.Text, Forest MetaEntry)])] -> ActM TL.Text
-renderMetadata sources = do
+renderMetadata :: [(T.Text, [(K.MetaField, Maybe T.Text, Forest MetaEntry)])] ->
+                  Maybe ScriptForm -> ActM TL.Text
+renderMetadata sources form = do
   loc <- getLocales
-  renderView (K.loc_Metadata loc) ReloadAction Nothing $ metadataView loc sources
+  renderView (K.loc_Metadata loc) ReloadAction Nothing $ metadataView loc sources form
+
+-- | The form of the metadata scripts (admins): the sources, the source
+-- chosen, the script, and the result of its last run, if any (an error, or
+-- what it did)
+data ScriptForm = ScriptForm { scriptSources :: [T.Text]
+                             , scriptSource :: Maybe T.Text
+                             , scriptText :: T.Text
+                             , scriptResult :: Maybe (Either T.Text [T.Text]) }
 
 -- | Login form, with an error message if previous attempt failed
 renderLoginForm :: Bool -> ActM TL.Text
@@ -619,8 +629,8 @@ doctorView loc ctx errors broken unlinked = div_ [class_ "doctor-page"] $ do
         copyButton (K.loc_CopyFileLink loc) (cmFileLink path uid)
 
 metadataView :: K.Locales -> [(T.Text, [(K.MetaField, Maybe T.Text, Forest MetaEntry)])] ->
-                Html ()
-metadataView loc sources = div_ [class_ "metadata-page"] $ do
+                Maybe ScriptForm -> Html ()
+metadataView loc sources formM = div_ [class_ "metadata-page"] $ do
   h1_ [class_ "page-title"] $ toHtml $ K.loc_Metadata loc
   forM_ sources $ \(source, fields) -> section_ $ do
     h2_ $ toHtml source
@@ -632,6 +642,20 @@ metadataView loc sources = div_ [class_ "metadata-page"] $ do
           Just l  -> a_ [href_ l, class_ "key", title_ (K.loc_PagesWithField loc)] $
                        toHtml $ fieldName loc field
         ul_ [class_ "meta-list"] $ mapM_ entryTree entries
+  forM_ formM $ \form -> section_ [id_ "metadata-script"] $ do
+    h2_ $ toHtml $ K.loc_MetaScript loc
+    forM_ (scriptResult form) $ \r -> case r of
+      Left err -> pre_ [class_ "script-result script-error"] $ toHtml err
+      Right ls -> pre_ [class_ "script-result"] $ toHtml $ T.unlines ls
+    form_ [action_ "/metadata-script#metadata-script", method_ "post", class_ "metadata-script"] $ do
+      p_ [class_ "help"] $ toHtml $ K.loc_MetaScriptHelp loc
+      label_ $ do
+        toHtml (K.loc_Source loc <> " ")
+        select_ [name_ "source"] $ forM_ (scriptSources form) $ \s ->
+          option_ ([value_ s] ++ [selected_ "" | Just s == scriptSource form]) $ toHtml s
+      -- the browser drops a newline at the start of a textarea
+      textarea_ [name_ "script", rows_ "12", spellcheck_ "false"] $ toHtml ("\n" <> scriptText form)
+      button_ [type_ "submit"] $ toHtml $ K.loc_Apply loc
   where
     entryTree :: Tree MetaEntry -> Html ()
     entryTree (Node e children) = li_ $ do

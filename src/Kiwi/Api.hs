@@ -486,8 +486,4 @@ apiMetadata source = withBodyText $ \script ->
       r <- Scotty.liftIO $ Write.runMetaScript ss loginM source cmds
       case r of
         Left f -> writeFailed f
-        Right counts -> answer $ T.unlines $
-          T.concat [ T.pack (show $ sum $ map snd counts), " changes in ", source ] :
-          [ T.concat [ "line ", T.pack (show $ MS.commandLine c), ": ", MS.commandText c, ": "
-                     , T.pack (show n), if n == 1 then " page" else " pages" ]
-          | (c, n) <- counts ]
+        Right counts -> answer $ T.unlines $ MS.resultLines source counts

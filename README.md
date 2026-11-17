@@ -746,7 +746,9 @@ and are committed when the file is in a git repository (author
       page 0123456789 meta lang unset
 
   A tag moves or goes with its sub-tags. Changing `access` needs the
-  admin right on the page.
+  admin right on the page. The admins can also run such a script from the
+  form at the bottom of the *Metadata* page: for instance a script written
+  by an agent, read before it is applied.
 
 ## MCP server for the agents
 

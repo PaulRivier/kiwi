@@ -8,6 +8,7 @@ module Kiwi.Edit
   , editorText
   , editedText
   , SaveFailure (..)
+  , saveFailureText
   , Change
   , sentText
   , applyEdits
@@ -92,6 +93,15 @@ sentText :: AccessLevel -> T.Text -> T.Text -> Change
 sentText level hash sent cmc (bytes, fileText) = do
   when (fileHash bytes /= hash) $ Left SaveConflict
   first SaveInvalid $ editedText cmc level fileText sent
+
+-- | Message of a failure
+saveFailureText :: SaveFailure -> T.Text
+saveFailureText f = T.pack $ case f of
+  SaveConflict -> "the page changed since it was read"
+  SaveNotApplied e -> e
+  SaveInvalid e -> e
+  SaveForbidden e -> e
+  SaveFailed e -> e
 
 -- | Replacements of exact passages of a text (old, new), in their order:
 -- each old passage must be found exactly once in the text, as it is after

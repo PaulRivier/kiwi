@@ -5,6 +5,7 @@ module Kiwi.Controller
   , serveBrowseAll
   , serveSearch
   , serveMetadata
+  , serveMetaScript
   , serveDoctor
   , serveReadme
   , serveCommonMark
@@ -73,6 +74,7 @@ import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, st
                               excerpt)
 import           Kiwi.PagesDB (brokenLinks)
 import qualified Kiwi.Types as K
+import qualified Kiwi.MetaScript as MS
 import qualified Kiwi.View as V
 import qualified Kiwi.Write as Write
 import qualified Kiwi.Auth as Auth
@@ -177,6 +179,35 @@ serveEmbeddedDoc name withHeader defaultTitle content = do
 serveMetadata :: ActM ()
 serveMetadata = do
   db <- getRestrictedDB
+  admin <- Auth.isAdmin
+  r <- metadataPage db $ if admin then Just (Nothing, "", Nothing) else Nothing
+  htmlETag db r
+
+-- | Runs a metadata script sent by an admin from the form of /metadata (see
+-- 'Write.runMetaScript'), then shows the page with the result, and the
+-- script to correct it
+serveMetaScript :: ActM ()
+serveMetaScript = ifAdmin $ do
+  source <- formParam "source"
+  script <- T.replace "\r\n" "\n" <$> formParam "script"
+  withEditRequest script $ do
+    ss <- asksK id
+    loginM <- asksK (K.login . K.requestState)
+    result <- case MS.parseScript script of
+      Left err -> return $ Left (T.pack err)
+      Right [] -> return $ Left "the script has no command"
+      Right cmds -> do
+        r <- liftIO $ Write.runMetaScript ss loginM source cmds
+        return $ either (Left . Edit.saveFailureText) (Right . MS.resultLines source) r
+    db <- getRestrictedDB
+    page <- metadataPage db (Just (Just source, script, Just result))
+    html page
+
+-- | The metadata page (see 'serveMetadata'), with the form of the metadata
+-- scripts when given (the source chosen, the script, the result of its run)
+metadataPage :: K.PagesDB -> Maybe (Maybe T.Text, T.Text, Maybe (Either T.Text [T.Text])) ->
+                ActM TL.Text
+metadataPage db formM = do
   ctx <- asksK (K.context . K.requestState)
   admin <- Auth.isAdmin
   let idx = K.pagesIndex db
@@ -198,7 +229,8 @@ serveMetadata = do
         , V.metaCopy  = keyCopy f k
         , V.metaLink  = Browse.browseUrl ctx $ Browse.addToReq (Browse.sourcesReq $ S.singleton s) (f, k)
         , V.metaCount = S.size $ DI.lookupIndex sub f k }
-  V.renderMetadata (map section sources) >>= htmlETag db
+  V.renderMetadata (map section sources) $
+    (\(source, script, result) -> V.ScriptForm sources source script result) <$> formM
   where
     -- a sub-tag shows its last segment, below its parent
     keyLabel K.FieldTag (K.KeyText t) = case reverse (Tags.tagToSegments t) of

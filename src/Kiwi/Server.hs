@@ -103,6 +103,7 @@ kiwiRoute ss = do
     serveSearch $ fromMaybe "" query
   -- in the archive mode, but not in the sources context
   get "/metadata" $ withLogin $ withContext $ withETag serveMetadata
+  post "/metadata-script" $ withLogin $ withContext serveMetaScript
   get "/doctor" $ withLogin $ withContext $ withETag serveDoctor
   -- documentation, out of the navigation context
   get "/readme" $ withLogin serveReadme

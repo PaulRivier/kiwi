@@ -23,6 +23,7 @@ module Kiwi.MetaScript
   , parseScript
   , applyCommand
   , commandText
+  , resultLines
   ) where
 
 import           Data.Char (isSpace)
@@ -229,3 +230,12 @@ applyCommand cmc c header
 -- | Text with these characters escaped by a backslash
 escape :: String -> T.Text -> T.Text
 escape cs = T.concatMap (\ch -> if ch `elem` cs then T.pack ['\\', ch] else T.singleton ch)
+
+-- | Lines telling what a script did in a source: the number of changes,
+-- then the number of pages changed by each command
+resultLines :: T.Text -> [(Command, Int)] -> [T.Text]
+resultLines source counts =
+  T.concat [ T.pack (show $ sum $ map snd counts), " changes in ", source ] :
+  [ T.concat [ "line ", T.pack (show $ commandLine c), ": ", commandText c, ": "
+             , T.pack (show n), if n == 1 then " page" else " pages" ]
+  | (c, n) <- counts ]
