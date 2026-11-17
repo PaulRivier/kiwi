@@ -11,11 +11,13 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLE
 import qualified Network.HTTP.Types as Net
+import qualified Network.HTTP.Types.URI as URI
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Test as WT
 import qualified System.FilePath as FP
 import           Test.Hspec
 
+import qualified Kiwi.Api.Search as AS
 import qualified Kiwi.Auth as Auth
 import           Kiwi.Edit (fileHash)
 import           Kiwi.Types
@@ -131,3 +133,49 @@ apiSpec = do
     fmap loginUser (Auth.tokenLogin [ann { accountSalt = "salt-2" }] tokens token)
       `shouldBe` Nothing
     fmap loginUser (Auth.tokenLogin [] tokens token) `shouldBe` Nothing
+
+  it "reads the phrases and the excluded words of a query" $ do
+    AS.parseQuery "first \"aid  kit\" -baby burns \"open"
+      `shouldBe` AS.Query ["first", "aid", "kit", "burns", "open"] ["aid kit", "open"] ["baby"]
+    AS.parseQuery " - x" `shouldBe` AS.Query ["-", "x"] [] []
+
+  it "searches the pages with all the terms first, with passages" $ do
+    let docs = [ ("aid.md", "title: First aid\nuid: aid\ntags: health\n\n# Wounds\n\n\
+                            \Clean the wound with water.\n\n## Burns\n\n\
+                            \Cool the burn with water for long minutes.\n")
+               , ("baby.md", "title: Baby\nuid: baby\n\nA first aid kit for the baby.\n")
+               , ("snow.md", "title: Snow\nuid: snow\n\nThe first row of blocks.\n") ]
+    withKiwiConfig [] [("bob", "secret", ["family"])] docs $ \_ ss app -> do
+      accs <- readIORef (accounts ss)
+      made <- mapM Auth.newApiToken accs
+      _ <- Auth.dumpTokens (M.fromList $ map snd made) (Auth.tokensFile $ kiwiDir ss)
+      let token = case made of
+            (t, _) : _ -> t
+            [] -> error "no token"
+          search q = do
+            r <- WT.srequest $ WT.SRequest
+                   (WT.setPath Wai.defaultRequest
+                      { Wai.requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 token)] }
+                      ("/api/search?q=" <> URI.urlEncode True (TE.encodeUtf8 q))) ""
+            return $ T.lines $ TL.toStrict $ TLE.decodeUtf8 $ WT.simpleBody r
+      flip WT.runSession app $ do
+        burns <- search "water burns"
+        liftIO $ burns `shouldSatisfy` \ls -> case ls of
+          h : p : rest -> h == "1 page for water burns (english), with all the terms" &&
+                          "s/aid  " `T.isPrefixOf` p && "  2/2 in content" `T.isSuffixOf` p &&
+                          -- the uid is not in the text: the content starts at line 4
+                          rest == [ "  l.6 § Wounds: Clean the wound with water."
+                                  , "  l.10 § Burns: Cool the burn with water for long minutes." ]
+          _ -> False
+        aid <- search "first aid"
+        liftIO $ take 1 aid `shouldBe`
+          ["2 pages for first aid (english), with all the terms; 1 other pages have only some of them"]
+        phrase <- search "\"aid kit\""
+        liftIO $ map (T.take 7) (drop 1 phrase) `shouldBe` ["s/baby ", "  l.3: "]
+        excluded <- search "first -baby"
+        liftIO $ excluded `shouldSatisfy` \ls -> length (filter ("s/" `T.isPrefixOf`) ls) == 2 &&
+                                                 not (any ("s/baby" `T.isPrefixOf`) ls)
+        partial <- search "snow burns"
+        liftIO $ take 1 partial `shouldBe` ["2 pages for snow burns (english), none with all the terms"]
+        liftIO $ partial `shouldSatisfy` any (\l -> "s/snow  " `T.isPrefixOf` l &&
+                                                    "  1/2 (snow) in title" `T.isSuffixOf` l)

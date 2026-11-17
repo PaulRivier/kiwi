@@ -11,11 +11,13 @@ module Kiwi.Api
   , apiPageMeta
   , apiFolders
   , apiGuide
+  , apiSearch
   ) where
 
 import           Control.Monad.Reader (local)
 import           Data.IORef (readIORef)
-import           Data.List (sortOn)
+import           Data.List (nub, sortOn)
+import           Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as M
 import           Data.Ord (Down (..))
 import qualified Data.Set as S
@@ -29,6 +31,7 @@ import           Text.Read (readMaybe)
 import           Web.Scotty.Trans (queryParamMaybe, queryParams, setHeader, status)
 import qualified Web.Scotty.Trans as Scotty
 
+import qualified Kiwi.Api.Search as AS
 import qualified Kiwi.Api.Text as AT
 import qualified Kiwi.Auth as Auth
 import qualified Kiwi.Browse as Browse
@@ -38,6 +41,7 @@ import qualified Kiwi.Log as L
 import           Kiwi.Controller (findPage, getRestrictedDB, keyOrder, textOrder, withContext)
 import           Kiwi.Meta (splitPage)
 import           Kiwi.Pandoc (pageDoc)
+import           Kiwi.Search (alg, explainPages, extractTerms, queryLang, searchLang)
 import           Kiwi.Types (ActM)
 import qualified Kiwi.Types as K
 import qualified Kiwi.Tags as Tags
@@ -279,3 +283,59 @@ apiGuide = do
     Nothing -> kiwiGuide
     Just p -> T.concat [ kiwiGuide, "\n\n# Guide of the user: ", K.pageTitle p, "\n\n"
                        , K.pageBody p ]
+
+
+-- | GET /api/search?q=QUERY: full-text search for an agent (see
+-- "Kiwi.Api.Search"), in the pages of the context ("source", "archive=yes"),
+-- at most "limit" pages (10 by default). The lang of the query is the one of
+-- the sources, unless it starts with a lang code ("fr:"), as on the search
+-- page.
+apiSearch :: ActM ()
+apiSearch = do
+  qM <- queryParamMaybe "q"
+  db <- getRestrictedDB
+  allDB <- getDB
+  ctx <- asksK (K.context . K.requestState)
+  let sources = K.contextSources ctx
+      allSources = [ s | K.KeyText s <- DI.getFieldKeys (K.pagesIndex allDB) K.FieldSource ]
+      ctxLang = searchLang (fromMaybe K.defaultLangSetting $ K.metaLang $ K.defaultMeta allDB)
+                           (K.sourcesConfig allDB) allSources sources
+      visible uid = S.null sources || S.member (fst uid) sources
+  intParam "limit" 10 $ \limit -> case qM of
+    Nothing -> failWith Net.status400 "missing parameter: q"
+    Just raw -> do
+      let (lang, text) = queryLang ctxLang raw
+          q = AS.parseQuery text
+          termsOf ws = [ (t, w) | w <- ws, t <- extractTerms (alg lang) w ]
+          terms = termsOf (AS.queryWords q)
+          excludedTerms = map fst $ termsOf (AS.queryExcluded q)
+          excluded = S.fromList [ uid | (uid, _, found) <- explainPages (K.searchEngine db) excludedTerms
+                                      , any (not . null . snd) found ]
+          hits = [ AS.Hit p score [ t | (t, fs) <- found, not (null fs) ]
+                          (nub $ concatMap snd found)
+                 | (uid, score, found) <- explainPages (K.searchEngine db) (map fst terms)
+                 , visible uid, not (S.member uid excluded)
+                 , Just p <- [findPage db uid]
+                 , all (AS.hasPhrase p) (AS.queryPhrases q) ]
+          ranked = AS.rankHits (map fst terms) hits
+          total = length (AS.rankedHits ranked)
+      if null terms
+        then failWith Net.status400 "the query has no word to search"
+        else do
+          results <- mapM (withPassages (map fst terms)) (take limit $ AS.rankedHits ranked)
+          answer $ AS.searchText (T.strip raw) lang terms ranked total results
+  where
+    -- the passages of a page, read from its file, with the lines of the text
+    -- of /api/page
+    withPassages terms h = do
+      let p = AS.hitPage h
+      db <- getDB
+      loginM <- asksK (K.login . K.requestState)
+      fileE <- Scotty.liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
+      case (fileE, Auth.pageAccessLevel loginM p) of
+        (Right (_, t), Just level)
+          | Right (text, offset) <- Edit.editorText (K.customMetaConfig db) level t -> do
+              let total = length (T.lines text)
+              secs <- pageSections p text offset total
+              return (h, AS.passages (K.pageLang p) terms text offset secs)
+        _ -> return (h, [])

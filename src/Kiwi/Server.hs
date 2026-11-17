@@ -147,6 +147,7 @@ kiwiRoute ss = do
     source <- pathParam "source"
     withToken $ apiFolders source
   get "/api/guide" $ withToken apiGuide
+  get "/api/search" $ withToken apiSearch
 
   middleware serveTheme
 

@@ -8,6 +8,10 @@ module Kiwi.Search (
   , searchLang
   , stripAccents
   , excerpt
+  , explainPages
+  , extractTerms
+  , wordsTerms
+  , alg
   ) where
 
 -- import           Data.Text.ICU.Char
@@ -76,6 +80,14 @@ searchPages se visible terms = case filter (visible . snd) (queryExplain se term
                           , maybe False (/= 0) (lookup ContentField fields) ]
         (shown, more) = splitAt maxResults $ takeWhile relevant results
     in ([ (uid, inContent e) | (e, uid) <- shown ], not (null more))
+
+-- | Every page containing one of the terms, best first, with its score and,
+-- for each term, the fields that contain it (none when the page does not
+-- contain it), without any threshold nor limit (see 'searchPages')
+explainPages :: PageSearchEngine -> [T.Text] -> [(PageUID, Float, [(T.Text, [PageField])])]
+explainPages se terms =
+  [ (uid, overallScore e, [ (t, [ f | (f, s) <- fields, s /= 0 ]) | (t, fields) <- termFieldScores e ])
+  | (e, uid) <- queryExplain se terms ]
 
 -- | Maximal number of pages of the results of a search
 maxResults :: Int

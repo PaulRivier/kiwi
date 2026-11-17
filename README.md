@@ -694,6 +694,12 @@ token stops working when its account is removed or gets a new password.
   line (`SOURCE/UID`, day, title, tags, then summary), filtered as on the
   browse page (`source`, `tag`, `lang`, `m.FIELD`, `has`, `archive=yes`),
   with `since=YYYY-MM-DD` and `limit` (100 by default).
+* `GET /api/search?q=QUERY` : full-text search for the agents. The pages
+  that contain all the words come first (alone when there are some), each
+  one with the words it contains, where (title, tags, content), and up to
+  three passages with their line and section. `"exact phrase"` and
+  `-excluded` words are allowed; `source`, `archive=yes` and `limit` (10 by
+  default) too. The search page of the web interface is not changed.
 * `GET /api/vocabulary` : the tags, langs and custom fields of each
   source (`source` to choose them), with their number of pages.
 * `GET /api/page/SOURCE/UID` : the text of the page, without its uid, and

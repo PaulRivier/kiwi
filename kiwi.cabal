@@ -102,6 +102,7 @@ library
       Kiwi.View
       Kiwi.Write
       Kiwi.Api
+      Kiwi.Api.Search
       Kiwi.Api.Text
       Utils.DocIndex
   other-modules: Paths_kiwi
