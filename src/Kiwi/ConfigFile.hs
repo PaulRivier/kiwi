@@ -91,11 +91,9 @@ customMetaParser name' = do
 
 sourceConfigParser :: T.Text -> SectionParser K.SourceConfig
 sourceConfigParser source = do
-  rt <- fieldDefOf "root-tag" string ""
   access <- fieldDefOf "access" accessList []
   lang <- fieldMbOf "lang" U.parseLangSetting
   return K.SourceConfig { K.scSourceName = source
-                        , K.scRootTag = Tags.tagToSegments $ T.pack rt
                         -- without any group, the global default is used
                         , K.scAccess = if null access then Nothing else Just access
                         , K.scLang = lang

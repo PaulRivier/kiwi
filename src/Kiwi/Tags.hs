@@ -6,7 +6,7 @@ module Kiwi.Tags
   , tagsListSubSegments
   , segmentsToTag
   , prettyTag
-  , prefixNormalizeTag
+  , normalizeTag
   , filterRootTags
   , splitMeta
   , splitTags
@@ -39,11 +39,9 @@ segmentsToTag = T.intercalate (T.pack ">") .
 prettyTag :: TagId -> TagId
 prettyTag = T.intercalate (T.pack " > ") . tagToSegments
 
--- normalizeTag :: TagId -> TagId
--- normalizeTag = segmentsToTag . tagToSegments
-
-prefixNormalizeTag :: TagSegments -> TagId -> TagId
-prefixNormalizeTag prefix = segmentsToTag . (prefix ++) . tagToSegments
+-- | A tag as indexed: its segments trimmed, joined by ">" without spaces
+normalizeTag :: TagId -> TagId
+normalizeTag = segmentsToTag . tagToSegments
 
 filterRootTags :: [TagSegments] -> [TagSegments]
 filterRootTags tss = let set = S.fromList tss in filter (isRoot set) tss

@@ -224,16 +224,21 @@ metaDataSpec = do
     let ini = T.unlines [ "[kiwi]", "content-directory: content", "port: 3456"
                         , "ui-lang: english", "[metadata-default]"
                         , "[source a]", "access: family, friends"
-                        , "[source b]", "access: ,", "[source c]", "root-tag: x > y" ]
+                        , "[source b]", "access: ,", "[source c]", "lang: french" ]
         access = map (\sc -> (scSourceName sc, scAccess sc)) . Conf.sourcesConfig
     fmap access (Conf.parseConfig ini) `shouldBe`
       Right [ ("a", Just [("family", AccessRead), ("friends", AccessRead)])
             , ("b", Nothing), ("c", Nothing) ]
-    fmap (map scRootTag . Conf.sourcesConfig) (Conf.parseConfig ini) `shouldBe`
-      Right [[], [], ["x", "y"]]
+
+  it "ignores the removed root-tag setting of a source" $ do
+    let ini = T.unlines [ "[kiwi]", "content-directory: content", "port: 3456"
+                        , "ui-lang: english", "[metadata-default]"
+                        , "[source a]", "root-tag: x > y", "access: family" ]
+    fmap (map scAccess . Conf.sourcesConfig) (Conf.parseConfig ini) `shouldBe`
+      Right [Just [("family", AccessRead)]]
 
   it "uses the access of the source config, unless the page has one" $ do
-    let sc = SourceConfig "src" [] (Just [("family", AccessWrite)]) Nothing
+    let sc = SourceConfig "src" (Just [("family", AccessWrite)]) Nothing
         access sM c = case loadPage "test.md" c "src" (sourceMeta sM defMeta) [] of
           Left e -> error e
           Right p -> map fst <$> metaAccess (pandocMeta p)
@@ -321,7 +326,7 @@ metaDataSpec = do
       `shouldBe` True
 
   it "uses the lang of the source config, unless the page has one" $ do
-    let sc = SourceConfig "src" [] Nothing (Just (LangAuto Spanish))
+    let sc = SourceConfig "src" Nothing (Just (LangAuto Spanish))
         lang c = case loadPage "test.md" c "src" (sourceMeta (Just sc) defMeta) [] of
           Left e -> error e
           Right p -> metaLang $ pandocMeta p

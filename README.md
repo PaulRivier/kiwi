@@ -166,12 +166,8 @@ Each source can have its own section in *kiwi.ini*, named after its
 folder in *content* :
 
     [source dad-botanic]
-    root-tag: botanic
     access: family
 
-* **root-tag** : the tags of the pages of this source are nested under
-  this tag, *flower* becomes *botanic > flower*. This keeps the tags
-  of a very specific source out of your way when browsing.
 * **access** : default access of the pages of this source, comma
   separated groups, with their rights (`family:w`). It replaces the access of the `[metadata-default]`
   section for these pages, and a page with its own *access* header

@@ -50,8 +50,8 @@ tagsSpec = do
     Tags.segmentsToTag ["a>b", "c"] `shouldBe` "a\\>b>c"
     Tags.tagToSegments (Tags.segmentsToTag ["a>b", "c"]) `shouldBe` ["a>b", "c"]
 
-  it "prefixes and normalizes tags" $
-    Tags.prefixNormalizeTag ["root"] "a > b" `shouldBe` "root>a>b"
+  it "normalizes tags" $
+    Tags.normalizeTag "a > b" `shouldBe` "a>b"
 
   it "pretty prints tags" $
     Tags.prettyTag "a>b" `shouldBe` "a > b"

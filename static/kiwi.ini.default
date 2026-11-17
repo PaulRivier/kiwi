@@ -55,14 +55,11 @@ lang: english
 
 
 # Settings for the pages of a source (a folder in your content directory).
-# root-tag: some sources may be very specific, you may want to nest their tags
-#   under a parent tag to preserve your browsing experience
 # access: default access of the pages, instead of the one of [metadata-default]
 #   (the access set in a page header still takes precedence)
 # lang: default lang of the pages, instead of the one of [metadata-default]
 #   (french, auto/french...), also used for the searches in this source
 
 # [source dad-botanic]
-# root-tag: botanic
 # access: family
 # lang: english

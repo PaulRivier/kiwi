@@ -43,7 +43,7 @@ import           Kiwi.LangDetect (resolveLang)
 import           Kiwi.Meta (emptyMeta, mergeMeta, sourceMeta, splitPage,
                             unknownMetaKeys, invalidMetaValues)
 import           Kiwi.Types
-import           Kiwi.Tags (prefixNormalizeTag)
+import           Kiwi.Tags (normalizeTag)
 import qualified Kiwi.Url as Url
 import qualified Kiwi.Utils as U
 
@@ -333,7 +333,6 @@ loadPageIO fullPath source md cmc scM = do
   -- first: a file modified while it is read then gets another time, and is
   -- loaded again at the next reload.
   fileE <- try $ flip (,) <$> D.getModificationTime fullPath <*> BS.readFile fullPath
-  let rootTag = fromMaybe [] (scRootTag <$> scM)
   -- evaluated by the caller thread, so that pages are parsed concurrently
   -- (see 'Kiwi.PagesDB.updatePagesDB')
   evaluate $ case fileE of
@@ -364,8 +363,7 @@ loadPageIO fullPath source md cmc scM = do
                                   , pageFiles = files
                                   , pagePlainText = content
                                   , pageTitle = title
-                                  , pageTags =  map (prefixNormalizeTag rootTag) $
-                                                fromMaybe [] $ metaTags meta
+                                  , pageTags = map normalizeTag $ fromMaybe [] $ metaTags meta
                                   -- without access, only the admins can read
                                   , pageAccess = fromMaybe [] $ metaAccess meta
                                   , pageLang = resolveLang

@@ -1,5 +1,11 @@
 # ChangeLog for Kiwi
 
+## Unreleased
+
+- The `root-tag` setting of the `[source NAME]` sections is removed: the
+  tags of the pages are those of their header. The key is ignored in an
+  existing `kiwi.ini`.
+
 ## v0.4.4.0 - 2026-11-16
 
 The source layout format is changing. Reach out if you need migration code.

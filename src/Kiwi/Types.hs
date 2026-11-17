@@ -282,7 +282,6 @@ data CustomMetaConfig =
 
 data SourceConfig = 
   SourceConfig { scSourceName :: T.Text
-               , scRootTag :: TagSegments
                , scAccess :: Maybe Access  -- ^ default access of the pages
                , scLang :: Maybe LangSetting  -- ^ default lang of the pages
                }
