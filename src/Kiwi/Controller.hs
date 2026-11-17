@@ -27,10 +27,9 @@ module Kiwi.Controller
   ) where
 
 import           Control.Concurrent (forkIO)
-import           Control.Concurrent.MVar (modifyMVar_, readMVar, withMVar)
+import           Control.Concurrent.MVar (modifyMVar_, readMVar)
 import           Control.Exception (IOException, SomeException, fromException, try)
-import           Control.Monad (forM_, unless, when)
-import           Control.Monad.Except (ExceptT (..), liftEither, runExceptT, withExceptT)
+import           Control.Monad (forM_, unless)
 import           Control.Monad.Reader
 import           Crypto.Hash (SHA1, hashlazy)
 import qualified Data.ByteString as BS
@@ -63,16 +62,15 @@ import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
-import qualified Kiwi.Git as Git
 import           Kiwi.Meta (splitPage)
 import           Kiwi.Files (servedName)
 import           Kiwi.Pandoc (pageDoc, embeddedDoc)
 import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, stripAccents,
                               excerpt)
 import           Kiwi.PagesDB (brokenLinks)
-import qualified Kiwi.PagesDB as DB
 import qualified Kiwi.Types as K
 import qualified Kiwi.View as V
+import qualified Kiwi.Write as Write
 import qualified Kiwi.Auth as Auth
 import qualified Kiwi.Browse as Browse
 import qualified Kiwi.Tags as Tags
@@ -474,22 +472,13 @@ withEditablePage uid run = do
         Just level | level >= K.AccessWrite -> run p level
                    | otherwise -> serveForbidden
 
--- | Text and bytes of a page file
-readPageFile :: FP.FilePath -> IO (Either String (BS.ByteString, T.Text))
-readPageFile path = do
-  r <- try $ BS.readFile path
-  return $ case r of
-    Left e -> Left $ "unable to read " ++ path ++ ": " ++ show (e :: IOException)
-    Right bytes -> either (const $ Left $ path ++ " is not a valid UTF-8 file")
-                          (\t -> Right (bytes, t)) (TE.decodeUtf8' bytes)
-
 -- | Editor of a page, for a user with the write right, at the given line of
 -- its content, if any (see 'Kiwi.Edit.editorText'). The text is read from
 -- the file, with its hash, to detect a change of the file at its save.
 serveEditor :: K.PageUID -> Maybe Int -> ActM ()
 serveEditor uid lineM = withEditablePage uid $ \p level -> do
   cmc <- K.customMetaConfig <$> getDB
-  fileE <- liftIO $ readPageFile (K.pageAbsoluteFSPath p)
+  fileE <- liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
   case fileE >>= \(bytes, t) -> (,) (Edit.fileHash bytes) <$> Edit.editorText cmc level t of
     Left e -> serveFailure $ T.pack e
     Right (hash, (text, offset)) -> do
@@ -526,35 +515,17 @@ sameOrigin = do
 
 -- | Saves the text of a page sent by its editor (see 'Kiwi.Edit.editedText'),
 -- when its file has not changed since the edition (same hash), and when the
--- page can be loaded (its uid is kept, see 'Kiwi.Meta.kiwiKeys'). When
--- the file is in a git repository (unless git-commit is no; a failure of git
--- is only logged), its changes made outside of kiwi, if any, are first
--- committed by Kiwi, and the saved file is committed by its user. The pages
--- are then reloaded. The check, the commits, the write and the reload hold
--- the lock of the reloads. The answer is the URL of the page, with the keys that the user can not change in the Kiwi-Ignored-Keys header,
--- if any; 409 when the file changed, 400 when the text can not be saved.
+-- page can be loaded (its uid is kept, see 'Kiwi.Meta.kiwiKeys'), with git
+-- commits (see 'Write.updatePage'). The answer is the URL of the page, with
+-- the keys that the user can not change in the Kiwi-Ignored-Keys header, if
+-- any; 409 when the file changed, 400 when the text can not be saved.
 serveSavePage :: K.PageUID -> T.Text -> T.Text -> ActM ()
 serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest sent $ do
   ss <- asksK id
   user <- maybe "" K.loginUser <$> asksK (K.login . K.requestState)
-  let path = K.pageAbsoluteFSPath p
-  result <- liftIO $ withMVar (K.pagesDBLock ss) $ \_ -> runExceptT $ do
-    db <- liftIO $ readIORef (K.pagesDB ss)
-    file <- withExceptT Edit.SaveFailed $ ExceptT $ readPageFile path
-    (text, ignored) <- liftEither $
-      Edit.checkSave (K.contentDir ss) db level hash path file sent
-    liftIO $ when (K.gitCommit ss) $
-      commitPage ss "Kiwi" "pre-update commit" "Pre-update commit of " path uid
-    withExceptT (\e -> Edit.SaveFailed $ show (e :: IOException)) $ ExceptT $ try $
-      Edit.writePageFile path text
-    liftIO $ do
-      K.logger ss L.Info $ T.pack $ concat [ "page saved by ", T.unpack user, ": ", path ]
-      when (K.gitCommit ss) $
-        commitPage ss (user <> " via Kiwi") "page" "Edit " path uid
-      DB.reloadPages ss
-    return ignored
+  result <- liftIO $ Write.updatePage ss user p (Edit.sentText level hash sent)
   case result of
-    Right ignored -> do
+    Right (_, ignored) -> do
       unless (null ignored) $
         setHeader "Kiwi-Ignored-Keys" $ TL.fromStrict $ T.intercalate ", " ignored
       Scotty.text $ TL.fromStrict $ Url.pageUIDUrl uid
@@ -565,18 +536,6 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
       status Net.status400
       Scotty.text $ TL.pack e
     Left (Edit.SaveFailed e) -> serveFailure $ T.pack e
-
--- | Commits the file of a page, when it is in a git repository and differs
--- from its last commit, with this author and the message "PREFIX SOURCE:ID
--- (kiwi NAME)"; the commit (named by what in the log) or its failure is logged
-commitPage :: K.ServerState -> T.Text -> String -> T.Text -> FilePath -> K.PageUID -> IO ()
-commitPage ss author what prefix path (source, pid) = do
-  let message = T.concat [ prefix, source, ":", pid, " (kiwi ", K.kiwiName ss, ")" ]
-  r <- Git.commitFile path author message
-  case r of
-    Right Git.Committed -> K.logger ss L.Info $ T.pack $ concat [ what, " committed: ", path ]
-    Right _ -> return ()
-    Left e -> K.logger ss L.Warn $ T.pack $ concat [ what, " not committed: ", path, ": ", e ]
 
 -- | Preview of the content of a text sent by the editor of a page, as the
 -- content of the page (links relative to its folder): an HTML fragment, or

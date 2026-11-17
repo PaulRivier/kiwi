@@ -45,8 +45,8 @@ editSpec = do
   it "checks a page to save: same file, valid text" $ do
     let db = mkPagesDB [mkPage ("src", "other") [] [] False 1, mkPage ("src", "x") [] [] False 1]
         bytes = TE.encodeUtf8 file
-        check hash = checkSave "/k/content" db AccessAdmin hash
-                       "/k/content/src/p.md" (bytes, file)
+        check hash sent = checkSave "/k/content" db (sentText AccessAdmin hash sent)
+                            "/k/content/src/p.md" (bytes, file)
     check (fileHash bytes) "title: New\n\nBye"
       `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\n\nBye\n", [])
     check "0000" "title: New\n\nBye" `shouldBe` Left SaveConflict

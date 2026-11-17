@@ -8,6 +8,8 @@ module Kiwi.Edit
   , editorText
   , editedText
   , SaveFailure (..)
+  , Change
+  , sentText
   , checkSave
   , writePageFile
   ) where
@@ -66,20 +68,28 @@ data SaveFailure = SaveConflict         -- ^ the file changed since its edition
                  | SaveFailed String    -- ^ error of the server
   deriving (Eq, Show)
 
--- | Text of a page file to save, from the text sent by an editor with this
--- right (see 'editedText'), with the keys sent that the editor can not
--- change: the file (its bytes and text, read in the content folder at this
--- path) must not have changed since its edition (same hash), and the page of
--- the new text must load. The uid of the page can not change.
-checkSave :: FilePath -> PagesDB -> AccessLevel -> T.Text -> FilePath ->
-             (BS.ByteString, T.Text) -> T.Text ->
-             Either SaveFailure (T.Text, [T.Text])
-checkSave contentDir' db level hash path (bytes, fileText) sent = do
+-- | A change of a page file, from the custom metadata of the config and the
+-- file (its bytes and its text): the text to write, with the keys of the
+-- change that are ignored (see 'editedText'), or why it can not be made
+type Change = [CustomMetaConfig] -> (BS.ByteString, T.Text) ->
+              Either SaveFailure (T.Text, [T.Text])
+
+-- | The text sent by an editor with this right (see 'editedText'), for the
+-- file read with this hash: the file must not have changed since
+sentText :: AccessLevel -> T.Text -> T.Text -> Change
+sentText level hash sent cmc (bytes, fileText) = do
   when (fileHash bytes /= hash) $ Left SaveConflict
-  (text, ignored) <- invalid $ editedText (customMetaConfig db) level fileText sent
-  invalid $ checkPageText contentDir' db path text
+  first SaveInvalid $ editedText cmc level fileText sent
+
+-- | Text of a page file to save, by this change of the file (its bytes and
+-- text, read in the content folder at this path), with the ignored keys:
+-- the page of the new text must load. The uid of the page can not change.
+checkSave :: FilePath -> PagesDB -> Change -> FilePath -> (BS.ByteString, T.Text) ->
+             Either SaveFailure (T.Text, [T.Text])
+checkSave contentDir' db change path file = do
+  (text, ignored) <- change (customMetaConfig db) file
+  first SaveInvalid $ checkPageText contentDir' db path text
   return (text, ignored)
-  where invalid = first SaveInvalid
 
 -- | Keys of the header that an editor with this right can not see nor change
 protectedKeys :: AccessLevel -> [T.Text]
