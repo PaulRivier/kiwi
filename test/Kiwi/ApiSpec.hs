@@ -316,3 +316,51 @@ apiSpec = do
         [edit, create] -> edit == "bob via Kiwi|Edit s:p (kiwi kiwi)" &&
                           "ann via Kiwi|Create s:" `L.isPrefixOf` create
         _ -> False
+
+  it "applies a metadata script to the pages of a source, all or nothing" $
+    withKiwiConfig [] [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
+      [ ("a.md", "title: A\nuid: a\ntags: cuisine > matériel, x\naccess: family:w\n\nA\n")
+      , ("b.md", "title: B\nuid: b\ntags: cuisine > matériel > poêle\naccess: family:w\n\nB\n")
+      , ("c.md", "title: C\nuid: c\ntags: cuisine\naccess: family\n\nC\n") ] $ \cd ss app -> do
+      accs <- readIORef (accounts ss)
+      made <- mapM Auth.newApiToken accs
+      _ <- Auth.dumpTokens (M.fromList $ map snd made) (Auth.tokensFile $ kiwiDir ss)
+      let tokenOf l = case [ t | (a, (t, _)) <- zip accs made, accountId a == l ] of
+            t : _ -> t
+            [] -> error $ "no token for " ++ T.unpack l
+          script token s = WT.srequest $ WT.SRequest
+            (WT.setPath Wai.defaultRequest
+               { Wai.requestMethod = "POST"
+               , Wai.requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 token)] }
+               "/api/metadata/s")
+            (TLE.encodeUtf8 $ TL.fromStrict s)
+          fileOf name = TE.decodeUtf8 <$> BS.readFile (cd FP.</> "s" FP.</> name)
+      flip WT.runSession app $ do
+        -- a typo stops everything, with the close tags
+        typo <- script (tokenOf "bob") "meta tags move \"cuisine > matériel\" \"matériel > cuisine\"\n\
+                                       \meta tags delete matérial\n"
+        liftIO $ status typo `shouldBe` 400
+        liftIO $ body typo `shouldSatisfy` T.isInfixOf "line 2"
+        a0 <- liftIO $ fileOf "a.md"
+        liftIO $ a0 `shouldSatisfy` T.isInfixOf "cuisine > matériel"
+        -- bob can not write c
+        refused <- script (tokenOf "bob") "page c meta summary set Cuisine\n"
+        liftIO $ status refused `shouldBe` 403
+        syntax <- script (tokenOf "bob") "meta tags move x\n"
+        liftIO $ status syntax `shouldBe` 400
+        ok <- script (tokenOf "bob") "meta tags move \"cuisine > matériel\" \"matériel > cuisine\"\n\
+                                     \page a meta tags remove x\npage a meta summary set \"About A\"\n"
+        liftIO $ status ok `shouldBe` 200
+        liftIO $ T.lines (body ok) `shouldBe`
+          [ "4 changes in s"
+          , "line 1: meta tags move \"cuisine > matériel\" \"matériel > cuisine\": 2 pages"
+          , "line 2: page a meta tags remove x: 1 page"
+          , "line 3: page a meta summary set \"About A\": 1 page" ]
+        a <- liftIO $ fileOf "a.md"
+        liftIO $ a `shouldBe` "title: A\nsummary: About A\nuid: a\ntags: matériel > cuisine\n\
+                              \access: family:w\n\nA\n"
+        b <- liftIO $ fileOf "b.md"
+        liftIO $ b `shouldSatisfy` T.isInfixOf "tags: matériel > cuisine > poêle\n"
+        -- the index follows
+        r <- get (tokenOf "bob") "/api/pages?tag=mat%C3%A9riel"
+        liftIO $ take 1 (T.lines $ body r) `shouldBe` ["2 pages, the most recently modified first"]

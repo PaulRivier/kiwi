@@ -13,6 +13,7 @@ import           Kiwi.GitSpec (gitSpec)
 import           Kiwi.HtmlWriterSpec (htmlWriterSpec)
 import           Kiwi.LangDetectSpec (langDetectSpec)
 import           Kiwi.McpSpec (mcpSpec)
+import           Kiwi.MetaScriptSpec (metaScriptSpec)
 import           Kiwi.MetaSpec (metaSpec)
 import           Kiwi.PagesDBSpec (pagesDBSpec)
 import           Kiwi.PandocSpec (loadPageSpec, metaDataSpec)
@@ -46,3 +47,4 @@ main = hspec $ do
   describe "Kiwi.Git.commitFiles" gitSpec
   describe "Kiwi.Api" apiSpec
   describe "Kiwi.Mcp" mcpSpec
+  describe "Kiwi.MetaScript" metaScriptSpec

@@ -729,6 +729,24 @@ and are committed when the file is in a git repository (author
   when the name is taken); the admins can give its path (`path=folder/name`,
   without extension). The account must have the write right on the new
   page, by the access of the source (an admin can set it in the header).
+* `POST /api/metadata/SOURCE` : changes the headers of the pages of a
+  source with a script, one command by line, all of them or none, in one
+  commit (a command on all the pages that changes none is an error):
+
+      # on all the pages of the source
+      meta tags move "cuisine > matériel" "matériel > cuisine"
+      meta tags delete obsolete
+      meta ingredients move bananas banana
+      meta ingredients delete salt
+      meta author rename-to writer
+      # on one page, by its uid
+      page 0123456789 meta summary set "First aid: wounds, burns"
+      page 0123456789 meta tags add health
+      page 0123456789 meta tags remove todo
+      page 0123456789 meta lang unset
+
+  A tag moves or goes with its sub-tags. Changing `access` needs the
+  admin right on the page.
 
 ## MCP server for the agents
 
@@ -736,7 +754,8 @@ and are committed when the file is in a git repository (author
 agents that can run one (Claude Code, Claude Desktop…). It is a client of
 the API of a running kiwi: it keeps nothing, the kiwi server reads and
 writes the pages. Its tools are `search`, `list_pages`, `vocabulary`,
-`read_page`, `folders`, `edit_page`, `write_page` and `create_page`, and it
+`read_page`, `folders`, `edit_page`, `write_page`, `create_page` and
+`edit_metadata`, and it
 gives the guide of `/api/guide` to the
 agent when it connects. The token is read from the `KIWI_API_TOKEN`
 environment variable, or from a file (`--token-file`):

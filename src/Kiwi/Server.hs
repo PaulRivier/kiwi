@@ -159,6 +159,9 @@ kiwiRoute ss = do
   post "/api/pages/:source" $ do
     source <- pathParam "source"
     withToken $ apiCreatePage source
+  post "/api/metadata/:source" $ do
+    source <- pathParam "source"
+    withToken $ apiMetadata source
 
   middleware serveTheme
 

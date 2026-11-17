@@ -55,7 +55,7 @@ mcpSpec = do
     let names = do A.Array ts <- result a >>= field "tools"
                    return [ n | t <- foldr (:) [] ts, Just (A.String n) <- [field "name" t] ]
     names `shouldBe` Just [ "search", "list_pages", "vocabulary", "read_page", "folders"
-                          , "edit_page", "write_page", "create_page" ]
+                          , "edit_page", "write_page", "create_page", "edit_metadata" ]
 
   it "calls the API, and gives its text with the hash of a page" $ do
     (as, calls) <- run "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\

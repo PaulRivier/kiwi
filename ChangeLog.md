@@ -13,8 +13,10 @@
   and lines), `/api/page/SOURCE/UID/meta`, `/api/folders/SOURCE` and
   `/api/guide`, in compact text, with API tokens (`kiwi access --token`,
   `--revoke-tokens`). New `agent-guide` setting. Writes: `PATCH` (exact
-  passages), `PUT` (whole text, `If-Match`) and creation (`POST
-  /api/pages/SOURCE`), committed with the account as author.
+  passages), `PUT` (whole text, `If-Match`), creation (`POST
+  /api/pages/SOURCE`) and metadata scripts (`POST /api/metadata/SOURCE`:
+  move, delete or rename tags and fields on all the pages, set, add,
+  remove or unset them on a page), committed with the account as author.
 - **`kiwi mcp`**: MCP server on stdio for the AI agents (Claude Code,
   Claude Desktop…), a client of the API of a running kiwi (token in
   `KIWI_API_TOKEN` or `--token-file`).

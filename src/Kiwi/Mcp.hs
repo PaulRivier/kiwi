@@ -363,6 +363,25 @@ tools =
           t <- maybe (Left "missing argument: text") Right (text o "text")
           return $ ApiRequest "POST" ("/api/pages/" <> s) (optional o ["path"]) [] t)
       asIs
+  , Tool "edit_metadata"
+      "Change the metadata (header) of many pages of a source at once, with a script: one \
+      \command by line, all of them applied or none, in one commit. On all the pages of the \
+      \source: `meta tags move OLD NEW` (a tag and its sub-tags; merges with NEW), \
+      \`meta tags delete TAG`, `meta FIELD move OLD NEW`, `meta FIELD delete VALUE`, \
+      \`meta FIELD rename-to NEW`. On one page: `page UID meta FIELD set VALUE`, \
+      \`... add VALUE`, `... remove VALUE`, `... unset` (FIELD: tags, title, summary, lang, \
+      \archive, or a custom field). Arguments with spaces go between double quotes; values \
+      \are written as in a header (\"a > b, c\" for tags). A command on all the pages that \
+      \changes none is an error (a typo, most likely). Ask the user before changing the \
+      \vocabulary of the wiki."
+      [ ("source", prop "string" "The source of the pages.")
+      , ("script", prop "string" "The commands, one by line; # starts a comment.") ]
+      ["source", "script"]
+      (\o -> do
+          s <- maybe (Left "missing argument: source") Right (text o "source")
+          sc <- maybe (Left "missing argument: script") Right (text o "script")
+          return $ ApiRequest "POST" ("/api/metadata/" <> s) [] [] sc)
+      asIs
   ]
   where
     lookupCI k hs = lookup k hs

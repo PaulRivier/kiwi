@@ -15,6 +15,7 @@ module Kiwi.Api
   , apiPutPage
   , apiPatchPage
   , apiCreatePage
+  , apiMetadata
   ) where
 
 import           Control.Monad.Reader (local)
@@ -44,6 +45,7 @@ import qualified Kiwi.Browse as Browse
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
 import qualified Kiwi.Log as L
+import qualified Kiwi.MetaScript as MS
 import           Kiwi.Controller (findPage, getRestrictedDB, keyOrder, textOrder, withContext)
 import           Kiwi.Meta (splitPage)
 import           Kiwi.Pandoc (pageDoc)
@@ -467,3 +469,25 @@ apiCreatePage source = withBodyText $ \text -> do
       saved Net.status201 "created" uid hash [ "path: " <> T.pack path | admin ]
   where
     contentPath ss (s, _) path = K.contentDir ss FP.</> T.unpack s FP.</> path
+
+
+-- | POST /api/metadata/SOURCE: applies the metadata script of the body to
+-- the pages of the source (see "Kiwi.MetaScript" and 'Write.runMetaScript'):
+-- all of its commands, or none. The answer gives the number of pages
+-- changed by each command.
+apiMetadata :: T.Text -> ActM ()
+apiMetadata source = withBodyText $ \script ->
+  case MS.parseScript script of
+    Left err -> failWith Net.status400 (T.pack err)
+    Right [] -> failWith Net.status400 "the script has no command"
+    Right cmds -> do
+      ss <- asksK id
+      loginM <- asksK (K.login . K.requestState)
+      r <- Scotty.liftIO $ Write.runMetaScript ss loginM source cmds
+      case r of
+        Left f -> writeFailed f
+        Right counts -> answer $ T.unlines $
+          T.concat [ T.pack (show $ sum $ map snd counts), " changes in ", source ] :
+          [ T.concat [ "line ", T.pack (show $ MS.commandLine c), ": ", MS.commandText c, ": "
+                     , T.pack (show n), if n == 1 then " page" else " pages" ]
+          | (c, n) <- counts ]
