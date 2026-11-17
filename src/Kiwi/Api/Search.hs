@@ -101,15 +101,15 @@ data Passage = Passage { passageLine :: Int
   deriving (Eq, Show)
 
 -- | At most 'maxPassages' lines of the content of a page that contain some of
--- the terms (by stem, in the lang of the page), headings excluded, given the
--- text of the page, the number of lines before its content, and its sections
+-- the terms (by stem, in the lang of the page), given the text of the page,
+-- the number of lines before its content, and its sections. A heading is
+-- given whole, without section.
 passages :: Lang -> [T.Text] -> T.Text -> Int -> [AT.Section] -> [Passage]
 passages lang terms text offset secs =
   take maxPassages
-    [ Passage n (sectionOf n) (window ws i)
+    [ if heading then Passage n Nothing (T.strip l) else Passage n (sectionOf n) (window ws i)
     | (n, l) <- drop offset $ zip [1 ..] (T.lines text)
-    -- the headings are given as sections
-    , n `notElem` map AT.sectionFrom secs
+    , let heading = n `elem` map AT.sectionFrom secs
     , let ws = T.words l
     , i : _ <- [ [ j | (j, wts) <- zip [0 ..] (wordsTerms (alg lang) ws)
                      , any (`S.member` termSet) wts ] ] ]

@@ -188,6 +188,7 @@ apiSpec = do
                           "s/aid  " `T.isPrefixOf` p && "  2/2 in content" `T.isSuffixOf` p &&
                           -- the uid is not in the text: the content starts at line 4
                           rest == [ "  l.6 § Wounds: Clean the wound with water."
+                                  , "  l.8: ## Burns"
                                   , "  l.10 § Burns: Cool the burn with water for long minutes." ]
           _ -> False
         aid <- search "first aid"

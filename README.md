@@ -697,7 +697,7 @@ token stops working when its account is removed or gets a new password.
 * `GET /api/search?q=QUERY` : full-text search for the agents. The pages
   that contain all the words come first (alone when there are some), each
   one with the words it contains, where (title, tags, content), and up to
-  three passages with their line and section. `"exact phrase"` and
+  three passages (lines with their section, or headings). `"exact phrase"` and
   `-excluded` words are allowed; `source`, `archive=yes` and `limit` (10 by
   default) too. The search page of the web interface is not changed.
 * `GET /api/vocabulary` : the tags, langs and custom fields of each
