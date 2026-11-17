@@ -677,6 +677,37 @@ not even to read, and is logged as an invalid value when the pages are
 loaded; in *kiwi.ini*, it is an error. Members of the `admin` group have every
 right on every page.
 
+# API for the agents
+
+Kiwi has an HTTP API under `/api/`, made for the AI agents (Claude…) and
+the scripts: its answers are compact texts. A request needs an API token
+of an account, and gets the rights of this account:
+
+    kiwi access ~/Kiwi/kiwi.ini --token LOGIN           # displayed once
+    kiwi access ~/Kiwi/kiwi.ini --revoke-tokens LOGIN
+    curl -H "Authorization: Bearer TOKEN" http://localhost:3456/api/pages
+
+The tokens are kept hashed in the *_tokens* file, next to *kiwi.ini*. A
+token stops working when its account is removed or gets a new password.
+
+* `GET /api/pages` : the pages, the most recently modified first, one by
+  line (`SOURCE/UID`, day, title, tags, then summary), filtered as on the
+  browse page (`source`, `tag`, `lang`, `m.FIELD`, `has`, `archive=yes`),
+  with `since=YYYY-MM-DD` and `limit` (100 by default).
+* `GET /api/vocabulary` : the tags, langs and custom fields of each
+  source (`source` to choose them), with their number of pages.
+* `GET /api/page/SOURCE/UID` : the text of the page, without its uid, and
+  the hash of its file as `ETag`. `part=outline` gives its outline (tags,
+  summary, backlinks, sections with their lines), `part=section&title=T`
+  one section, `part=lines&from=N&to=M` some lines, and `numbered=yes`
+  numbers the lines.
+* `GET /api/page/SOURCE/UID/meta` : the header of the page.
+* `GET /api/folders/SOURCE` (admins) : the folders of the source, with
+  their number of pages. The admins also get the path of the files in the
+  lists.
+* `GET /api/guide` : the guide of kiwi for the agents, followed by yours:
+  the page given by `agent-guide: SOURCE/UID` in *kiwi.ini*.
+
 # Content versioning and backup
 
 You are strongly encouraged to keep your content in a git repository

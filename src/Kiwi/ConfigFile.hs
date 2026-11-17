@@ -32,6 +32,7 @@ data KiwiConfig = KiwiConfig
   , toc :: K.TocSetting
   , secureCookie :: Bool
   , gitCommit :: Bool  -- ^ commit the pages saved in a git repository
+  , agentGuide :: Maybe K.PageUID  -- ^ page of the guide for the agents
   }
   
 
@@ -63,6 +64,7 @@ configParser = do
     secureCookie' <- fieldFlagDef "secure-cookie" False
     -- empty: the default
     gitCommit' <- fieldDefOf "git-commit" (flagOr True "git-commit") True
+    agentGuide' <- fieldDefOf "agent-guide" pageRef Nothing
     return KiwiConfig
       { name = name'
       , contentDir = contentDir'
@@ -76,6 +78,7 @@ configParser = do
       , toc = toc'
       , secureCookie = secureCookie'
       , gitCommit = gitCommit'
+      , agentGuide = agentGuide'
       }
 
 
@@ -117,6 +120,14 @@ flagOr def key t = case T.toLower (T.strip t) of
   "false" -> Right False
   _       -> Left $ "invalid " ++ key ++ " value " ++ show (T.strip t)
                     ++ ", allowed values: yes, no"
+
+-- | A page as SOURCE/UID, nothing when empty
+pageRef :: T.Text -> Either String (Maybe K.PageUID)
+pageRef t = case T.breakOn "/" (T.strip t) of
+  ("", "") -> Right Nothing
+  (s, u) | not (T.null s), Just uid <- T.stripPrefix "/" u, Meta.isValidUid uid
+           -> Right $ Just (s, uid)
+  _ -> Left $ "invalid page " ++ show (T.strip t) ++ ", expected SOURCE/UID"
 
 trim :: String -> String
 trim = T.unpack . T.strip . T.pack

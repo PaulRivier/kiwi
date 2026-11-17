@@ -8,6 +8,11 @@
 - New `summary` metadata (optional): a short description of the page,
   shown as the title (tooltip) of the links to the page, after the title
   of the link if it has one.
+- **API for the agents** (read only for now): `/api/pages`,
+  `/api/vocabulary`, `/api/page/SOURCE/UID` (with its outline, sections
+  and lines), `/api/page/SOURCE/UID/meta`, `/api/folders/SOURCE` and
+  `/api/guide`, in compact text, with API tokens (`kiwi access --token`,
+  `--revoke-tokens`). New `agent-guide` setting.
 
 ## v0.4.4.0 - 2026-11-16
 

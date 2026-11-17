@@ -7,6 +7,7 @@ import           Control.Monad (forM_, unless, when)
 import qualified Data.ByteString as BS
 import           Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import qualified Data.List as L
+import qualified Data.Map.Strict as M
 import           Data.Maybe (isJust)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -199,6 +200,10 @@ runAccess c = do
   forM_ (Auth.refusedLinesWarning accountsFilePath refused) $ \w ->
     exitError $ w ++ ". Fix or remove these lines first."
   let findAccount l = L.find (\a -> accountId a == l) accounts'
+      tokensFilePath = Auth.tokensFile (FP.takeDirectory cfp)
+      saveTokens tokens = do
+        warningM <- Auth.dumpTokens tokens tokensFilePath
+        mapM_ (hPutStrLn stderr) warningM
       save accs l what = do
         warningM <- Auth.dumpAccounts accs accountsFilePath
         mapM_ (hPutStrLn stderr) warningM
@@ -225,6 +230,19 @@ runAccess c = do
     AccessRemove l -> case findAccount l of
       Nothing -> exitError $ "account " ++ T.unpack l ++ " does not exist"
       Just _ -> save (filter (\a -> accountId a /= l) accounts') l "removed"
+    AccessToken l -> case findAccount l of
+      Nothing -> exitError $ "account " ++ T.unpack l ++ " does not exist"
+      Just a -> do
+        tokens <- Auth.loadTokens tokensFilePath
+        (token, entry) <- Auth.newApiToken a
+        saveTokens $ uncurry M.insert entry tokens
+        putStrLn $ concat [ "API token of ", T.unpack l, " (it is not kept, copy it now):" ]
+        putStrLn $ T.unpack token
+    AccessRevokeTokens l -> do
+      tokens <- Auth.loadTokens tokensFilePath
+      let (revoked, kept) = M.partition ((== l) . sessionUser) tokens
+      saveTokens kept
+      putStrLn $ concat [ show (M.size revoked), " API token(s) of ", T.unpack l, " revoked." ]
   where
     newAccount l pass groups = do
       salt <- Auth.randomText 16

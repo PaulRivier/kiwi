@@ -2,6 +2,7 @@ module Main (main) where
 
 import           Test.Hspec
 
+import           Kiwi.ApiSpec (apiSpec)
 import           Kiwi.AuthSpec (passwordSpec, accountsSpec, sessionsSpec, readableQuerySpec)
 import           Kiwi.BrowseSpec (browseReqSpec)
 import           Kiwi.ConfigFileSpec (configSpec)
@@ -42,3 +43,4 @@ main = hspec $ do
   describe "Kiwi.View and Kiwi.Server" viewSpec
   describe "Kiwi.Edit and the page editor" editSpec
   describe "Kiwi.Git.commitFiles" gitSpec
+  describe "Kiwi.Api" apiSpec

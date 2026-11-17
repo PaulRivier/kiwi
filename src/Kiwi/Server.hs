@@ -34,6 +34,7 @@ import           Web.Scotty.Trans
 
 import           Kiwi.Auth (loadAccounts, loadSessions, refusedLinesWarning, reloadAccountsIO)
 import qualified Kiwi.ConfigFile as Conf
+import           Kiwi.Api
 import           Kiwi.Controller
 import qualified Kiwi.Log as L
 import qualified Kiwi.PagesDB as DB
@@ -131,6 +132,22 @@ kiwiRoute ss = do
   post "/login" $ logUserIn
   post "/logout" $ logUserOut
 
+  -- the API, with a token (see "Kiwi.Api")
+  get "/api/pages" $ withToken apiPages
+  get "/api/vocabulary" $ withToken apiVocabulary
+  get "/api/page/:source/:uid" $ do
+    source <- pathParam "source"
+    uid <- pathParam "uid"
+    withToken $ apiPage source uid
+  get "/api/page/:source/:uid/meta" $ do
+    source <- pathParam "source"
+    uid <- pathParam "uid"
+    withToken $ apiPageMeta source uid
+  get "/api/folders/:source" $ do
+    source <- pathParam "source"
+    withToken $ apiFolders source
+  get "/api/guide" $ withToken apiGuide
+
   middleware serveTheme
 
   -- the files of the sources linked by the pages, by uid (see 'serveFile')
@@ -224,6 +241,7 @@ initServerState cfp conf logger' = do
     , tocSetting   = Conf.toc conf
     , secureCookie = Conf.secureCookie conf
     , gitCommit    = Conf.gitCommit conf
+    , agentGuide   = Conf.agentGuide conf
     , logger       = logger'
   }
   where

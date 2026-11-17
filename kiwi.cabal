@@ -101,6 +101,8 @@ library
       Kiwi.Utils
       Kiwi.View
       Kiwi.Write
+      Kiwi.Api
+      Kiwi.Api.Text
       Utils.DocIndex
   other-modules: Paths_kiwi
   autogen-modules: Paths_kiwi
@@ -140,6 +142,7 @@ test-suite kiwi-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      Kiwi.ApiSpec
       Kiwi.AuthSpec
       Kiwi.BrowseSpec
       Kiwi.ConfigFileSpec

@@ -22,6 +22,10 @@ module Kiwi.Controller
   , withContext
   , withETag
   , ifAdmin
+  , getRestrictedDB
+  , findPage
+  , textOrder
+  , keyOrder
   , BrowseAll (..)    -- exported for tests
   , metaIndex         -- exported for tests
   ) where

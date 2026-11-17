@@ -26,6 +26,10 @@ secure-cookie: no
 # When a page saved from the browser is in a git repository (and not ignored
 # there), kiwi commits it: yes (default) | no
 git-commit: yes
+# Page holding your guide for the agents (Claude…) using the API, as
+# SOURCE/UID: where to put what, tone, signature… It is given to them after
+# the guide of kiwi. Optional.
+# agent-guide: notes/0123456789
 
 # built-in metadata default values
 [metadata-default]

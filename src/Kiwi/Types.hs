@@ -93,6 +93,8 @@ data ServerState =
               , secureCookie  :: Bool
               , gitCommit     :: Bool  -- ^ commit the pages saved in a
                                        -- git repository
+              , agentGuide    :: Maybe PageUID  -- ^ page of the guide of the
+                                                -- user for the agents (API)
               , logger        :: Logger
               }
 

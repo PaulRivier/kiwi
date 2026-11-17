@@ -12,6 +12,12 @@ module Kiwi.Auth
   , renderSessions       -- exported for tests
   , SessionStatus (..)   -- exported for tests
   , sessionStatus        -- exported for tests
+    -- * API tokens
+  , tokensFile
+  , loadTokens
+  , dumpTokens
+  , tokenLogin
+  , newApiToken
     -- * Cookies
   , setKiwiCookie
   , getKiwiCookie
@@ -207,6 +213,44 @@ renderSessions = T.unlines . map renderSession . M.toList
 -- owner had to change (see 'writePrivateFile')
 dumpSessions :: Sessions -> FP.FilePath -> IO (Maybe String)
 dumpSessions sessions' p = writePrivateFile p $ renderSessions sessions'
+
+
+--------------------------------------------------------------------------------
+-- API tokens
+
+-- | File of the API tokens, next to kiwi.ini: one line by token, in the
+-- format of the sessions (see 'parseSessions'): hash of the token, login,
+-- fingerprint of the salt of the account, creation time. A token does not
+-- expire; it is revoked by its removal, by the removal of its account, or by
+-- a new password of its account (new salt), as the sessions.
+tokensFile :: FP.FilePath -> FP.FilePath
+tokensFile kiwiDir' = FP.combine kiwiDir' "_tokens"
+
+-- | The tokens of the file, none when it does not exist
+loadTokens :: FP.FilePath -> IO Sessions
+loadTokens p = maybe M.empty parseSessions <$> getFileContent p
+
+-- | Save the tokens to the file, with a warning if its owner had to change
+-- (see 'writePrivateFile')
+dumpTokens :: Sessions -> FP.FilePath -> IO (Maybe String)
+dumpTokens tokens p = writePrivateFile p $ renderSessions tokens
+
+-- | Login given by a token (its hash is the key of the tokens, see
+-- 'hashToken'), with the current groups of its account
+tokenLogin :: [Account] -> Sessions -> T.Text -> Maybe Login
+tokenLogin accounts' tokens token = do
+  t <- M.lookup (hashToken token) tokens
+  a <- L.find (\a -> accountId a == sessionUser t) accounts'
+  if saltFingerprint (accountSalt a) == sessionSaltFp t
+    then Just (Login (accountId a) (accountGroups a) (sessionTime t))
+    else Nothing
+
+-- | A new API token of an account, with its key in the tokens
+newApiToken :: Account -> IO (T.Text, (T.Text, Session))
+newApiToken a = do
+  token <- randomText 48
+  now <- Time.getCurrentTime
+  return (token, (hashToken token, newSession a now))
 
 
 --------------------------------------------------------------------------------

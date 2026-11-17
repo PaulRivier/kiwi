@@ -35,6 +35,8 @@ data AccessConfig =
 data AccessOp = AccessCreate T.Text
               | AccessUpdate T.Text
               | AccessRemove T.Text
+              | AccessToken T.Text
+              | AccessRevokeTokens T.Text
 
 data UpdateConfig =
   UpdateConfig { updateCheck :: Bool }
@@ -72,7 +74,15 @@ parser = hsubparser
                                                         \of an account" ) ) <|>
           ( AccessRemove <$> option readLogin ( long "remove"
                                                 <> metavar "LOGIN"
-                                                <> help "remove account with login" ) ) )
+                                                <> help "remove account with login" ) ) <|>
+          ( AccessToken <$> option readLogin ( long "token"
+                                               <> metavar "LOGIN"
+                                               <> help "create an API token for the account, \
+                                                       \displayed once" ) ) <|>
+          ( AccessRevokeTokens <$> option readLogin ( long "revoke-tokens"
+                                                      <> metavar "LOGIN"
+                                                      <> help "revoke all the API tokens \
+                                                              \of the account" ) ) )
       )
 
     reloadParser :: Parser Config
