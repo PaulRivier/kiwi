@@ -12,6 +12,9 @@ module Kiwi.Api
   , apiFolders
   , apiGuide
   , apiSearch
+  , apiPutPage
+  , apiPatchPage
+  , apiCreatePage
   ) where
 
 import           Control.Monad.Reader (local)
@@ -22,6 +25,9 @@ import qualified Data.Map.Strict as M
 import           Data.Ord (Down (..))
 import qualified Data.Set as S
 import qualified Data.Text as T
+import qualified Data.Aeson as A
+import qualified Data.Aeson.Types as AesonT
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
@@ -338,3 +344,126 @@ apiSearch = do
               secs <- pageSections p text offset total
               return (h, AS.passages (K.pageLang p) terms text offset secs)
         _ -> return (h, [])
+
+
+-- | Text of the body of a request, LF line endings, at most 'maxTextLength'
+-- characters, or answers 400 or 413
+withBodyText :: (T.Text -> ActM ()) -> ActM ()
+withBodyText run = do
+  b <- Scotty.body
+  case TE.decodeUtf8' (BL.toStrict b) of
+    Left _ -> failWith Net.status400 "the body is not valid UTF-8"
+    Right t | T.length t > maxTextLength -> failWith Net.status413 "the text is too long"
+            | otherwise -> run (T.replace "\r\n" "\n" t)
+
+-- | Largest text of a request, in characters
+maxTextLength :: Int
+maxTextLength = 1000000
+
+-- | The page of the request, when the user can write it, with their right;
+-- 404 when the user can not read it, 403 when they can not write it
+withWritablePage :: T.Text -> T.Text -> (K.Page -> K.AccessLevel -> ActM ()) -> ActM ()
+withWritablePage source uid run = do
+  db <- getDB
+  loginM <- asksK (K.login . K.requestState)
+  case findPage db (source, uid) of
+    Just p | Just level <- Auth.pageAccessLevel loginM p ->
+      if level >= K.AccessWrite then run p level
+      else failWith Net.status403 $ "the account can not write the page " <> source <> "/" <> uid
+    _ -> failWith Net.status404 $ "no page " <> source <> "/" <> uid
+
+-- | Answer of a write: the page, the hash of its file (also as ETag), and
+-- more lines
+saved :: Net.Status -> T.Text -> K.PageUID -> T.Text -> [T.Text] -> ActM ()
+saved st what (s, u) hash more = do
+  setHeader "ETag" $ TL.fromStrict $ "\"" <> hash <> "\""
+  status st
+  answer $ T.unlines $ [ T.concat [what, " ", s, "/", u], "hash: " <> hash ] ++ more
+
+-- | Answer of a write that failed
+writeFailed :: Edit.SaveFailure -> ActM ()
+writeFailed f = case f of
+  Edit.SaveConflict -> failWith Net.status412
+    "the page changed since it was read (its hash is not the one of If-Match): read it again"
+  Edit.SaveNotApplied e -> failWith Net.status409 (T.pack e)
+  Edit.SaveInvalid e -> failWith Net.status400 (T.pack e)
+  Edit.SaveForbidden e -> failWith Net.status403 (T.pack e)
+  Edit.SaveFailed e -> failWith Net.status500 (T.pack e)
+
+-- | The user of the request
+userName :: ActM T.Text
+userName = maybe "" K.loginUser <$> asksK (K.login . K.requestState)
+
+-- | PUT /api/page/SOURCE/UID: replaces the text of a page (header and
+-- content, as given by GET, without uid) by the body, when its file still has
+-- the hash of If-Match (412 otherwise, 428 without it). The keys that the
+-- user can not change keep their value (see 'Edit.editedText'), and are
+-- listed in the answer.
+apiPutPage :: T.Text -> T.Text -> ActM ()
+apiPutPage source uid = withWritablePage source uid $ \p level -> withBodyText $ \text -> do
+  ifMatch <- Scotty.header "If-Match"
+  case T.filter (/= '"') . TL.toStrict <$> ifMatch of
+    Nothing -> failWith Net.status428
+      "If-Match is required, with the hash of the page as read (its ETag)"
+    Just hash -> do
+      ss <- asksK id
+      user <- userName
+      r <- Scotty.liftIO $ Write.updatePage ss user p (Edit.sentText level hash text)
+      case r of
+        Left f -> writeFailed f
+        Right (newHash, ignored) -> saved Net.status200 "saved" (source, uid) newHash
+          [ "ignored keys (not allowed): " <> T.intercalate ", " ignored | not (null ignored) ]
+
+-- | PATCH /api/page/SOURCE/UID: replaces exact passages of the text of the
+-- page (as given by GET), with a JSON body {"edits": [{"old": "…", "new":
+-- "…"}, …]} (see 'Edit.applyEdits'): all of them or none. The answer gives
+-- the lines of the new passages.
+apiPatchPage :: T.Text -> T.Text -> ActM ()
+apiPatchPage source uid = withWritablePage source uid $ \p level -> do
+  b <- Scotty.body
+  case A.decode b >>= AesonT.parseMaybe editsParser of
+    Nothing -> failWith Net.status400
+      "expected a JSON body: {\"edits\": [{\"old\": \"exact text\", \"new\": \"text\"}]}"
+    Just edits -> do
+      ss <- asksK id
+      user <- userName
+      db <- getDB
+      let edits' = [ (T.replace "\r\n" "\n" o, T.replace "\r\n" "\n" n) | (o, n) <- edits ]
+      -- the lines of the new passages, from the text before the save (for
+      -- the answer only)
+      before <- Scotty.liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
+      let ranges = case before of
+            Right (_, t) | Right (shown, _) <- Edit.editorText (K.customMetaConfig db) level t
+                         , Right (_, rs) <- Edit.applyEdits edits' shown -> rs
+            _ -> []
+      r <- Scotty.liftIO $ Write.updatePage ss user p (Edit.editsChange level edits')
+      case r of
+        Left f -> writeFailed f
+        Right (newHash, ignored) -> saved Net.status200 "saved" (source, uid) newHash $
+          [ "lines: " <> T.intercalate ", " [ T.pack (show a ++ "-" ++ show z) | (a, z) <- ranges ]
+          | not (null ranges) ] ++
+          [ "ignored keys (not allowed): " <> T.intercalate ", " ignored | not (null ignored) ]
+  where
+    editsParser = A.withObject "body" $ \o -> do
+      es <- o A..: "edits"
+      mapM (A.withObject "edit" $ \e -> (,) <$> e A..: "old" <*> e A..: "new") es
+
+-- | POST /api/pages/SOURCE: creates a page from the body (header and
+-- content, as given by GET), with a new uid, at "path" (admins only, see
+-- 'Write.createPage') or in a file named after its title. 201 with the uid
+-- of the page.
+apiCreatePage :: T.Text -> ActM ()
+apiCreatePage source = withBodyText $ \text -> do
+  pathM <- queryParamMaybe "path"
+  ss <- asksK id
+  loginM <- asksK (K.login . K.requestState)
+  admin <- Auth.isAdmin
+  r <- Scotty.liftIO $ Write.createPage ss loginM source (T.unpack <$> pathM) text
+  case r of
+    Left f -> writeFailed f
+    Right (uid, path) -> do
+      fileE <- Scotty.liftIO $ Write.readPageFile (contentPath ss uid path)
+      let hash = either (const "") (Edit.fileHash . fst) fileE
+      saved Net.status201 "created" uid hash [ "path: " <> T.pack path | admin ]
+  where
+    contentPath ss (s, _) path = K.contentDir ss FP.</> T.unpack s FP.</> path

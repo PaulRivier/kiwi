@@ -7,14 +7,15 @@ import           Data.IORef (modifyIORef, newIORef, readIORef)
 import qualified Data.Text as T
 import           Test.Hspec
 
-import           Kiwi.Mcp (handleMessage)
+import           Kiwi.Mcp (ApiRequest (..), handleMessage)
 
 
 mcpSpec :: Spec
 mcpSpec = do
   let -- a fake API: answers the guide, and gives the request it got
-      backend calls (path, params) = do
-        modifyIORef calls ((path, params) :)
+      backend calls req = do
+        let path = apiPath req
+        modifyIORef calls (req :)
         return $ case path of
           "/api/guide" -> (200, [], "the guide")
           "/api/page/s/p" -> (200, [("etag", "\"abc\""), ("kiwi-lines", "1-3")], "title: P\n\nx\n")
@@ -53,15 +54,16 @@ mcpSpec = do
     ([a], _) <- run "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"
     let names = do A.Array ts <- result a >>= field "tools"
                    return [ n | t <- foldr (:) [] ts, Just (A.String n) <- [field "name" t] ]
-    names `shouldBe` Just ["search", "list_pages", "vocabulary", "read_page", "folders"]
+    names `shouldBe` Just [ "search", "list_pages", "vocabulary", "read_page", "folders"
+                          , "edit_page", "write_page", "create_page" ]
 
   it "calls the API, and gives its text with the hash of a page" $ do
     (as, calls) <- run "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"list_pages\",\"arguments\":{\"sources\":[\"s\"],\"tags\":[\"a > b\"],\
                        \\"fields\":{\"zone\":\"north\"},\"limit\":5}}}"
     map toolText as `shouldBe` [Just "ok"]
-    calls `shouldBe` [("/api/pages", [ ("source", "s"), ("tag", "a > b"), ("m.zone", "north")
-                                     , ("limit", "5") ])]
+    calls `shouldBe` [ApiRequest "GET" "/api/pages" [ ("source", "s"), ("tag", "a > b")
+                                                    , ("m.zone", "north"), ("limit", "5") ] [] ""]
     ([p], _) <- run "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\
                     \\"name\":\"read_page\",\"arguments\":{\"page\":\"s/p\"}}}"
     toolText p `shouldBe` Just "hash: abc\nlines: 1-3\n---\ntitle: P\n\nx\n"
@@ -76,3 +78,15 @@ mcpSpec = do
                         \\"name\":\"read_page\",\"arguments\":{\"page\":\"nope\"}}}"
     fmap (T.isPrefixOf "invalid page") (toolText b) `shouldBe` Just True
     calls `shouldBe` []
+
+  it "sends the edits of a page as JSON, and a new text with its hash" $ do
+    (_, calls) <- run "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\
+                      \\"name\":\"edit_page\",\"arguments\":{\"page\":\"s/p\",\
+                      \\"edits\":[{\"old\":\"a\",\"new\":\"b\"}]}}}"
+    map (\r -> (apiMethod r, apiPath r, apiBody r)) calls
+      `shouldBe` [("PATCH", "/api/page/s/p", "{\"edits\":[{\"new\":\"b\",\"old\":\"a\"}]}")]
+    (_, puts) <- run "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\
+                     \\"name\":\"write_page\",\"arguments\":{\"page\":\"s/p\",\"hash\":\"abc\",\
+                     \\"text\":\"title: T\\n\\nx\\n\"}}}"
+    map (\r -> (apiMethod r, apiHeaders r, apiBody r)) puts
+      `shouldBe` [("PUT", [("If-Match", "\"abc\"")], "title: T\n\nx\n")]

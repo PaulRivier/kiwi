@@ -19,6 +19,7 @@ import           Test.Hspec
 
 import qualified Kiwi.Api.Search as AS
 import qualified Kiwi.Auth as Auth
+import qualified Kiwi.Edit as Edit
 import           Kiwi.Edit (fileHash)
 import           Kiwi.Types
 import           TestUtils
@@ -201,3 +202,117 @@ apiSpec = do
         liftIO $ take 1 partial `shouldBe` ["2 pages for snow burns (english), none with all the terms"]
         liftIO $ partial `shouldSatisfy` any (\l -> "s/snow  " `T.isPrefixOf` l &&
                                                     "  1/2 (snow) in title" `T.isSuffixOf` l)
+
+  it "replaces exact passages, each one found once, and gives their new lines" $ do
+    Edit.applyEdits [("b\n", "B1\nB2\n"), ("d", "D")] "a\nb\nc\nd\n"
+      `shouldBe` Right ("a\nB1\nB2\nc\nD\n", [(2, 3), (5, 5)])
+    -- a later edit moves the lines of an earlier one
+    Edit.applyEdits [("d", "D"), ("a\n", "")] "a\nb\nc\nd\n"
+      `shouldBe` Right ("b\nc\nD\n", [(3, 3), (1, 1)])
+    Edit.applyEdits [("x", "y")] "a\n" `shouldSatisfy` either ("not in the page" `L.isInfixOf`) (const False)
+    Edit.applyEdits [("a", "y")] "a\na\n"
+      `shouldSatisfy` either ("2 times (lines 1, 2)" `L.isInfixOf`) (const False)
+    Edit.applyEdits [("", "y")] "a\n" `shouldSatisfy` either (const True) (const False)
+
+  it "names the file of a new page after its title" $ do
+    Edit.titleFileName "Premiers soins : brûlures / plaies" `shouldBe` "Premiers soins  brûlures  plaies"
+    Edit.titleFileName "  _#Notes~" `shouldBe` "Notes"
+    Edit.titleFileName "???" `shouldBe` "page"
+    map Edit.validPagePath ["a/b", "b", "../b", "a/.b", "_a/b", "/a", "a/-b", ""]
+      `shouldBe` [True, True, False, False, False, False, False, False]
+
+  -- writes, with a token of ann (admin), bob (family: write right on p) and
+  -- joe (friends: read only)
+  let writePages = [ ("p.md", "title: Page\nuid: p\naccess: family:w, friends\n\nHello\n\nWorld\n") ]
+      onWriteKiwi test = withKiwiConfig []
+                           [ ("ann", "secret", ["admin"]), ("bob", "secret", ["family"])
+                           , ("joe", "secret", ["friends"]) ] writePages $ \cd ss app -> do
+        accs <- readIORef (accounts ss)
+        made <- mapM Auth.newApiToken accs
+        _ <- Auth.dumpTokens (M.fromList $ map snd made) (Auth.tokensFile $ kiwiDir ss)
+        let tokenOf l = case [ t | (a, (t, _)) <- zip accs made, accountId a == l ] of
+              t : _ -> t
+              [] -> error $ "no token for " ++ T.unpack l
+        WT.runSession (test cd tokenOf) app
+      send method token headers path b = WT.srequest $ WT.SRequest
+        (WT.setPath Wai.defaultRequest
+           { Wai.requestMethod = method
+           , Wai.requestHeaders = ("Authorization", "Bearer " <> TE.encodeUtf8 token) : headers }
+           path)
+        (TLE.encodeUtf8 $ TL.fromStrict b)
+      fileOf cd name = liftIO $ TE.decodeUtf8 <$> BS.readFile (cd FP.</> "s" FP.</> name)
+
+  it "replaces a page with the hash it was read with" $ onWriteKiwi $ \cd tokenOf -> do
+    bytes <- liftIO $ BS.readFile (cd FP.</> "s" FP.</> "p.md")
+    let hash = TE.encodeUtf8 (fileHash bytes)
+    noMatch <- send "PUT" (tokenOf "bob") [] "/api/page/s/p" "title: New\n\nBye\n"
+    liftIO $ status noMatch `shouldBe` 428
+    stale <- send "PUT" (tokenOf "bob") [("If-Match", "\"0000\"")] "/api/page/s/p" "title: New\n\nBye\n"
+    liftIO $ status stale `shouldBe` 412
+    readOnly <- send "PUT" (tokenOf "joe") [("If-Match", hash)] "/api/page/s/p" "title: New\n\nBye\n"
+    liftIO $ status readOnly `shouldBe` 403
+    ok <- send "PUT" (tokenOf "bob") [("If-Match", "\"" <> hash <> "\"")] "/api/page/s/p"
+            "title: New\naccess: public\n\nBye\n"
+    liftIO $ status ok `shouldBe` 200
+    liftIO $ T.lines (body ok) `shouldSatisfy` \ls ->
+      take 1 ls == ["saved s/p"] && "ignored keys (not allowed): access" `elem` ls
+    -- the uid and the access are kept
+    file <- fileOf cd "p.md"
+    liftIO $ file `shouldBe` "title: New\nuid: p\naccess: family:w, friends\n\nBye\n"
+    -- the index is up to date
+    r <- get (tokenOf "bob") "/api/pages"
+    liftIO $ body r `shouldSatisfy` T.isInfixOf "  New  ["
+
+  it "replaces exact passages of a page" $ onWriteKiwi $ \cd tokenOf -> do
+    let patchWith edits = send "PATCH" (tokenOf "bob") [] "/api/page/s/p" edits
+    missing <- patchWith "{\"edits\": [{\"old\": \"Hullo\", \"new\": \"Hi\"}]}"
+    liftIO $ status missing `shouldBe` 409
+    bad <- patchWith "{\"old\": \"Hello\"}"
+    liftIO $ status bad `shouldBe` 400
+    ok <- patchWith "{\"edits\": [{\"old\": \"Hello\\n\", \"new\": \"Hello\\n\\nNew line\\n\"}]}"
+    liftIO $ status ok `shouldBe` 200
+    -- the text starts with "title: Page" (the uid is not shown): Hello is line 3
+    liftIO $ T.lines (body ok) `shouldSatisfy` elem "lines: 3-5"
+    file <- fileOf cd "p.md"
+    liftIO $ file `shouldBe` "title: Page\nuid: p\naccess: family:w, friends\n\nHello\n\nNew line\n\nWorld\n"
+
+  it "creates a page with a new uid, named after its title" $ onWriteKiwi $ \cd tokenOf -> do
+    -- the default access of the pages is public (read only): bob can not
+    -- write a page of this access, the admin can
+    refused <- send "POST" (tokenOf "bob") [] "/api/pages/s" "title: Burns\n\nCool it.\n"
+    liftIO $ status refused `shouldBe` 403
+    noSource <- send "POST" (tokenOf "ann") [] "/api/pages/nope" "title: Burns\n\nCool it.\n"
+    liftIO $ status noSource `shouldBe` 400
+    first' <- send "POST" (tokenOf "ann") [] "/api/pages/s" "title: Burns\nuid: mine\n\nCool it.\n"
+    liftIO $ status first' `shouldBe` 201
+    second <- send "POST" (tokenOf "ann") [] "/api/pages/s" "title: Burns\n\nAgain.\n"
+    liftIO $ T.lines (body second) `shouldSatisfy` elem "path: Burns (2).md"
+    file <- fileOf cd "Burns.md"
+    liftIO $ case T.lines file of
+      ["title: Burns", u, "", "Cool it."] -> do
+        u `shouldSatisfy` T.isPrefixOf "uid: "
+        u `shouldNotBe` "uid: mine"
+        T.lines (body first') `shouldSatisfy` elem ("created s/" <> T.drop 5 u)
+      other -> expectationFailure $ show other
+    -- bob gets the page when it gives him the write right
+    byBob <- send "POST" (tokenOf "ann") [] "/api/pages/s?path=notes/first"
+               "title: Notes\naccess: family:w\n\nN\n"
+    liftIO $ T.lines (body byBob) `shouldSatisfy` elem "path: notes/first.md"
+    pathRefused <- send "POST" (tokenOf "bob") [] "/api/pages/s?path=x" "title: X\n\nX\n"
+    liftIO $ status pathRefused `shouldBe` 403
+
+  it "commits a page created or changed by the API, with the account as author" $ withGit $
+    onWriteKiwi $ \cd tokenOf -> do
+      liftIO $ do
+        git cd ["init", "-q"]
+        git cd ["add", "."]
+        git cd ["commit", "-q", "-m", "init"]
+      created <- send "POST" (tokenOf "ann") [] "/api/pages/s" "title: Burns\n\nCool it.\n"
+      liftIO $ status created `shouldBe` 201
+      _ <- send "PATCH" (tokenOf "bob") [] "/api/page/s/p"
+             "{\"edits\": [{\"old\": \"World\", \"new\": \"Earth\"}]}"
+      logs <- liftIO $ gitOut cd ["log", "--format=%an|%s"]
+      liftIO $ take 2 (lines logs) `shouldSatisfy` \ls -> case ls of
+        [edit, create] -> edit == "bob via Kiwi|Edit s:p (kiwi kiwi)" &&
+                          "ann via Kiwi|Create s:" `L.isPrefixOf` create
+        _ -> False

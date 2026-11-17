@@ -29,6 +29,7 @@ module Kiwi.Auth
   , hashPassword
   , isAdmin
   , pageAccessLevel
+  , accessLevel
   , readableQuery
   , readableAnyArchiveQuery
   , randomText
@@ -355,9 +356,13 @@ loginIsAdmin loginM = case loginM of
 -- | Right of the user on the page, if any: the highest one of their groups
 -- in the access of the page ("public" for everyone), every right for admins
 pageAccessLevel :: Maybe Login -> Page -> Maybe AccessLevel
-pageAccessLevel loginM p
+pageAccessLevel loginM = accessLevel loginM . pageAccess
+
+-- | Right of the user on a page of this access (see 'pageAccessLevel')
+accessLevel :: Maybe Login -> Access -> Maybe AccessLevel
+accessLevel loginM access
   | loginIsAdmin loginM = Just AccessAdmin
-  | otherwise = case [ l | (g, l) <- pageAccess p, g `elem` groups ] of
+  | otherwise = case [ l | (g, l) <- access, g `elem` groups ] of
       [] -> Nothing
       ls -> Just (maximum ls)
   where groups = "public" : maybe [] loginGroups loginM

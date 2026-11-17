@@ -148,6 +148,17 @@ kiwiRoute ss = do
     withToken $ apiFolders source
   get "/api/guide" $ withToken apiGuide
   get "/api/search" $ withToken apiSearch
+  put "/api/page/:source/:uid" $ do
+    source <- pathParam "source"
+    uid <- pathParam "uid"
+    withToken $ apiPutPage source uid
+  patch "/api/page/:source/:uid" $ do
+    source <- pathParam "source"
+    uid <- pathParam "uid"
+    withToken $ apiPatchPage source uid
+  post "/api/pages/:source" $ do
+    source <- pathParam "source"
+    withToken $ apiCreatePage source
 
   middleware serveTheme
 

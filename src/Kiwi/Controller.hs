@@ -533,6 +533,13 @@ serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest
       unless (null ignored) $
         setHeader "Kiwi-Ignored-Keys" $ TL.fromStrict $ T.intercalate ", " ignored
       Scotty.text $ TL.fromStrict $ Url.pageUIDUrl uid
+    Left (Edit.SaveForbidden e) -> do
+      status Net.status403
+      Scotty.text $ TL.pack e
+    -- the browser editor sends the whole text: its change always applies
+    Left (Edit.SaveNotApplied e) -> do
+      status Net.status409
+      Scotty.text $ TL.pack e
     Left Edit.SaveConflict -> do
       status Net.status409
       Scotty.text "the page has changed since its edition"

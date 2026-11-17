@@ -714,13 +714,30 @@ token stops working when its account is removed or gets a new password.
 * `GET /api/guide` : the guide of kiwi for the agents, followed by yours:
   the page given by `agent-guide: SOURCE/UID` in *kiwi.ini*.
 
+The writes need the write right on the page, as in the browser editor,
+and are committed when the file is in a git repository (author
+`LOGIN via Kiwi`):
+
+* `PATCH /api/page/SOURCE/UID` : replaces exact passages of the text of
+  the page, with a JSON body `{"edits": [{"old": "…", "new": "…"}]}`. Each
+  old text must be found exactly once; all the edits apply, or none (409).
+* `PUT /api/page/SOURCE/UID` : replaces the whole text, with the hash of
+  the page as read in `If-Match` (412 when the page changed since, 428
+  without it).
+* `POST /api/pages/SOURCE` : creates a page from the text of the body.
+  Kiwi gives it a uid, and names its file after its title (` (2)` is added
+  when the name is taken); the admins can give its path (`path=folder/name`,
+  without extension). The account must have the write right on the new
+  page, by the access of the source (an admin can set it in the header).
+
 ## MCP server for the agents
 
 `kiwi mcp` is an MCP server (Model Context Protocol) on stdio, for the
 agents that can run one (Claude Code, Claude Desktop…). It is a client of
 the API of a running kiwi: it keeps nothing, the kiwi server reads and
 writes the pages. Its tools are `search`, `list_pages`, `vocabulary`,
-`read_page` and `folders`, and it gives the guide of `/api/guide` to the
+`read_page`, `folders`, `edit_page`, `write_page` and `create_page`, and it
+gives the guide of `/api/guide` to the
 agent when it connects. The token is read from the `KIWI_API_TOKEN`
 environment variable, or from a file (`--token-file`):
 

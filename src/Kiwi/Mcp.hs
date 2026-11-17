@@ -14,7 +14,7 @@ module Kiwi.Mcp
   , McpConfig (..)
   , handleMessage  -- exported for tests
   , Backend        -- exported for tests
-  , toolRequest    -- exported for tests
+  , ApiRequest (..)  -- exported for tests
   ) where
 
 import           Control.Exception (SomeException, try)
@@ -43,9 +43,21 @@ import           Data.Version (showVersion)
 data McpConfig = McpConfig { mcpUrl :: String      -- ^ base URL of the kiwi
                            , mcpToken :: T.Text }
 
--- | A GET request to the API (path and query parameters), answered with its
--- status, headers and text
-type Backend = (T.Text, [(T.Text, T.Text)]) -> IO (Int, [(T.Text, T.Text)], T.Text)
+-- | A request to the API: method, path, query parameters, headers and body
+data ApiRequest = ApiRequest { apiMethod :: T.Text
+                             , apiPath :: T.Text
+                             , apiParams :: [(T.Text, T.Text)]
+                             , apiHeaders :: [(T.Text, T.Text)]
+                             , apiBody :: T.Text }
+  deriving (Eq, Show)
+
+-- | A GET request without body
+apiGet :: T.Text -> [(T.Text, T.Text)] -> ApiRequest
+apiGet path params = ApiRequest "GET" path params [] ""
+
+-- | A request to the API, answered with its status, headers (names in lower
+-- case) and text
+type Backend = ApiRequest -> IO (Int, [(T.Text, T.Text)], T.Text)
 
 -- | Runs the server on stdin and stdout, until the end of stdin
 runMcp :: McpConfig -> IO ()
@@ -67,11 +79,15 @@ runMcp cfg = do
 
 -- | The API through HTTP
 httpBackend :: H.Manager -> McpConfig -> Backend
-httpBackend manager cfg (path, params) = do
+httpBackend manager cfg ar = do
   r <- try $ do
-    req <- H.parseRequest (reverse (dropWhile (== '/') $ reverse $ mcpUrl cfg) ++ T.unpack path)
-    let req' = H.setQueryString [ (TE.encodeUtf8 k, Just $ TE.encodeUtf8 v) | (k, v) <- params ] req
-                 { H.requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 (mcpToken cfg))] }
+    req <- H.parseRequest (reverse (dropWhile (== '/') $ reverse $ mcpUrl cfg) ++ T.unpack (apiPath ar))
+    let req' = H.setQueryString [ (TE.encodeUtf8 k, Just $ TE.encodeUtf8 v) | (k, v) <- apiParams ar ] req
+                 { H.method = TE.encodeUtf8 (apiMethod ar)
+                 , H.requestHeaders =
+                     ("Authorization", "Bearer " <> TE.encodeUtf8 (mcpToken cfg)) :
+                     [ (CI.mk (TE.encodeUtf8 k), TE.encodeUtf8 v) | (k, v) <- apiHeaders ar ]
+                 , H.requestBody = H.RequestBodyBS (TE.encodeUtf8 $ apiBody ar) }
     H.httpLbs req' manager
   return $ case r of
     Left e -> ( 0, []
@@ -121,7 +137,7 @@ request backend method params = case method of
         v = case asked of
               Just a | a `elem` protocolVersions -> a
               _ -> latestVersion
-    (st, _, guide) <- backend ("/api/guide", [])
+    (st, _, guide) <- backend (apiGet "/api/guide" [])
     return $ Right $ A.object $
       [ "protocolVersion" .= v
       , "capabilities" .= A.object ["tools" .= A.object []]
@@ -138,8 +154,9 @@ request backend method params = case method of
         Left err -> return $ Right $ toolResult True err
         Right req -> do
           (st, headers, body) <- backend req
-          return $ Right $ toolResult (st /= 200) $
-            if st == 200 then toolOutput t headers body
+          let ok = st >= 200 && st < 300
+          return $ Right $ toolResult (not ok) $
+            if ok then toolOutput t headers body
             else T.concat [ "error ", T.pack (show st), ": ", body ]
   _ -> return $ Left (-32601, "unknown method: " <> method)
   where
@@ -159,7 +176,7 @@ data Tool = Tool { toolName :: T.Text
                  , toolDescription :: T.Text
                  , toolProperties :: [(T.Text, A.Value)]
                  , toolRequired :: [T.Text]
-                 , toolRequest :: A.Object -> Either T.Text (T.Text, [(T.Text, T.Text)])
+                 , toolRequest :: A.Object -> Either T.Text ApiRequest
                  , toolOutput :: [(T.Text, T.Text)] -> T.Text -> T.Text }
 
 toolJson :: Tool -> A.Value
@@ -232,7 +249,7 @@ tools =
       ["query"]
       (\o -> case text o "query" of
                Nothing -> Left "missing argument: query"
-               Just q -> Right ("/api/search", ("q", q) : contextParams o ++ optional o ["limit"]))
+               Just q -> Right $ apiGet "/api/search" (("q", q) : contextParams o ++ optional o ["limit"]))
       asIs
   , Tool "list_pages"
       "List the pages matching metadata, the most recently modified first, one by line: \
@@ -246,8 +263,8 @@ tools =
       , ("since", prop "string" "Only the pages modified since this day, YYYY-MM-DD.")
       , ("limit", prop "integer" "Maximum number of pages (100 by default).") ]
       []
-      (\o -> Right ( "/api/pages"
-                   , contextParams o ++ [ ("tag", t) | t <- texts o "tags" ]
+      (\o -> Right $ apiGet "/api/pages"
+                   ( contextParams o ++ [ ("tag", t) | t <- texts o "tags" ]
                      ++ [ ("m." <> AK.toText k, v)
                         | Just (A.Object fs) <- [KM.lookup "fields" o], (k, A.String v) <- KM.toList fs ]
                      ++ optional o ["since", "limit"] ))
@@ -257,7 +274,7 @@ tools =
       \headers) with its number of pages, the langs, and the custom fields with their values. \
       \Look at it before choosing the tags of a page, to reuse the existing ones."
       [sourcesProp] []
-      (\o -> Right ("/api/vocabulary", contextParams o))
+      (\o -> Right $ apiGet "/api/vocabulary" (contextParams o))
       asIs
   , Tool "read_page"
       "Read a page (SOURCE/UID): its header, then its content in CommonMark. For a long page, \
@@ -275,9 +292,9 @@ tools =
       ["page"]
       (\o -> do
           (s, u) <- maybe (Left "missing argument: page") pagePath (text o "page")
-          return ( T.concat ["/api/page/", s, "/", u]
-                 , optional o ["part", "title", "from", "to"]
-                   ++ [ ("numbered", "yes") | flag o "numbered" ] ))
+          return $ apiGet (T.concat ["/api/page/", s, "/", u])
+                          ( optional o ["part", "title", "from", "to"]
+                            ++ [ ("numbered", "yes") | flag o "numbered" ] ))
       (\headers body ->
          let etag = T.filter (/= '"') <$> lookupCI "etag" headers
              range = lookupCI "kiwi-lines" headers
@@ -290,8 +307,61 @@ tools =
       \new page goes."
       [("source", prop "string" "The source.")]
       ["source"]
-      (\o -> maybe (Left "missing argument: source") (\s -> Right ("/api/folders/" <> s, []))
+      (\o -> maybe (Left "missing argument: source") (\s -> Right $ apiGet ("/api/folders/" <> s) [])
                    (text o "source"))
+      asIs
+  , Tool "edit_page"
+      "Change a page by replacing exact passages of its text (as read_page gives it, without \
+      \line numbers): each old text must be found exactly once in the page, copied exactly, \
+      \with enough of the text around it to be unique; it is replaced by the new text. To \
+      \insert, give a line as old text, and this line followed by the new lines as new text. \
+      \All the edits apply, or none. The rest of the page is kept, even if it changed since \
+      \you read it. Prefer it to write_page. The header can be changed the same way."
+      [ ("page", prop "string" "The page, as SOURCE/UID.")
+      , ("edits", A.object
+          [ "type" .= ("array" :: T.Text)
+          , "items" .= A.object
+              [ "type" .= ("object" :: T.Text)
+              , "properties" .= A.object [ "old" .= prop "string" "Exact text of the page to replace."
+                                         , "new" .= prop "string" "Its replacement (empty to delete it)." ]
+              , "required" .= (["old", "new"] :: [T.Text]) ]
+          , "description" .= ("The replacements, in their order." :: T.Text) ]) ]
+      ["page", "edits"]
+      (\o -> do
+          (s, u) <- maybe (Left "missing argument: page") pagePath (text o "page")
+          edits <- maybe (Left "missing argument: edits") Right (KM.lookup "edits" o)
+          return $ ApiRequest "PATCH" (T.concat ["/api/page/", s, "/", u]) []
+                     [("Content-Type", "application/json")]
+                     (TE.decodeUtf8 $ BL.toStrict $ A.encode $ A.object ["edits" .= edits]))
+      asIs
+  , Tool "write_page"
+      "Replace the whole text of a page (header and content). Only for a deep rewrite: \
+      \prefer edit_page. Give the hash that read_page gave: the write is refused if the page \
+      \changed since."
+      [ ("page", prop "string" "The page, as SOURCE/UID.")
+      , ("hash", prop "string" "The hash of the page as read.")
+      , ("text", prop "string" "The new text: header, blank line, content.") ]
+      ["page", "hash", "text"]
+      (\o -> do
+          (s, u) <- maybe (Left "missing argument: page") pagePath (text o "page")
+          h <- maybe (Left "missing argument: hash") Right (text o "hash")
+          t <- maybe (Left "missing argument: text") Right (text o "text")
+          return $ ApiRequest "PUT" (T.concat ["/api/page/", s, "/", u]) []
+                     [("If-Match", "\"" <> h <> "\"")] t)
+      asIs
+  , Tool "create_page"
+      "Create a page in a source, from its text: header (title, tags, summary...), a blank \
+      \line, then its content in CommonMark. Kiwi gives it its uid (in the answer, as \
+      \SOURCE/UID). Search before creating: do not duplicate an existing page. The file is \
+      \named after the title; admins may give its path."
+      [ ("source", prop "string" "The source of the page.")
+      , ("text", prop "string" "The text of the page: header, blank line, content.")
+      , ("path", prop "string" "Path of the file from the top of the source, without extension (admins only).") ]
+      ["source", "text"]
+      (\o -> do
+          s <- maybe (Left "missing argument: source") Right (text o "source")
+          t <- maybe (Left "missing argument: text") Right (text o "text")
+          return $ ApiRequest "POST" ("/api/pages/" <> s) (optional o ["path"]) [] t)
       asIs
   ]
   where

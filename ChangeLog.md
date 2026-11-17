@@ -8,11 +8,13 @@
 - New `summary` metadata (optional): a short description of the page,
   shown as the title (tooltip) of the links to the page, after the title
   of the link if it has one.
-- **API for the agents** (read only for now): `/api/search`, `/api/pages`,
+- **API for the agents**: `/api/search`, `/api/pages`,
   `/api/vocabulary`, `/api/page/SOURCE/UID` (with its outline, sections
   and lines), `/api/page/SOURCE/UID/meta`, `/api/folders/SOURCE` and
   `/api/guide`, in compact text, with API tokens (`kiwi access --token`,
-  `--revoke-tokens`). New `agent-guide` setting.
+  `--revoke-tokens`). New `agent-guide` setting. Writes: `PATCH` (exact
+  passages), `PUT` (whole text, `If-Match`) and creation (`POST
+  /api/pages/SOURCE`), committed with the account as author.
 - **`kiwi mcp`**: MCP server on stdio for the AI agents (Claude Code,
   Claude Desktop…), a client of the API of a running kiwi (token in
   `KIWI_API_TOKEN` or `--token-file`).
