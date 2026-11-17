@@ -714,6 +714,26 @@ token stops working when its account is removed or gets a new password.
 * `GET /api/guide` : the guide of kiwi for the agents, followed by yours:
   the page given by `agent-guide: SOURCE/UID` in *kiwi.ini*.
 
+## MCP server for the agents
+
+`kiwi mcp` is an MCP server (Model Context Protocol) on stdio, for the
+agents that can run one (Claude Code, Claude Desktop…). It is a client of
+the API of a running kiwi: it keeps nothing, the kiwi server reads and
+writes the pages. Its tools are `search`, `list_pages`, `vocabulary`,
+`read_page` and `folders`, and it gives the guide of `/api/guide` to the
+agent when it connects. The token is read from the `KIWI_API_TOKEN`
+environment variable, or from a file (`--token-file`):
+
+    claude mcp add kiwi -e KIWI_API_TOKEN=TOKEN -- kiwi mcp --url http://127.0.0.1:3456
+
+For Claude Desktop, in *claude_desktop_config.json* :
+
+    { "mcpServers": { "kiwi": { "command": "/path/to/kiwi",
+                                "args": ["mcp", "--url", "http://127.0.0.1:3456"],
+                                "env": { "KIWI_API_TOKEN": "TOKEN" } } } }
+
+`kiwi mcp` speaks plain HTTP only: give it the local address of the kiwi.
+
 # Content versioning and backup
 
 You are strongly encouraged to keep your content in a git repository

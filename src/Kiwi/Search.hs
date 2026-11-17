@@ -9,6 +9,7 @@ module Kiwi.Search (
   , stripAccents
   , excerpt
   , explainPages
+  , termFields
   , extractTerms
   , wordsTerms
   , alg
@@ -81,13 +82,25 @@ searchPages se visible terms = case filter (visible . snd) (queryExplain se term
         (shown, more) = splitAt maxResults $ takeWhile relevant results
     in ([ (uid, inContent e) | (e, uid) <- shown ], not (null more))
 
--- | Every page containing one of the terms, best first, with its score and,
--- for each term, the fields that contain it (none when the page does not
--- contain it), without any threshold nor limit (see 'searchPages')
-explainPages :: PageSearchEngine -> [T.Text] -> [(PageUID, Float, [(T.Text, [PageField])])]
+-- | Every page containing one of the terms, best first, with its score and
+-- the terms it contains, without any threshold nor limit (see
+-- 'searchPages'). The score of a term is not used to know whether a page
+-- contains it: it is 0 when the term is in half of the pages (its IDF is 0,
+-- see 'defaultSearchRankParameters'); the pages of each term are those that
+-- the engine finds for this term alone.
+explainPages :: PageSearchEngine -> [T.Text] -> [(PageUID, Float, [T.Text])]
 explainPages se terms =
-  [ (uid, overallScore e, [ (t, [ f | (f, s) <- fields, s /= 0 ]) | (t, fields) <- termFieldScores e ])
+  [ (uid, overallScore e, [ t | (t, uids) <- termPages, S.member uid uids ])
   | (e, uid) <- queryExplain se terms ]
+  where termPages = [ (t, S.fromList $ map snd $ queryExplain se [t]) | t <- nub terms ]
+
+-- | Fields of a page that contain one of the terms (stems, see
+-- 'extractTerms'), in the lang of the page
+termFields :: Page -> [T.Text] -> [PageField]
+termFields p terms =
+  [ f | (f, ts) <- [ (TitleField, pageTitle p), (TagsField, T.unwords $ pageTags p)
+                   , (ContentField, pagePlainText p) ]
+      , any (`elem` terms) (extractTerms (alg $ pageLang p) ts) ]
 
 -- | Maximal number of pages of the results of a search
 maxResults :: Int

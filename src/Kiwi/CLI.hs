@@ -1,5 +1,5 @@
 module Kiwi.CLI (Config(..), ServerConfig(..), InitConfig(..), AccessConfig(..), AccessOp(..),
-                 UpdateConfig(..), ReloadConfig(..), parseCLI ) where
+                 UpdateConfig(..), ReloadConfig(..), McpCliConfig(..), parseCLI ) where
 
 -- Afficher version Cabal
 import Paths_kiwi (version)
@@ -18,6 +18,7 @@ data Config = Server ServerConfig
             | Access AccessConfig
             | Update UpdateConfig
             | Reload ReloadConfig
+            | Mcp McpCliConfig
 
 
 data ServerConfig =
@@ -41,6 +42,12 @@ data AccessOp = AccessCreate T.Text
 data UpdateConfig =
   UpdateConfig { updateCheck :: Bool }
 
+-- | kiwi mcp: the URL of the kiwi, and the file of the API token (else the
+-- KIWI_API_TOKEN environment variable)
+data McpCliConfig =
+  McpCliConfig { mcpCliUrl :: String
+               , mcpCliTokenFile :: Maybe FP.FilePath }
+
 data ReloadConfig =
   ReloadConfig { reloadCfp :: FP.FilePath }
 
@@ -54,7 +61,11 @@ parser = hsubparser
                                                          \and accounts")) <>
            command "update" (info updateParser (progDesc "Update kiwi to its latest release \
                                                          \(Linux x86_64 only, needs bash, curl, \
-                                                         \tar and sha256sum)")) )
+                                                         \tar and sha256sum)")) <>
+           command "mcp" (info mcpParser (progDesc "MCP server on stdio for the AI agents \
+                                                   \(Claude...), client of the API of a running \
+                                                   \kiwi; the API token is read from \
+                                                   \KIWI_API_TOKEN or --token-file")) )
   where
     serveParser :: Parser Config
     serveParser =  Server <$> (ServerConfig <$> logLevelParser <*> configFilePathsParser)
@@ -84,6 +95,14 @@ parser = hsubparser
                                                       <> help "revoke all the API tokens \
                                                               \of the account" ) ) )
       )
+
+    mcpParser :: Parser Config
+    mcpParser = Mcp <$>
+      ( McpCliConfig <$> strOption ( long "url" <> metavar "URL"
+                                     <> value "http://127.0.0.1:3456" <> showDefault
+                                     <> help "URL of the kiwi" )
+                     <*> optional (strOption ( long "token-file" <> metavar "FILE"
+                                               <> help "file holding the API token" )) )
 
     reloadParser :: Parser Config
     reloadParser = Reload <$> (ReloadConfig <$> configFilePathParser)

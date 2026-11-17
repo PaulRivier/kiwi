@@ -13,6 +13,9 @@
   and lines), `/api/page/SOURCE/UID/meta`, `/api/folders/SOURCE` and
   `/api/guide`, in compact text, with API tokens (`kiwi access --token`,
   `--revoke-tokens`). New `agent-guide` setting.
+- **`kiwi mcp`**: MCP server on stdio for the AI agents (Claude Code,
+  Claude Desktop…), a client of the API of a running kiwi (token in
+  `KIWI_API_TOKEN` or `--token-file`).
 
 ## v0.4.4.0 - 2026-11-16
 

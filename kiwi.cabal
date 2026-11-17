@@ -44,9 +44,11 @@ library
   import:  ghc-opts
   build-depends:
       async
+    , aeson
     , base >=4.7 && <5
     , base16-bytestring
     , bytestring
+    , case-insensitive
     , commonmark
     , commonmark-extensions
     , commonmark-pandoc
@@ -57,6 +59,7 @@ library
     , file-embed
     , filepath
     , full-text-search
+    , http-client
     , http-types
     , lucid2
     , mime-types
@@ -87,6 +90,7 @@ library
       Kiwi.Git
       Kiwi.LangDetect
       Kiwi.Locales
+      Kiwi.Mcp
       Kiwi.Log
       Kiwi.Meta
       Kiwi.HtmlWriter
@@ -123,6 +127,7 @@ test-suite kiwi-test
   import:  ghc-opts
   build-depends:
       base >=4.7 && <5
+    , aeson
     , bytestring
     , containers
     , directory
@@ -153,6 +158,7 @@ test-suite kiwi-test
       Kiwi.GitSpec
       Kiwi.HtmlWriterSpec
       Kiwi.LangDetectSpec
+      Kiwi.McpSpec
       Kiwi.MetaSpec
       Kiwi.PagesDBSpec
       Kiwi.PandocSpec

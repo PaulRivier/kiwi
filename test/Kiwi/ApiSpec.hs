@@ -139,6 +139,28 @@ apiSpec = do
       `shouldBe` AS.Query ["first", "aid", "kit", "burns", "open"] ["aid kit", "open"] ["baby"]
     AS.parseQuery " - x" `shouldBe` AS.Query ["-", "x"] [] []
 
+  let searchKiwi docs test =
+        withKiwiConfig [] [("bob", "secret", ["family"])] docs $ \_ ss app -> do
+          accs <- readIORef (accounts ss)
+          made <- mapM Auth.newApiToken accs
+          _ <- Auth.dumpTokens (M.fromList $ map snd made) (Auth.tokensFile $ kiwiDir ss)
+          let token = case made of
+                (t, _) : _ -> t
+                [] -> error "no token"
+              search q = do
+                r <- WT.srequest $ WT.SRequest
+                       (WT.setPath Wai.defaultRequest
+                          { Wai.requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 token)] }
+                          ("/api/search?q=" <> URI.urlEncode True (TE.encodeUtf8 q))) ""
+                return $ T.lines $ TL.toStrict $ TLE.decodeUtf8 $ WT.simpleBody r
+          WT.runSession (test search) app
+
+  it "finds a term in half of the pages, whose score is 0" $
+    searchKiwi [ ("a.md", "title: A\nuid: a\n\nA link.\n"), ("b.md", "title: B\nuid: b\n\nNothing.\n") ] $
+      \search -> do
+        r <- search "link"
+        liftIO $ r `shouldSatisfy` any (\l -> "s/a  " `T.isPrefixOf` l && "  1/1 in content" `T.isSuffixOf` l)
+
   it "searches the pages with all the terms first, with passages" $ do
     let docs = [ ("aid.md", "title: First aid\nuid: aid\ntags: health\n\n# Wounds\n\n\
                             \Clean the wound with water.\n\n## Burns\n\n\

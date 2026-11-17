@@ -16,7 +16,7 @@ module Kiwi.Api
 
 import           Control.Monad.Reader (local)
 import           Data.IORef (readIORef)
-import           Data.List (nub, sortOn)
+import           Data.List (sortOn)
 import           Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as M
 import           Data.Ord (Down (..))
@@ -41,7 +41,7 @@ import qualified Kiwi.Log as L
 import           Kiwi.Controller (findPage, getRestrictedDB, keyOrder, textOrder, withContext)
 import           Kiwi.Meta (splitPage)
 import           Kiwi.Pandoc (pageDoc)
-import           Kiwi.Search (alg, explainPages, extractTerms, queryLang, searchLang)
+import           Kiwi.Search (alg, explainPages, extractTerms, queryLang, searchLang, termFields)
 import           Kiwi.Types (ActM)
 import qualified Kiwi.Types as K
 import qualified Kiwi.Tags as Tags
@@ -309,10 +309,9 @@ apiSearch = do
           termsOf ws = [ (t, w) | w <- ws, t <- extractTerms (alg lang) w ]
           terms = termsOf (AS.queryWords q)
           excludedTerms = map fst $ termsOf (AS.queryExcluded q)
-          excluded = S.fromList [ uid | (uid, _, found) <- explainPages (K.searchEngine db) excludedTerms
-                                      , any (not . null . snd) found ]
-          hits = [ AS.Hit p score [ t | (t, fs) <- found, not (null fs) ]
-                          (nub $ concatMap snd found)
+          excluded = S.fromList [ uid | (uid, _, _) <- explainPages (K.searchEngine db) excludedTerms ]
+          -- the fields are only computed for the pages shown (lazily)
+          hits = [ AS.Hit p score found (termFields p found)
                  | (uid, score, found) <- explainPages (K.searchEngine db) (map fst terms)
                  , visible uid, not (S.member uid excluded)
                  , Just p <- [findPage db uid]
