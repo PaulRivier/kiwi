@@ -200,6 +200,7 @@ loadPageSpec = do
                     , pageFiles = ["a.png", "c.ods"]
                     , pagePlainText = ""
                     , pageTitle = "t"
+                    , pageSummary = Nothing
                     , pageTags = []
                     , pageLang = English
                     , pageAccess = []

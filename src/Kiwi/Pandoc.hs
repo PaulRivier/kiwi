@@ -15,6 +15,7 @@ module Kiwi.Pandoc
 
 import           Control.Applicative ((<|>))
 import           Control.Exception (IOException, evaluate, try)
+import           Control.Monad (mfilter)
 import qualified Commonmark as Cm
 import qualified Commonmark.Extensions as CmEx
 import qualified Commonmark.Pandoc as CmP
@@ -363,6 +364,7 @@ loadPageIO fullPath source md cmc scM = do
                                   , pageFiles = files
                                   , pagePlainText = content
                                   , pageTitle = title
+                                  , pageSummary = mfilter (not . T.null) $ metaSummary header
                                   , pageTags = map normalizeTag $ fromMaybe [] $ metaTags meta
                                   -- without access, only the admins can read
                                   , pageAccess = fromMaybe [] $ metaAccess meta

@@ -5,6 +5,9 @@
 - The `root-tag` setting of the `[source NAME]` sections is removed: the
   tags of the pages are those of their header. The key is ignored in an
   existing `kiwi.ini`.
+- New `summary` metadata (optional): a short description of the page,
+  shown as the title (tooltip) of the links to the page, after the title
+  of the link if it has one.
 
 ## v0.4.4.0 - 2026-11-16
 

@@ -10,16 +10,18 @@
 -- when the target page does not exist (for the user).
 module Kiwi.HtmlWriter
   ( writeHtml5
+  , PageLookup
   , pageTargetAttrs
   , lineKey
   , brokenLinkClass
   ) where
 
-import           Control.Monad (forM_, unless)
+import           Control.Monad (forM_, join, unless)
 import           Control.Monad.Reader (ReaderT, asks, runReaderT)
 import           Control.Monad.State.Strict (State, evalState, gets, modify)
 import qualified Data.List as List
 import qualified Data.Map.Strict as M
+import           Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 
 import           Lucid
@@ -32,16 +34,21 @@ import           Kiwi.Utils (inlinesText)
 
 -- | Footnotes met so far, by number (from 1)
 type Notes = M.Map Int [PD.Block]
--- | The rendering reads whether a page exists, and collects the footnotes
-type W = HtmlT (ReaderT (PageUID -> Bool) (State Notes))
+-- | What the rendering knows of the page targeted by a link: Nothing when it
+-- does not exist (for the reader), else its summary, if any
+type PageLookup = PageUID -> Maybe (Maybe T.Text)
+
+-- | The rendering reads the pages that exist, and collects the footnotes
+type W = HtmlT (ReaderT PageLookup (State Notes))
 
 
 
 -- | The document, with the links to the pages that do not exist (according
--- to the given predicate) marked as broken
-writeHtml5 :: (PageUID -> Bool) -> PD.Pandoc -> Html ()
-writeHtml5 pageExists (PD.Pandoc _meta blocks) =
-  evalState (runReaderT (commuteHtmlT2 render) pageExists) M.empty
+-- to the given lookup) marked as broken, and the summary of the pages that
+-- exist in the title of their links
+writeHtml5 :: PageLookup -> PD.Pandoc -> Html ()
+writeHtml5 findPage (PD.Pandoc _meta blocks) =
+  evalState (runReaderT (commuteHtmlT2 render) findPage) M.empty
   where render = blocksToHtml blocks >> footnotesToHtml
 
 
@@ -68,15 +75,17 @@ brokenLinkClass :: T.Text
 brokenLinkClass = "kiwi-link-broken"
 
 -- | The attributes of a link without those of its target page, with the
--- class of broken links when it targets a page that does not exist
-linkAttr :: PD.Attr -> W PD.Attr
+-- class of broken links when it targets a page that does not exist, and the
+-- summary of the page it targets, if any
+linkAttr :: PD.Attr -> W (PD.Attr, Maybe T.Text)
 linkAttr attr@(ident, classes, kvs) =
   case (lookup pageSourceKey kvs, lookup pageIdKey kvs) of
     (Just s, Just i) -> do
-      exists <- asks ($ (s, i))
+      target <- asks ($ (s, i))
       let kvs' = filter ((`notElem` [pageSourceKey, pageIdKey]) . fst) kvs
-      return (ident, classes ++ [brokenLinkClass | not exists], kvs')
-    _ -> return attr
+      return ( (ident, classes ++ [brokenLinkClass | null target], kvs')
+             , join target )
+    _ -> return (attr, Nothing)
 
 
 -- Turns a Pandoc 'PD.Attr' (id, classes, arbitrary key/value pairs) into Lucid
@@ -261,9 +270,11 @@ inlineToHtml il = case il of
   PD.Math _ str -> toHtml str -- plug in texmath yourself if you need real math rendering
   PD.RawInline fmt raw -> rawToHtml fmt raw
   PD.Link attr ils (url, title) -> do
-    attr' <- linkAttr attr
+    (attr', summary) <- linkAttr attr
+    -- the title of the link, then the summary of its page, on two lines
+    let title' = T.intercalate "\n" $ filter (not . T.null) [title, fromMaybe "" summary]
     -- a broken link to a file has no target (see 'Kiwi.Pandoc.fileTarget')
-    a_ ([href_ url | not (T.null url)] ++ titleAttr title ++ attrs attr') (inlinesToHtml ils)
+    a_ ([href_ url | not (T.null url)] ++ titleAttr title' ++ attrs attr') (inlinesToHtml ils)
   PD.Image attr ils target -> imageToHtml attr (inlinesToPlain ils) target
   PD.Note bs -> noteToHtml bs
   PD.Span attr ils -> span_ (attrs attr) (inlinesToHtml ils)

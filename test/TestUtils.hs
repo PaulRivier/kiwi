@@ -42,6 +42,7 @@ mkPage uid tags access archive day =
        , pageFiles = []
        , pagePlainText = ""
        , pageTitle = snd uid
+       , pageSummary = Nothing
        , pageTags = tags
        , pageLang = English
        , pageAccess = map (, AccessRead) access

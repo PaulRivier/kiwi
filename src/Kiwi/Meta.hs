@@ -46,6 +46,7 @@ emptyMeta :: MetaData
 emptyMeta = MetaData { metaUid = Nothing
                      , metaPreviousUids = Nothing
                      , metaTitle = Nothing
+                     , metaSummary = Nothing
                      , metaTags = Nothing
                      , metaAccess = Nothing
                      , metaLang = Nothing
@@ -61,6 +62,7 @@ mergeMeta a b =
   MetaData { metaUid = metaUid b <|> metaUid a
            , metaPreviousUids = metaPreviousUids b <|> metaPreviousUids a
            , metaTitle = metaTitle b <|> metaTitle a
+           , metaSummary = metaSummary b <|> metaSummary a
            , metaTags = metaTags b <|> metaTags a
            , metaAccess = metaAccess b <|> metaAccess a
            , metaLang = metaLang b <|> metaLang a
@@ -82,7 +84,7 @@ metaKeys :: MetaData -> [T.Text]
 metaKeys m = nodup $
   [ k | (k, True) <- [ ("uid", isJust $ metaUid m)
                      , ("previous-uids", isJust $ metaPreviousUids m)
-                     , ("title", isJust $ metaTitle m)
+                     , ("title", isJust $ metaTitle m), ("summary", isJust $ metaSummary m)
                      , ("tags", isJust $ metaTags m), ("access", isJust $ metaAccess m)
                      , ("lang", isJust $ metaLang m), ("archive", isJust $ metaArchive m) ] ]
   ++ map cmdName (metaCustom m) ++ M.keys (metaOther m)
@@ -96,6 +98,7 @@ filterMeta keep m =
   MetaData { metaUid = field "uid" metaUid
            , metaPreviousUids = field "previous-uids" metaPreviousUids
            , metaTitle = field "title" metaTitle
+           , metaSummary = field "summary" metaSummary
            , metaTags = field "tags" metaTags
            , metaAccess = field "access" metaAccess
            , metaLang = field "lang" metaLang
@@ -181,6 +184,7 @@ fromFields cmc fields =
              metaUid = mfilter (not . T.null) $ T.concat <$> look "uid"
            , metaPreviousUids = splitMeta . T.intercalate "," <$> look "previous-uids"
            , metaTitle = T.intercalate " " <$> look "title"
+           , metaSummary = T.intercalate " " <$> look "summary"
            , metaTags = splitTags . T.intercalate "," <$> look "tags"
            , metaAccess = fst <$> access
            , metaLang = fst lang
@@ -212,7 +216,8 @@ fromFields cmc fields =
 
 -- | Keys of the header that kiwi reads: built-in, and custom metadata
 knownKeys :: [CustomMetaConfig] -> [T.Text]
-knownKeys cmc = [ "uid", "previous-uids", "title", "tags", "access", "lang", "archive" ]
+knownKeys cmc = [ "uid", "previous-uids", "title", "summary", "tags", "access", "lang"
+                , "archive" ]
                 ++ map cmcName cmc
 
 
@@ -242,13 +247,14 @@ writePage cmc m content =
      (if T.null body then "" else body <> "\n")
 
 -- | Normalized text of a header, read back by 'parseHeader': one line by
--- key, in this order: title, uid, previous-uids, tags, access, lang, archive,
+-- key, in this order: title, summary, uid, previous-uids, tags, access, lang, archive,
 -- the custom metadata in the order of the config, then the other
 -- keys by name (one line by value). The tags are sorted, without
 -- duplicates, their segments separated by " > ". The values that can not be read are written as they were.
 writeHeader :: [CustomMetaConfig] -> MetaData -> T.Text
 writeHeader cmc m = T.unlines $ concat
   [ line "title" (metaTitle m)
+  , line "summary" (metaSummary m)
   , line "uid" (metaUid m)
   , line "previous-uids" (T.intercalate ", " . map (escape ",") <$> metaPreviousUids m)
   , line "tags" (T.intercalate ", " . map writeTag . nodup . map writeTag' <$>

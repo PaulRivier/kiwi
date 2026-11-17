@@ -87,6 +87,13 @@ metaSpec = do
       `shouldBe` "title: t\nuid: U\nprevious-uids: a:b, c\\,d\ntags: x\n"
     metaPreviousUids (parse "previous-uids: a:b, c\\,d") `shouldBe` Just ["a:b", "c,d"]
 
+  it "reads the summary, written after the title" $ do
+    metaSummary (parse "summary: First aid\nsummary: and burns\n") `shouldBe`
+      Just "First aid and burns"
+    normalize "uid: x\nsummary: Short: text\ntitle: T\n" `shouldBe`
+      "title: T\nsummary: Short: text\nuid: x\n"
+    unknownMetaKeys cfg (parse "summary: s\n") `shouldBe` []
+
   it "checks the uids" $ do
     map isValidUid ["a", "Home", "menthe-poivrée_2", T.replicate 64 "x"]
       `shouldBe` replicate 4 True

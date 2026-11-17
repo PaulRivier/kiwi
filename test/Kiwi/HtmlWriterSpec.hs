@@ -11,19 +11,28 @@ import           TestUtils
 
 htmlWriterSpec :: Spec
 htmlWriterSpec = do
-  let html = TL.toStrict . renderText . writeHtml5 (const True) . pandocDoc . load
+  let html = TL.toStrict . renderText . writeHtml5 (const $ Just Nothing) . pandocDoc . load
 
   it "marks the links to missing pages as broken, without their target attributes" $ do
     let exists uid = uid == ("src", "Here")
-        render = TL.toStrict . renderText . writeHtml5 exists . pandocDoc . load
+        render = TL.toStrict . renderText . writeHtml5 (\u -> if exists u then Just Nothing else Nothing) . pandocDoc . load
     render "t: t\n\n[a](<page:Here#x>) [b](<page:Gone>) [c](http://e.org)"
       `shouldBe` T.concat
         [ "<p><a href=\"/page/src/Here#x\" class=\"kiwi-link-page\">a</a> "
         , "<a href=\"/page/src/Gone\" class=\"kiwi-link-page kiwi-link-broken\">b</a> "
         , "<a href=\"http://e.org\" class=\"kiwi-link-external\" target=\"_blank\">c</a></p>" ]
 
+  it "gives the links to pages the summary of their page, after their title" $ do
+    let summary uid = if uid == ("src", "S") then Just (Just "About S") else Just Nothing
+        render = TL.toStrict . renderText . writeHtml5 summary . pandocDoc . load
+    render "t: t\n\n[a](page:S) [b](page:S \"Title\") [c](page:T)"
+      `shouldBe` T.concat
+        [ "<p><a href=\"/page/src/S\" title=\"About S\" class=\"kiwi-link-page\">a</a> "
+        , "<a href=\"/page/src/S\" title=\"Title\nAbout S\" class=\"kiwi-link-page\">b</a> "
+        , "<a href=\"/page/src/T\" class=\"kiwi-link-page\">c</a></p>" ]
+
   it "renders the links to files, a missing one broken and without target" $
-    TL.toStrict (renderText $ writeHtml5 (const True) $
+    TL.toStrict (renderText $ writeHtml5 (const $ Just Nothing) $
       displayWith [("AAAAAAAAAA", "x/a.pdf"), ("BBBBBBBBBB", "b.png")]
         "[a](file:AAAAAAAAAA) [b](file:BBBBBBBBBB) [c](<file:c.pdf>) ![d](file:CCCCCCCCCC)")
       `shouldBe` T.concat
@@ -34,7 +43,7 @@ htmlWriterSpec = do
         , "<img alt=\"d\" class=\"kiwi-link-broken\"></p>" ]
 
   it "gives the top-level blocks of a displayed page their line in the content" $
-    TL.toStrict (renderText $ writeHtml5 (const True) $ display $ T.unlines
+    TL.toStrict (renderText $ writeHtml5 (const $ Just Nothing) $ display $ T.unlines
       [ "# Title", "", "Para one", "line two", "", "- a", "", "  > q", "- b", ""
       , "```", "code", "```", "", "> quote", ">", "> more", "", "| a |", "|---|", "| 1 |"
       , "", "A[^n].", "", "[^n]: Note.", "", "***" ])

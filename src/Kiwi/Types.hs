@@ -203,6 +203,9 @@ data MetaData =
            -- 'Kiwi.PagesDB.updatePagesDB')
            , metaPreviousUids :: Maybe [T.Text]
            , metaTitle :: Maybe T.Text
+           -- | short description of the page, optional (lists of the API,
+           -- tooltips of the links)
+           , metaSummary :: Maybe T.Text
            , metaTags  :: Maybe [TagId]
            , metaAccess :: Maybe Access
            , metaLang  :: Maybe LangSetting
@@ -237,6 +240,7 @@ data Page =
        , pageFiles :: ![T.Text]
        , pagePlainText :: !T.Text  -- ^ plain text of its content (search, excerpts)
        , pageTitle :: !T.Text
+       , pageSummary :: !(Maybe T.Text)  -- ^ summary metadata, if any
        , pageTags :: ![TagId]
        , pageLang :: !Lang
        , pageAccess :: !Access

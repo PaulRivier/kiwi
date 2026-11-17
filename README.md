@@ -280,6 +280,8 @@ Some metadata keys are reserved by kiwi :
 
 * **title** : title of your page (optional, but a page without title
   gets the default one, *untitled*)
+* **summary** : a short description of the page, on one line
+  (optional). It is shown when the mouse is over a link to the page.
 * **uid** : the identifier of the page, unique in its source (see
   above). Kiwi writes it when it is missing.
 * **previous-uids** : the uids that Kiwi replaced on this page,

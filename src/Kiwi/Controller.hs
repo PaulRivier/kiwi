@@ -89,8 +89,8 @@ servePage pgId = do
       level <- accessLevel p
       let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
           -- links to the pages the user can not read are shown as broken
-          pageExists = isJust . findPage db
-      r <- V.renderPage pageExists p (maybe False (>= K.AccessWrite) level) doc
+          findLinked = fmap K.pageSummary . findPage db
+      r <- V.renderPage findLinked p (maybe False (>= K.AccessWrite) level) doc
                         backLinkPages
       htmlETag db r
     Nothing -> serveNotFound
@@ -548,7 +548,7 @@ servePreview uid sent = withEditablePage uid $ \p _ -> withEditRequest sent $ do
     Left e -> do
       status Net.status400
       Scotty.text $ TL.pack e
-    Right doc -> html $ V.renderPreview (isJust . findPage db) doc
+    Right doc -> html $ V.renderPreview (fmap K.pageSummary . findPage db) doc
 
 serveLogin :: ActM ()
 serveLogin = do

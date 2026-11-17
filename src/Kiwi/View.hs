@@ -43,7 +43,7 @@ import qualified Kiwi.Browse as Browse
 import           Kiwi.Tags (prettyTag)
 import qualified Kiwi.Url as Url
 import           Kiwi.Utils (asksK, inlinesText)
-import           Kiwi.HtmlWriter (writeHtml5)
+import           Kiwi.HtmlWriter (PageLookup, writeHtml5)
 import           Kiwi.Pandoc (linksInContext)
 import           Kiwi.Files (servedName)
 
@@ -91,12 +91,12 @@ renderView title actions tocDoc content = do
 -- | A page, its document and the pages linking to it. The links of the
 -- document to the pages that do not exist (according to the predicate) are
 -- marked as broken.
-renderPage :: (K.PageUID -> Bool) -> K.Page -> Bool -> PD.Pandoc -> [K.Page] -> ActM TL.Text
-renderPage pageExists p canWrite doc backlinks = do
+renderPage :: PageLookup -> K.Page -> Bool -> PD.Pandoc -> [K.Page] -> ActM TL.Text
+renderPage findPage p canWrite doc backlinks = do
   loc <- getLocales
   ctx <- asksK (K.context . K.requestState)
   renderView (K.pageTitle p) (PageActions p canWrite) (Just doc)
-             (pageView loc ctx pageExists p canWrite doc backlinks)
+             (pageView loc ctx findPage p canWrite doc backlinks)
 
 -- | Editor of a page: the text of its file, its hash, and the line where
 -- the editor starts (from 1)
@@ -111,8 +111,8 @@ renderEditor p text hash line = do
 
 -- | HTML of a document previewed in the editor, with the links to the pages
 -- that do not exist (according to the predicate) marked as broken
-renderPreview :: (K.PageUID -> Bool) -> PD.Pandoc -> TL.Text
-renderPreview pageExists doc = renderText $ writeHtml5 pageExists doc
+renderPreview :: PageLookup -> PD.Pandoc -> TL.Text
+renderPreview findPage doc = renderText $ writeHtml5 findPage doc
 
 -- | A document embedded in kiwi (README...), with its title as heading if
 -- given
@@ -121,7 +121,7 @@ renderDoc title headingM doc =
   renderView title NoActions (Just doc) $ div_ [class_ "page-view"] $ do
     forM_ headingM $ h1_ [class_ "page-title"] . toHtml
     -- links of embedded documents are not relative to any source
-    div_ [class_ "document"] $ writeHtml5 (const True) doc
+    div_ [class_ "document"] $ writeHtml5 (const $ Just Nothing) doc
 
 -- | Key of an union field, with a link to add it to the request, or to
 -- remove it when it is selected
@@ -389,9 +389,9 @@ plainText = inlinesText
 
 -- | A page. With the write right, its document has the URL of its editor,
 -- to edit it from one of its blocks (see 'Kiwi.HtmlWriter.lineKey').
-pageView :: K.Locales -> K.Context -> (K.PageUID -> Bool) -> K.Page -> Bool -> PD.Pandoc ->
+pageView :: K.Locales -> K.Context -> PageLookup -> K.Page -> Bool -> PD.Pandoc ->
             [K.Page] -> Html ()
-pageView loc ctx pageExists p canWrite doc backlinks = div_ [class_ "page-view"] $ do
+pageView loc ctx findPage p canWrite doc backlinks = div_ [class_ "page-view"] $ do
   contextBar loc [fst $ K.pageUID p]
     (linksList "tags-list" [ (prettyTag t, browseLink K.FieldTag (K.KeyText t))
                            | t <- K.pageTags p ])
@@ -412,11 +412,11 @@ pageView loc ctx pageExists p canWrite doc backlinks = div_ [class_ "page-view"]
   div_ ([class_ "document", pageLang] ++
         if canWrite then [ data_ "edit-url" (Url.editUrl $ K.pageUID p)
                          , data_ "edit-title" (K.loc_EditBlock loc) ] else []) $
-    writeHtml5 pageExists $ linksInContext ctx doc
+    writeHtml5 findPage $ linksInContext ctx doc
   unless (null backlinks) $
     fieldset_ [class_ "flex backlinks"] $ do
       legend_ $ toHtml $ K.loc_Backlinks loc
-      linksList "pages-list backlinks" $ map (pageLink ctx) backlinks
+      pagesList "pages-list backlinks" ctx backlinks
   where
     -- the title and the document are in the lang of the page, the rest in
     -- the lang of the interface
@@ -485,8 +485,7 @@ browseView loc ctx toggles switch menu filters listing pages = div_ [class_ "tag
         linksList "custom-meta-list" keys
   unless (null pages) $
     div_ [class_ "results"] $
-      fieldset ("→ " <> pagesLegend) $ linksList "pages-list" $
-        map (pageLink ctx) pages
+      fieldset ("→ " <> pagesLegend) $ pagesList "pages-list" ctx pages
   where
     pagesLegend = case listing of
       RecentPages -> K.loc_RecentPages loc
@@ -526,7 +525,7 @@ searchView loc ctx lang query pages more = div_ [class_ "search-results-page"] $
       -- one result by line, a single link: the title, then the excerpt, in
       -- the lang of the page, with the words of the query in bold
       ul_ [class_ "results"] $ forM_ pages $ \(pg, fragments) ->
-        li_ $ a_ [href_ $ Url.inContext ctx $ Url.pageUrl pg] $ do
+        li_ $ a_ ([href_ $ Url.inContext ctx $ Url.pageUrl pg] ++ summaryTitle pg) $ do
           span_ [class_ "title"] $ toHtml $ K.pageTitle pg
           unless (null fragments) $
             p_ [class_ "excerpt", lang_ (K.langCode $ K.pageLang pg)] $
@@ -550,7 +549,7 @@ uidSearchView loc ctx uid pages files linking = div_ [class_ "search-results-pag
   h1_ $ toHtml $ "uid:" <> uid
   unless (null pages) $ do
     h2_ $ toHtml $ K.loc_UidPage loc
-    results [ (K.pageTitle p, Url.inContext ctx $ Url.pageUrl p, fst $ K.pageUID p, [])
+    results [ (K.pageTitle p, Url.inContext ctx $ Url.pageUrl p, fst $ K.pageUID p, summaryTitle p)
             | p <- pages ]
   unless (null files) $ do
     h2_ $ toHtml $ K.loc_UidFile loc
@@ -561,7 +560,7 @@ uidSearchView loc ctx uid pages files linking = div_ [class_ "search-results-pag
   h2_ $ toHtml $ K.loc_UidLinking loc
   if null linking
     then p_ $ toHtml $ K.loc_UidNothing loc
-    else results [ (K.pageTitle p, Url.inContext ctx $ Url.pageUrl p, fst $ K.pageUID p, [])
+    else results [ (K.pageTitle p, Url.inContext ctx $ Url.pageUrl p, fst $ K.pageUID p, summaryTitle p)
                  | p <- linking ]
   where
     results :: [(T.Text, T.Text, T.Text, [Attributes])] -> Html ()
@@ -678,6 +677,18 @@ fieldName loc f = case f of
 -- | Link from (label, target)
 link :: (T.Text, T.Text) -> Html ()
 link (label, target) = a_ [href_ target] $ toHtml label
+
+-- | List of links to pages, in the navigation context, with their summary as
+-- title
+pagesList :: T.Text -> K.Context -> [K.Page] -> Html ()
+pagesList cls ctx pages = unless (null pages) $
+  ul_ [class_ "flex-hz", class_ cls] $ forM_ pages $ \pg ->
+    li_ $ a_ ([href_ $ Url.inContext ctx $ Url.pageUrl pg] ++ summaryTitle pg) $
+      toHtml $ K.pageTitle pg
+
+-- | The summary of a page as title of its links, if any
+summaryTitle :: K.Page -> [Attributes]
+summaryTitle = maybe [] (\s -> [title_ s]) . K.pageSummary
 
 -- | Link to a page, in the navigation context
 pageLink :: K.Context -> K.Page -> (T.Text, T.Text)

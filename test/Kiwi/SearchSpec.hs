@@ -23,6 +23,7 @@ searchSpec = do
              , pageFiles = []
              , pagePlainText = content
              , pageTitle = uid
+             , pageSummary = Nothing
              , pageTags = []
              , pageLang = lang
              , pageAccess = []
