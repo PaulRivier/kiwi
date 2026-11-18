@@ -5,6 +5,7 @@ module Kiwi.Write
   ( readPageFile
   , updatePage
   , createPage
+  , ScriptRun (..)
   , runMetaScript
   , metaScriptResult
   ) where
@@ -148,10 +149,11 @@ createPage ss loginM source pathM sent = withMVar (pagesDBLock ss) $ \_ -> runEx
 -- the page stops everything. Unless only checked, the changed files are
 -- written, committed in one commit whose message holds the script (after a
 -- commit of their former changes, see 'updatePage'), and the pages are
--- reloaded, under the lock of the reloads. The result is the number of pages
--- changed, and the pages changed by each command.
+-- reloaded, under the lock of the reloads. When only checked, the script
+-- runs on the pages that the user can read, and the result tells those that
+-- the user could not change (to prepare a script that an admin applies).
 runMetaScript :: ServerState -> Maybe Login -> Bool -> [MS.Command] ->
-                 IO (Either Edit.SaveFailure (Int, [(MS.Command, [Page])]))
+                 IO (Either Edit.SaveFailure ScriptRun)
 runMetaScript ss loginM check cmds = withMVar (pagesDBLock ss) $ \_ -> runExceptT $ do
   db <- liftIO $ readIORef (pagesDB ss)
   let cmc = customMetaConfig db
@@ -159,6 +161,9 @@ runMetaScript ss loginM check cmds = withMVar (pagesDBLock ss) $ \_ -> runExcept
       byUid = M.fromList [ (pageUID p, p) | p <- readable ]
       canWrite p = maybe False (>= AccessWrite) (Auth.pageAccessLevel loginM p)
       writable = filter canWrite readable
+      -- the pages of the "pages" lines: those that the account can change,
+      -- or, when checked, those that it can read
+      pool = if check then readable else writable
       sources = L.sort $ L.nub $ map (fst . pageUID) readable
       user = maybe "" loginUser loginM
       ref (s, u) = T.unpack s ++ "/" ++ T.unpack u
@@ -167,18 +172,18 @@ runMetaScript ss loginM check cmds = withMVar (pagesDBLock ss) $ \_ -> runExcept
       -- the pages of a "pages" line
       resolve ps = fmap (M.fromList . concat) $ forM (MS.pagesTargets ps) $ \t -> case t of
         MS.AllSources
-          | null writable -> Left $ Edit.SaveForbidden $ lineAt n ++ "the account can change no page"
-          | otherwise -> Right [ (pageUID p, p) | p <- writable ]
+          | null pool -> Left $ Edit.SaveForbidden $ lineAt n ++ "the account can change no page"
+          | otherwise -> Right [ (pageUID p, p) | p <- pool ]
         MS.WholeSource s
           | s `notElem` sources -> Left $ Edit.SaveInvalid $ concat
               [ lineAt n, "no source ", T.unpack s, "; sources: "
               , T.unpack (T.intercalate ", " sources) ]
-          | otherwise -> case [ (pageUID p, p) | p <- writable, fst (pageUID p) == s ] of
+          | otherwise -> case [ (pageUID p, p) | p <- pool, fst (pageUID p) == s ] of
               [] -> Left $ Edit.SaveForbidden $ lineAt n ++ "the account can change no page of " ++ T.unpack s
               found -> Right found
         MS.OnePage s u -> case M.lookup (s, u) byUid of
           Nothing -> Left $ Edit.SaveInvalid $ lineAt n ++ "no page " ++ ref (s, u)
-          Just p | canWrite p -> Right [((s, u), p)]
+          Just p | check || canWrite p -> Right [((s, u), p)]
                  | otherwise -> Left $ Edit.SaveForbidden $
                      lineAt n ++ "the account can not change " ++ ref (s, u)
         where n = MS.pagesLine ps
@@ -223,7 +228,7 @@ runMetaScript ss loginM check cmds = withMVar (pagesDBLock ss) $ \_ -> runExcept
                 , writeHeader cmc h /= writeHeader cmc original ]
       refused = [ ref (pageUID p) | (p, _) <- changed, pageUID p `elem` admins
                 , not (maybe False (>= AccessAdmin) $ Auth.pageAccessLevel loginM p) ]
-  unless (null refused) $ throwError $ Edit.SaveForbidden $
+  unless (check || null refused) $ throwError $ Edit.SaveForbidden $
     "the account can not change the access of these pages: " ++ L.intercalate ", " refused
   forM_ changed $ \(p, text) ->
     liftEither $ first (\e -> Edit.SaveInvalid $ ref (pageUID p) ++ ": " ++ e) $
@@ -243,23 +248,41 @@ runMetaScript ss loginM check cmds = withMVar (pagesDBLock ss) $ \_ -> runExcept
       logger ss L.Info $ T.concat [ "metadata of ", count, " changed by ", user, " in ", changedSources ]
       when (gitCommit ss) $ commitPaths ss (user <> " via Kiwi") message paths
       DB.reloadPages ss
-  return (length changed, reverse done)
+  return ScriptRun { runChanged = length changed
+                   , runCommands = reverse done
+                   , runReadOnly = L.nub $ [ pageUID p | (p, _) <- changed, not (canWrite p) ]
+                                           ++ [ pageUID p | (p, _) <- changed, ref (pageUID p) `elem` refused ] }
+
+-- | What a metadata script changed, or would change when checked
+data ScriptRun = ScriptRun
+  { runChanged :: Int                     -- ^ number of pages changed
+  , runCommands :: [(MS.Command, [Page])] -- ^ the pages changed by each command
+  , runReadOnly :: [PageUID]              -- ^ when checked, the pages changed that the
+                                          -- account could not change (write right, or
+                                          -- admin right for "access")
+  }
 
 -- | What a metadata script did (see 'runMetaScript'), or would do when only
 -- checked: the number of pages changed, then the number of pages changed by
--- each command, with these pages when checked (at most 20 by command)
-metaScriptResult :: Bool -> (Int, [(MS.Command, [Page])]) -> [T.Text]
-metaScriptResult check (total, done) =
-  (if check then T.concat ["check only, nothing written: ", pages total, " would change"]
-   else pages total <> " changed") :
+-- each command, with these pages when checked (at most 20 by command), those
+-- that the account can not change marked "(read only)"
+metaScriptResult :: Bool -> ScriptRun -> [T.Text]
+metaScriptResult check r =
+  (if check then T.concat ["check only, nothing written: ", pages (runChanged r), " would change"]
+   else pages (runChanged r) <> " changed") :
+  [ T.concat [ tshow (length ro), " of them read only for this account: an account that can \
+               \change them must apply the script" ]
+  | check, let ro = runReadOnly r, not (null ro) ] ++
   concat [ T.concat [ "line ", tshow (MS.commandLine c), ": ", MS.commandText c, ": "
                     , pages (length ps) ]
            : (if check then listed ps else [])
-         | (c, ps) <- done ]
+         | (c, ps) <- runCommands r ]
   where
     tshow = T.pack . show
     pages n = tshow n <> if n == 1 then " page" else " pages"
-    listed ps = [ T.concat ["  ", s, "/", u, " ", pageTitle p] | p <- take 20 ps, let (s, u) = pageUID p ]
+    listed ps = [ T.concat [ "  ", s, "/", u, " ", pageTitle p
+                           , if pageUID p `elem` runReadOnly r then " (read only)" else "" ]
+                | p <- take 20 ps, let (s, u) = pageUID p ]
                 ++ [ T.concat ["  ... and ", tshow (length ps - 20), " more"] | length ps > 20 ]
 
 -- | Commits these files (see 'Git.commitFiles'); the failures are logged

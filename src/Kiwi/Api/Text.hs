@@ -5,7 +5,7 @@
 module Kiwi.Api.Text
   ( pageRef
   , pagesText
-  , vocabularyText
+  , facetsText
   , Section (..)
   , sections
   , outlineText
@@ -27,7 +27,7 @@ import           Text.Read (readMaybe)
 import           Kiwi.HtmlWriter (lineKey)
 import qualified Kiwi.Tags as Tags
 import           Kiwi.Types
-import           Kiwi.Utils (inlinesText)
+import           Kiwi.Utils (inlinesText, showCustomValue)
 
 
 -- | A page in the answers: SOURCE/UID
@@ -48,11 +48,11 @@ sourcePath contentDir' p =
   T.pack $ FP.makeRelative (contentDir' FP.</> T.unpack (fst $ pageUID p)) (pageAbsoluteFSPath p)
 
 -- | List of pages, one by line (SOURCE/UID, day of modification, title,
--- tags), with their summary and, when the paths are given (admins), the path
--- of their file on the next lines. The first line gives the number of pages
+-- tags), with their summary and the values of these custom fields (when the
+-- page has them) on the next lines. The first line gives the number of pages
 -- found and of pages shown.
-pagesText :: Maybe FP.FilePath -> Int -> [Page] -> T.Text
-pagesText pathsM total pages = T.unlines $ header : concatMap pageLines pages
+pagesText :: [T.Text] -> Int -> [Page] -> T.Text
+pagesText fields total pages = T.unlines $ header : concatMap pageLines pages
   where
     shown = length pages
     header | total == shown = count total
@@ -63,16 +63,17 @@ pagesText pathsM total pages = T.unlines $ header : concatMap pageLines pages
       T.intercalate "  " [ pageRef p, dayText (pageMTime p), pageTitle p
                          , "[" <> T.intercalate ", " (map tagText $ pageTags p) <> "]" ]
       : [ "  summary: " <> s | Just s <- [pageSummary p] ]
-      ++ [ "  path: " <> sourcePath cd p | Just cd <- [pathsM] ]
+      ++ [ T.concat ["  ", f, ": ", T.intercalate ", " (map showCustomValue ks)]
+         | f <- fields, CustomMetaData f' ks <- pageCustomMeta p, f' == f, not (null ks) ]
 
--- | Vocabulary of a source: its tags (each one with its parents, as written
--- in the headers, and its number of pages), its langs, and its custom
--- fields (with their type and description) with their values, each with its
--- number of pages
-vocabularyText :: T.Text -> Int -> [(TagId, Int)] -> [(T.Text, Int)] ->
-                  [(T.Text, T.Text, [(T.Text, Int)])] -> T.Text
-vocabularyText source total tags langs customs = T.unlines $
-  [ T.concat ["source ", source, ": ", T.pack (show total), " pages"]
+-- | Facets of some pages of a source: their tags (each one with its parents,
+-- as written in the headers, and its number of pages), their langs, and
+-- their custom fields (with their type and description) with their values,
+-- each with its number of pages
+facetsText :: T.Text -> Int -> [(TagId, Int)] -> [(T.Text, Int)] ->
+              [(T.Text, T.Text, [(T.Text, Int)])] -> T.Text
+facetsText source total tags langs customs = T.unlines $
+  [ T.concat ["source ", source, ": ", T.pack (show total), if total == 1 then " page" else " pages"]
   , "tags (pages):" ]
   ++ (if null tags then ["  (none)"]
       else [ T.concat ["  ", tagText t, " (", T.pack (show n), ")"] | (t, n) <- tags ])

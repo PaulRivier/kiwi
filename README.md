@@ -491,7 +491,7 @@ show in the browsing interface. At `0.8`, it will appear as soon as
 the number of pages having this metadata is more than 80% of the total
 number of pages matching the current browsing filters. `description`,
 optional, tells what the field is for: it is the tooltip of the field on
-the *Metadata* page, and the agents get it with the vocabulary.
+the *Metadata* page, and the agents get it with the facets.
 
 Then restart Kiwi. You can use them in metadata section of pages like
 so :
@@ -694,22 +694,27 @@ The tokens are kept hashed in the *_tokens* file, next to *kiwi.ini*. A
 token stops working when its account is removed or gets a new password.
 
 An admin logged in on the web can also open the `GET` routes in the
-browser, without token (for instance `/api/vocabulary`, to see what the
+browser, without token (for instance `/api/facets`, to see what the
 agents get); the writes always need a token.
 
 * `GET /api/pages` : the pages, the most recently modified first, one by
   line (`SOURCE/UID`, day, title, tags, then summary), filtered as on the
-  browse page (`source`, `tag`, `lang`, `m.FIELD`, `has`, `archive=yes`),
-  with `since=YYYY-MM-DD` and `limit` (100 by default).
+  browse page (`source`, `tag`, `lang`, `m.FIELD`, `has`, `archive=yes`;
+  several `tag` are all required), with `since=YYYY-MM-DD` and `limit`
+  (100 by default). `show=FIELD` gives the values of a custom field under
+  each page.
 * `GET /api/search?q=QUERY` : full-text search for the agents. The pages
   that contain all the words come first (alone when there are some), each
   one with the words it contains, where (title, tags, content), and up to
   three passages (lines with their section, or headings). `"exact phrase"` and
   `-excluded` words are allowed; `source`, `archive=yes` and `limit` (10 by
   default) too. The search page of the web interface is not changed.
-* `GET /api/vocabulary` : the tags, langs and custom fields (with their
-  description) of each source (`source` to choose them), with their number
-  of pages.
+* `GET /api/facets` : the tags, langs and custom fields (with their
+  description) of the pages selected by the filters of `/api/pages` (all
+  the pages without them), by source, each value with its number of
+  pages. The agents explore the wiki with it as a person does on the
+  browse page: a tag, then another one…, and list the pages once there
+  are few of them.
 * `GET /api/page/SOURCE/UID` : the text of the page, without its uid, and
   the hash of its file as `ETag`. `part=outline` gives its outline (tags,
   summary, backlinks, sections with their lines), `part=section&title=T`
@@ -717,8 +722,8 @@ agents get); the writes always need a token.
   numbers the lines.
 * `GET /api/page/SOURCE/UID/meta` : the header of the page.
 * `GET /api/folders/SOURCE` (admins) : the folders of the source, with
-  their number of pages. The admins also get the path of the files in the
-  lists.
+  their number of pages. The admins also get the path of the file of a
+  page in its outline, and of a page they create.
 * `GET /api/guide` : the guide of kiwi for the agents, followed by yours:
   the page given by `agent-guide: SOURCE/UID` in *kiwi.ini*.
 
@@ -739,7 +744,9 @@ and are committed when the file is in a git repository (author
   page, by the access of the source (an admin can set it in the header).
 * `POST /api/metadata` : changes the headers of many pages with a
   script, all of its commands or none, in one commit; `check=yes` writes
-  nothing and lists the pages that each command would change. A `pages`
+  nothing and lists the pages that each command would change, on the pages
+  that the account can read (those it can not change are marked
+  `(read only)`: an admin can then apply the script). A `pages`
   line chooses the pages of the commands after it (`SOURCE/*`,
   `SOURCE/UID`, or `*`, separated by commas), among those that the account
   can change:
@@ -765,8 +772,8 @@ and are committed when the file is in a git repository (author
 ## MCP server for the agents
 
 Kiwi serves the MCP (Model Context Protocol) of the agents on `POST
-/mcp`, with the same API token. Its tools are `search`, `list_pages`,
-`vocabulary`, `read_page`, `folders`, `edit_page`, `write_page`,
+/mcp`, with the same API token. Its tools are `search`, `facets`,
+`list_pages`, `read_page`, `folders`, `edit_page`, `write_page`,
 `create_page`, `edit_metadata` and `metadata_guide`: each one calls the API, with the
 rights of the account. The agent gets the guide of `/api/guide` when it
 connects. Nothing runs on the side of the agent.

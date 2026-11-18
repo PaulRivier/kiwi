@@ -217,30 +217,29 @@ tools =
                Nothing -> Left "missing argument: query"
                Just q -> Right $ apiGet "/api/search" (("q", q) : contextParams o ++ optional o ["limit"]))
       asIs
+  , Tool "facets"
+      "Explore the wiki by its metadata, as a person narrowing a selection step by step, \
+      \at a low cost: for the pages matching the filters (all the pages without filter), by \
+      \source, their tags (with their parents, as written in the headers), langs and custom \
+      \fields with their values, each with its number of pages. To see what the wiki holds on \
+      \a subject, start without filter, add a tag or a field value at each call, then list the \
+      \pages with list_pages once the selection is small. For a precise information, use \
+      \search instead. Before writing a page, look at the facets to reuse the existing tags \
+      \and values."
+      selectionProps [] (Right . apiGet "/api/facets" . selectionParams)
+      asIs
   , Tool "list_pages"
       "List the pages matching metadata, the most recently modified first, one by line: \
-      \SOURCE/UID, day, title, tags, then summary. Without filter and with a high limit, it is \
-      \the inventory of the wiki. Use vocabulary to know the tags and fields."
-      [ sourcesProp, archiveProp
-      , ("tags", stringsProp "Tags the pages must all have, written as in the headers (\"a > b\"); a tag includes its sub-tags.")
-      , ("fields", A.object [ "type" .= ("object" :: T.Text)
-                            , "additionalProperties" .= A.object ["type" .= ("string" :: T.Text)]
-                            , "description" .= ("Custom fields the pages must have, with this value: {\"author\": \"Smith\"}." :: T.Text) ])
-      , ("since", prop "string" "Only the pages modified since this day, YYYY-MM-DD.")
-      , ("limit", prop "integer" "Maximum number of pages (100 by default).") ]
+      \SOURCE/UID, day, title, tags, then summary and the values of the fields of show_fields. \
+      \Narrow the selection with facets first; without filter and with a high limit, it is \
+      \the inventory of the wiki. To prepare a metadata script, list the pages having a field \
+      \(has_fields) with its values (show_fields)."
+      (selectionProps ++
+       [ ("show_fields", stringsProp "Custom fields whose values are given under each page.")
+       , ("limit", prop "integer" "Maximum number of pages (100 by default).") ])
       []
-      (\o -> Right $ apiGet "/api/pages"
-                   ( contextParams o ++ [ ("tag", t) | t <- texts o "tags" ]
-                     ++ [ ("m." <> AK.toText k, v)
-                        | Just (A.Object fs) <- [KM.lookup "fields" o], (k, A.String v) <- KM.toList fs ]
-                     ++ optional o ["since", "limit"] ))
-      asIs
-  , Tool "vocabulary"
-      "The vocabulary of the wiki, by source: every tag (with its parents, as written in the \
-      \headers) with its number of pages, the langs, and the custom fields with their values. \
-      \Look at it before choosing the tags of a page, to reuse the existing ones."
-      [sourcesProp] []
-      (\o -> Right $ apiGet "/api/vocabulary" (contextParams o))
+      (\o -> Right $ apiGet "/api/pages" ( selectionParams o ++ [ ("show", f) | f <- texts o "show_fields" ]
+                                           ++ optional o ["limit"] ))
       asIs
   , Tool "read_page"
       "Read a page (SOURCE/UID): its header, then its content in CommonMark. For a long page, \
@@ -337,7 +336,9 @@ tools =
       \(a tag with its sub-tags), `meta FIELD rename-to NEW`, `meta FIELD set VALUE`, \
       \`meta FIELD add VALUE`, `meta FIELD remove VALUE` (exact values), `meta FIELD unset`. \
       \Read metadata_guide before the first script. Run with check first to see the pages that \
-      \would change, and ask the user before changing the vocabulary of the wiki."
+      \would change, and ask the user before changing the vocabulary of the wiki. The check \
+      \also runs on the pages that the account can only read, marked \"(read only)\": the \
+      \user can then apply the script with an account that can change them."
       [ ("script", prop "string" "The lines of the script; # starts a comment.")
       , ("check", prop "boolean" "true to only check the script and list the pages it would change, writing nothing.") ]
       ["script"]
@@ -354,3 +355,24 @@ tools =
   where
     lookupCI k hs = lookup k hs
     isJust' = maybe False (const True)
+
+-- | Properties of the tools selecting pages by their metadata (see
+-- 'selectionParams')
+selectionProps :: [(T.Text, A.Value)]
+selectionProps =
+  [ sourcesProp, archiveProp
+  , ("tags", stringsProp "Tags the pages must all have, written as in the headers (\"a > b\"); a tag includes its sub-tags.")
+  , ("fields", A.object [ "type" .= ("object" :: T.Text)
+                        , "additionalProperties" .= A.object ["type" .= ("string" :: T.Text)]
+                        , "description" .= ("Custom fields the pages must have, with this value: {\"author\": \"Smith\"}." :: T.Text) ])
+  , ("has_fields", stringsProp "Custom fields the pages must have, whatever their value.")
+  , ("since", prop "string" "Only the pages modified since this day, YYYY-MM-DD.") ]
+
+-- | Parameters of /api/pages and /api/facets from the arguments of
+-- 'selectionProps'
+selectionParams :: A.Object -> [(T.Text, T.Text)]
+selectionParams o =
+  contextParams o ++ [ ("tag", t) | t <- texts o "tags" ]
+  ++ [ ("m." <> AK.toText k, v) | Just (A.Object fs) <- [KM.lookup "fields" o], (k, A.String v) <- KM.toList fs ]
+  ++ [ ("has", f) | f <- texts o "has_fields" ]
+  ++ optional o ["since"]

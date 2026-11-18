@@ -8,8 +8,10 @@
 - New `summary` metadata (optional): a short description of the page,
   shown as the title (tooltip) of the links to the page, after the title
   of the link if it has one.
-- **API for the agents**: `/api/search`, `/api/pages`,
-  `/api/vocabulary`, `/api/page/SOURCE/UID` (with its outline, sections
+- **API for the agents**: `/api/search`, `/api/pages` (`show=FIELD` for
+  the values of a field), `/api/facets` (tags and fields of the pages
+  selected, with their number of pages, to explore the wiki step by
+  step), `/api/page/SOURCE/UID` (with its outline, sections
   and lines), `/api/page/SOURCE/UID/meta`, `/api/folders/SOURCE` and
   `/api/guide`, in compact text, with API tokens (`kiwi access --token`,
   `--revoke-tokens`; an admin logged in on the web can also read the `GET`
@@ -18,11 +20,11 @@
   /api/pages/SOURCE`) and metadata scripts (`POST /api/metadata`: on the
   pages of `pages SOURCE/*,SOURCE/UID,…` lines, move, delete, rename, set,
   add, remove or unset tags and fields; `check=yes` to try without
-  writing; syntax in `/api/metadata-guide`), committed with the account as
+  writing, also on the pages that the account can only read; syntax in `/api/metadata-guide`), committed with the account as
   author; the admins run them from the metadata editor
   (`/metadata-editor`, linked from the metadata page).
 - Custom metadata can have a `description` in `kiwi.ini`, shown on the
-  metadata page and given to the agents with the vocabulary.
+  metadata page and given to the agents with the facets.
 - **MCP**: the server serves the MCP of the AI agents on `POST /mcp`
   (Claude Code…), with the API token; its tools call the API.
   `scripts/kiwi-mcp-bridge.py` is a stdio bridge for the agents that need

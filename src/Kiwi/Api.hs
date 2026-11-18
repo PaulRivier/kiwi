@@ -6,7 +6,7 @@
 module Kiwi.Api
   ( withToken
   , apiPages
-  , apiVocabulary
+  , apiFacets
   , apiPage
   , apiPageMeta
   , apiFolders
@@ -129,45 +129,56 @@ pathsFor = do
 -- | GET /api/pages: the pages matching the metadata of the parameters (as on
 -- /browse: "tag", "lang", "m.FIELD", "has"; "source" and "archive=yes" for
 -- the context), modified since a day ("since=YYYY-MM-DD"), the most recently
--- modified first, at most "limit" of them (100 by default)
+-- modified first, at most "limit" of them (100 by default), with the values
+-- of the custom fields of the "show" parameters
 apiPages :: ActM ()
-apiPages = do
+apiPages = withSelection ["limit", "show"] $ \db pages -> do
+  params <- queryParams
+  let shown = [ v | ("show", v) <- params ]
+      known = map K.cmcName (K.customMetaConfig db)
+  case filter (`notElem` known) shown of
+    f : _ -> failWith Net.status400 $ "unknown metadata: " <> f
+    [] -> intParam "limit" 100 $ \limit ->
+      answer $ AT.pagesText shown (length pages) (take limit $ sortOn (Down . K.pageMTime) pages)
+
+-- | The pages that the user can read matching the metadata of the parameters
+-- (as on /browse: "tag", "lang", "m.FIELD", "has", "access" for the admins;
+-- "source" and "archive=yes" for the context) and "since=YYYY-MM-DD", the
+-- parameters given excepted, with the restricted database; 400 for a wrong
+-- parameter
+withSelection :: [T.Text] -> (K.PagesDB -> [K.Page] -> ActM ()) -> ActM ()
+withSelection others run = do
   db <- getRestrictedDB
   ctx <- asksK (K.context . K.requestState)
   params <- queryParams
   admin <- Auth.isAdmin
-  let filters = filter ((`notElem` ["limit", "since"]) . fst) $ Url.withoutContextParams params
+  let filters = filter ((`notElem` ("since" : others)) . fst) $ Url.withoutContextParams params
   sinceM <- queryParamMaybe "since"
-  intParam "limit" 100 $ \limit ->
-    case (Browse.decodeReq (K.customMetaConfig db) filters, traverse readDay sinceM) of
-      (Left err, _) -> failWith Net.status400 err
-      (_, Nothing) -> failWith Net.status400 "invalid since, expected YYYY-MM-DD"
-      (Right req, _) | not admin && M.member K.FieldAccess req ->
-                         failWith Net.status400 "unknown parameter: access"
-      (Right req, Just since) -> do
-        let req' = Browse.sourcesReq (K.contextSources ctx) <> req
-            idx = K.pagesIndex db
-            selected = if M.null req' then DI.documentsList idx
-                       else DI.documentsList $ DI.narrow idx $ Browse.reqToQuery req'
-            recent = maybe id (\d -> filter ((>= d) . Time.utctDay . K.pageMTime)) since selected
-            pages = sortOn (Down . K.pageMTime) recent
-        paths <- pathsFor
-        answer $ AT.pagesText paths (length pages) (take limit pages)
+  case (Browse.decodeReq (K.customMetaConfig db) filters, traverse readDay sinceM) of
+    (Left err, _) -> failWith Net.status400 err
+    (_, Nothing) -> failWith Net.status400 "invalid since, expected YYYY-MM-DD"
+    (Right req, _) | not admin && M.member K.FieldAccess req ->
+                       failWith Net.status400 "unknown parameter: access"
+    (Right req, Just since) -> do
+      let req' = Browse.sourcesReq (K.contextSources ctx) <> req
+          idx = K.pagesIndex db
+          selected = if M.null req' then DI.documentsList idx
+                     else DI.documentsList $ DI.narrow idx $ Browse.reqToQuery req'
+      run db $ maybe id (\d -> filter ((>= d) . Time.utctDay . K.pageMTime)) since selected
   where
     readDay :: T.Text -> Maybe Time.Day
     readDay = Time.parseTimeM False Time.defaultTimeLocale "%Y-%-m-%-d" . T.unpack
 
--- | GET /api/vocabulary: for each source of the context (all those the
--- user can read without "source"), its tags, langs and custom fields, with
--- the number of pages of each value
-apiVocabulary :: ActM ()
-apiVocabulary = do
-  db <- getRestrictedDB
-  ctx <- asksK (K.context . K.requestState)
-  let idx = K.pagesIndex db
-      sources = [ s | K.KeyText s <- DI.getFieldKeys idx K.FieldSource
-                    , S.null (K.contextSources ctx) || S.member s (K.contextSources ctx) ]
-      vocabulary s =
+-- | GET /api/facets: for each source of the pages selected by the
+-- parameters of /api/pages (see 'withSelection'; all the pages that the user
+-- can read without them), the tags, langs and custom fields of these pages,
+-- with the number of pages of each value: the agent narrows its selection
+-- step by step, as a person on /browse
+apiFacets :: ActM ()
+apiFacets = withSelection [] $ \db pages -> do
+  let idx = DI.narrowOnSet (K.pagesIndex db) (S.fromList $ map K.pageUID pages)
+      sources = [ s | K.KeyText s <- DI.getFieldKeys idx K.FieldSource ]
+      facets s =
         let sub = DI.narrow idx (U.qOnly K.FieldSource s)
             count f k = S.size $ DI.lookupIndex sub f k
             tags = sortOn (map (\seg -> (textOrder seg, seg)) . Tags.tagToSegments . fst)
@@ -180,10 +191,10 @@ apiVocabulary = do
                       | c <- sortOn (textOrder . K.cmcName) (K.customMetaConfig db)
                       , let f = K.FieldCustom (K.cmcName c)
                       , not (null $ DI.getFieldKeys sub f) ]
-        in AT.vocabularyText s (DI.cardinal sub) tags langs customs
-  if null sources
+        in AT.facetsText s (DI.cardinal sub) tags langs customs
+  if null pages
     then answer "no page\n"
-    else answer $ T.intercalate "\n" $ map vocabulary $ sortOn textOrder sources
+    else answer $ T.intercalate "\n" $ map facets $ sortOn textOrder sources
   where
     typeName t = case t of
       K.CmtText -> "text"

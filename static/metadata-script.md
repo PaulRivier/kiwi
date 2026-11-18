@@ -11,7 +11,9 @@ It runs on the pages that the account can change, archives included.
 - The changed files are written in one git commit, whose message holds the
   script: `git revert` undoes it.
 - Check a script first: it then writes nothing, and lists the pages that
-  each command would change.
+  each command would change. The check runs on the pages that the account
+  can read: those it can not change are marked `(read only)`, and an
+  account that can change them (an admin) applies the script.
 
 ## Choosing the pages: `pages`
 
@@ -30,6 +32,7 @@ next `pages` line. A command before any `pages` line is an error.
   `pages "My notes"/*`.
 - With `*` or `SOURCE/*`, the pages that the account can not change are left
   out. A page named by its uid that the account can not change is an error.
+  (When checked: the pages that the account can read, see above.)
 - After commands on a few pages, write `pages SOURCE/*` again before a
   command meant for the whole source: forgetting it is the easiest mistake
   to make, and the number of pages of each command, in the answer, shows

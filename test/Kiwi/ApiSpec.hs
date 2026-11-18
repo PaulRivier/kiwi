@@ -78,7 +78,7 @@ apiSpec = do
     write <- send' "POST" "/api/metadata"
     liftIO $ status write `shouldBe` 401
 
-  it "lists the pages readable by the account, with their tags and summary" $
+  it "lists the pages readable by the account, with their tags, summary and fields" $
     onKiwi $ \_ tokenOf -> do
       r <- get (tokenOf "bob") "/api/pages"
       liftIO $ status r `shouldBe` 200
@@ -88,23 +88,43 @@ apiSpec = do
       liftIO $ ls `shouldSatisfy` any (\l -> "s/p  " `T.isPrefixOf` l &&
                                              "  Page  [a > b, c]" `T.isSuffixOf` l)
       liftIO $ ls `shouldSatisfy` elem "  summary: About p"
-      -- the paths are for the admins only
-      liftIO $ body r `shouldSatisfy` (not . T.isInfixOf "path:")
       tagged <- get (tokenOf "ann") "/api/pages?tag=a&limit=5"
-      liftIO $ T.lines (body tagged) `shouldSatisfy` elem "  path: p.md"
       liftIO $ take 1 (T.lines $ body tagged) `shouldBe` ["1 page, the most recently modified first"]
+      -- no path in the lists, even for the admins
+      liftIO $ body tagged `shouldSatisfy` (not . T.isInfixOf "path:")
+      -- the values of the fields asked, under the pages that have them
+      shown <- get (tokenOf "bob") "/api/pages?has=zone&show=zone"
+      liftIO $ case T.lines (body shown) of
+        [h, q, z] -> do
+          h `shouldBe` "1 page, the most recently modified first"
+          q `shouldSatisfy` T.isPrefixOf "s/q  "
+          z `shouldBe` "  zone: north"
+        other -> expectationFailure (show other)
+      unknownField <- get (tokenOf "bob") "/api/pages?show=nope"
+      liftIO $ status unknownField `shouldBe` 400
       limited <- get (tokenOf "ann") "/api/pages?limit=1"
       liftIO $ take 1 (T.lines $ body limited)
         `shouldBe` ["3 pages, the most recently modified first, 1 shown (limit)"]
       bad <- get (tokenOf "ann") "/api/pages?limit=x"
       liftIO $ status bad `shouldBe` 400
 
-  it "gives the vocabulary of the sources, with the number of pages" $
+  it "gives the facets of the pages selected, with the number of pages" $
     onKiwi $ \_ tokenOf -> do
-      r <- get (tokenOf "bob") "/api/vocabulary"
+      r <- get (tokenOf "bob") "/api/facets"
       liftIO $ T.lines (body r) `shouldBe`
         [ "source s: 2 pages", "tags (pages):", "  a (1)", "  a > b (1)", "  c (2)"
         , "lang: English (2)", "zone (text; the area): north (1)" ]
+      -- narrowed by the filters of /api/pages
+      tagged <- get (tokenOf "bob") "/api/facets?tag=c&tag=a"
+      liftIO $ T.lines (body tagged) `shouldBe`
+        [ "source s: 1 page", "tags (pages):", "  a (1)", "  a > b (1)", "  c (1)"
+        , "lang: English (1)" ]
+      zoned <- get (tokenOf "bob") "/api/facets?m.zone=north"
+      liftIO $ take 1 (T.lines $ body zoned) `shouldBe` ["source s: 1 page"]
+      none <- get (tokenOf "bob") "/api/facets?tag=nope"
+      liftIO $ body none `shouldBe` "no page\n"
+      bad <- get (tokenOf "bob") "/api/facets?x=y"
+      liftIO $ status bad `shouldBe` 400
 
   it "gives the text of a page without its uid, its hash as ETag, and parts of it" $
     onKiwi $ \cd tokenOf -> do
@@ -379,14 +399,19 @@ apiSpec = do
         -- the check writes nothing, and lists the pages
         let ok' = "pages s/*\nmeta tags move \"cuisine > matériel\" \"matériel > cuisine\"\n\
                   \pages s/a\nmeta tags remove x\nmeta summary set \"About A\"\n"
+        -- the check runs on the pages that bob can read, c marked
         checked <- script' "/api/metadata?check=yes" (tokenOf "bob") ok'
         liftIO $ status checked `shouldBe` 200
         liftIO $ T.lines (body checked) `shouldBe`
-          [ "check only, nothing written: 2 pages would change"
-          , "line 2: meta tags move \"cuisine > matériel\" \"matériel > cuisine\": 2 pages"
-          , "  s/a A", "  s/b B"
+          [ "check only, nothing written: 3 pages would change"
+          , "1 of them read only for this account: an account that can change them must apply the script"
+          , "line 2: meta tags move \"cuisine > matériel\" \"matériel > cuisine\": 3 pages"
+          , "  s/a A", "  s/b B", "  s/c C (read only)"
           , "line 4: meta tags remove x: 1 page", "  s/a A"
           , "line 5: meta summary set \"About A\": 1 page", "  s/a A" ]
+        namedRO <- script' "/api/metadata?check=yes" (tokenOf "bob") "pages s/c\nmeta summary set Cuisine\n"
+        liftIO $ status namedRO `shouldBe` 200
+        liftIO $ T.lines (body namedRO) `shouldSatisfy` elem "  s/c C (read only)"
         a1 <- liftIO $ fileOf' "a.md"
         liftIO $ a1 `shouldBe` a0
         -- c, which bob can not write, is left out of s/*

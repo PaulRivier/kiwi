@@ -168,7 +168,7 @@ kiwiRoute ss api = do
 apiRoute :: WebM ()
 apiRoute = do
   get "/api/pages" $ withToken apiPages
-  get "/api/vocabulary" $ withToken apiVocabulary
+  get "/api/facets" $ withToken apiFacets
   get "/api/page/:source/:uid" $ do
     source <- pathParam "source"
     uid <- pathParam "uid"
