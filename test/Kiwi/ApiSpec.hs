@@ -51,12 +51,32 @@ apiSpec = do
       body = TL.toStrict . TLE.decodeUtf8 . WT.simpleBody
       status = Net.statusCode . WT.simpleStatus
 
-  it "needs a known token, and never the session cookie" $ onKiwi $ \_ _ -> do
-    none <- WT.request $ WT.setPath Wai.defaultRequest "/api/pages"
+  it "needs a known token, or the session of an admin for a GET" $ onKiwi $ \_ _ -> do
+    let plain path = WT.request $ WT.setPath Wai.defaultRequest path
+        send' method path = WT.request $ WT.setPath Wai.defaultRequest { Wai.requestMethod = method } path
+        login who = WT.srequest $ WT.SRequest
+          (WT.setPath Wai.defaultRequest
+             { Wai.requestMethod = "POST"
+             , Wai.requestHeaders = [("Content-Type", "application/x-www-form-urlencoded")] }
+             "/login")
+          ("username=" <> who <> "&password=secret")
+    none <- plain "/api/pages"
     liftIO $ status none `shouldBe` 401
     liftIO $ lookup "WWW-Authenticate" (WT.simpleHeaders none) `shouldBe` Just "Bearer"
     wrong <- get "nope" "/api/pages"
     liftIO $ status wrong `shouldBe` 401
+    -- the session of an account that is not admin: no
+    _ <- login "bob"
+    bob <- plain "/api/pages"
+    liftIO $ status bob `shouldBe` 401
+    _ <- send' "POST" "/logout"
+    -- the session of an admin: the reads, not the writes
+    _ <- login "ann"
+    ann <- plain "/api/pages"
+    liftIO $ status ann `shouldBe` 200
+    liftIO $ body ann `shouldSatisfy` T.isInfixOf "s/secret"
+    write <- send' "POST" "/api/metadata"
+    liftIO $ status write `shouldBe` 401
 
   it "lists the pages readable by the account, with their tags and summary" $
     onKiwi $ \_ tokenOf -> do

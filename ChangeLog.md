@@ -12,7 +12,8 @@
   `/api/vocabulary`, `/api/page/SOURCE/UID` (with its outline, sections
   and lines), `/api/page/SOURCE/UID/meta`, `/api/folders/SOURCE` and
   `/api/guide`, in compact text, with API tokens (`kiwi access --token`,
-  `--revoke-tokens`). New `agent-guide` setting. Writes: `PATCH` (exact
+  `--revoke-tokens`; an admin logged in on the web can also read the `GET`
+  routes in the browser). New `agent-guide` setting. Writes: `PATCH` (exact
   passages), `PUT` (whole text, `If-Match`), creation (`POST
   /api/pages/SOURCE`) and metadata scripts (`POST /api/metadata`: on the
   pages of `pages SOURCE/*,SOURCE/UID,…` lines, move, delete, rename, set,

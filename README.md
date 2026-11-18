@@ -693,6 +693,10 @@ of an account, and gets the rights of this account:
 The tokens are kept hashed in the *_tokens* file, next to *kiwi.ini*. A
 token stops working when its account is removed or gets a new password.
 
+An admin logged in on the web can also open the `GET` routes in the
+browser, without token (for instance `/api/vocabulary`, to see what the
+agents get); the writes always need a token.
+
 * `GET /api/pages` : the pages, the most recently modified first, one by
   line (`SOURCE/UID`, day, title, tags, then summary), filtered as on the
   browse page (`source`, `tag`, `lang`, `m.FIELD`, `has`, `archive=yes`),

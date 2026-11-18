@@ -51,7 +51,7 @@ import qualified Kiwi.Log as L
 import qualified Kiwi.Mcp as Mcp
 import qualified Kiwi.MetaScript as MS
 import           Kiwi.Controller (findPage, getRestrictedDB, keyOrder, sameOrigin, textOrder,
-                                  withContext)
+                                  withContext, withLogin)
 import           Kiwi.Meta (splitPage)
 import           Kiwi.Pandoc (pageDoc)
 import           Kiwi.Search (alg, explainPages, extractTerms, queryLang, searchLang, termFields)
@@ -67,11 +67,18 @@ import qualified Utils.DocIndex as DI
 
 -- | Runs the action with the login of the API token of the request, and the
 -- navigation context of its parameters ("source", "archive=yes", see
--- 'withContext'), or answers 401
+-- 'withContext'), or answers 401. Without token, a GET request of an admin
+-- logged in by the web (session cookie) is accepted too, to read the API in
+-- a browser; the writes need a token (no cross-site request with a cookie).
 withToken :: ActM () -> ActM ()
 withToken run = do
   auth <- Scotty.header "Authorization"
+  method <- Wai.requestMethod <$> Scotty.request
   case T.strip <$> (T.stripPrefix "Bearer " . TL.toStrict =<< auth) of
+    Nothing | method == "GET" -> withLogin $ do
+      admin <- Auth.isAdmin
+      if admin then withContext $ setHeader "Cache-Control" "no-store" >> run
+        else unauthorized "an API token is required (Authorization: Bearer TOKEN)"
     Nothing -> unauthorized "an API token is required (Authorization: Bearer TOKEN)"
     Just token -> do
       kd <- asksK K.kiwiDir
