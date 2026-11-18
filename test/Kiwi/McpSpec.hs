@@ -127,6 +127,9 @@ mcpSpec = do
                        \\"name\":\"read_page\",\"arguments\":{\"page\":\"s/p\"}}}"
     liftIO $ fmap (T.isInfixOf "Hello world") (answer r >>= toolText) `shouldBe` Just True
     liftIO $ fmap (T.isPrefixOf "hash: ") (answer r >>= toolText) `shouldBe` Just True
+    q <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\
+                       \\"name\":\"search\",\"arguments\":{\"query\":\"hello world\"}}}"
+    liftIO $ fmap (T.isPrefixOf "1 page for hello world") (answer q >>= toolText) `shouldBe` Just True
     e <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"edit_page\",\"arguments\":{\"page\":\"s/p\",\
                        \\"edits\":[{\"old\":\"Hello\",\"new\":\"Hi\"}]}}}"

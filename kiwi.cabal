@@ -110,6 +110,7 @@ library
       Kiwi.Api.Search
       Kiwi.Api.Text
       Utils.DocIndex
+      Utils.WaiCall
   other-modules: Paths_kiwi
   autogen-modules: Paths_kiwi
   hs-source-dirs: src

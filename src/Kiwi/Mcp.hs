@@ -28,10 +28,10 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Network.HTTP.Types as Net
 import qualified Network.Wai as Wai
-import qualified Network.Wai.Test as WT
 
 import           Paths_kiwi (version)
 import           Data.Version (showVersion)
+import           Utils.WaiCall (callApp, localRequest)
 
 
 -- | A request to the API: method, path, query parameters, headers and body
@@ -55,18 +55,15 @@ type Backend = ApiRequest -> IO (Int, [(T.Text, T.Text)], T.Text)
 -- /mcp
 appBackend :: Wai.Application -> Wai.Request -> Backend
 appBackend app mcpReq ar = do
-  let query = Net.renderQuery True [ (TE.encodeUtf8 k, Just $ TE.encodeUtf8 v) | (k, v) <- apiParams ar ]
-      req = (WT.setPath Wai.defaultRequest (TE.encodeUtf8 (apiPath ar) <> query))
-              { Wai.requestMethod = TE.encodeUtf8 (apiMethod ar)
-              , Wai.requestHeaders =
-                  filter ((== "Authorization") . fst) (Wai.requestHeaders mcpReq) ++
-                  [ (CI.mk (TE.encodeUtf8 k), TE.encodeUtf8 v) | (k, v) <- apiHeaders ar ]
-              , Wai.remoteHost = Wai.remoteHost mcpReq }
-  r <- WT.runSession (WT.srequest $ WT.SRequest req (BL.fromStrict $ TE.encodeUtf8 $ apiBody ar)) app
-  return ( Net.statusCode (WT.simpleStatus r)
-         , [ (TE.decodeUtf8Lenient (CI.foldedCase k), TE.decodeUtf8Lenient v)
-           | (k, v) <- WT.simpleHeaders r ]
-         , TE.decodeUtf8Lenient (BL.toStrict $ WT.simpleBody r) )
+  let req = (localRequest (TE.encodeUtf8 $ apiMethod ar) (TE.encodeUtf8 $ apiPath ar)
+                          [ (TE.encodeUtf8 k, Just $ TE.encodeUtf8 v) | (k, v) <- apiParams ar ]
+                          (filter ((== "Authorization") . fst) (Wai.requestHeaders mcpReq) ++
+                           [ (CI.mk (TE.encodeUtf8 k), TE.encodeUtf8 v) | (k, v) <- apiHeaders ar ]))
+              { Wai.remoteHost = Wai.remoteHost mcpReq }
+  (st, headers, body) <- callApp app req (BL.fromStrict $ TE.encodeUtf8 $ apiBody ar)
+  return ( Net.statusCode st
+         , [ (TE.decodeUtf8Lenient (CI.foldedCase k), TE.decodeUtf8Lenient v) | (k, v) <- headers ]
+         , TE.decodeUtf8Lenient (BL.toStrict body) )
 
 -- | Answer of a message (none for a notification or a response)
 handleMessage :: Backend -> BL.ByteString -> IO (Maybe A.Value)
