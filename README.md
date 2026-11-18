@@ -752,25 +752,31 @@ and are committed when the file is in a git repository (author
 
 ## MCP server for the agents
 
-`kiwi mcp` is an MCP server (Model Context Protocol) on stdio, for the
-agents that can run one (Claude Code, Claude Desktop…). It is a client of
-the API of a running kiwi: it keeps nothing, the kiwi server reads and
-writes the pages. Its tools are `search`, `list_pages`, `vocabulary`,
-`read_page`, `folders`, `edit_page`, `write_page`, `create_page` and
-`edit_metadata`, and it
-gives the guide of `/api/guide` to the
-agent when it connects. The token is read from the `KIWI_API_TOKEN`
-environment variable, or from a file (`--token-file`):
+Kiwi serves the MCP (Model Context Protocol) of the agents on `POST
+/mcp`, with the same API token. Its tools are `search`, `list_pages`,
+`vocabulary`, `read_page`, `folders`, `edit_page`, `write_page`,
+`create_page` and `edit_metadata`: each one calls the API, with the
+rights of the account. The agent gets the guide of `/api/guide` when it
+connects. Nothing runs on the side of the agent.
 
-    claude mcp add kiwi -e KIWI_API_TOKEN=TOKEN -- kiwi mcp --url http://127.0.0.1:3456
+Claude Code (and the Code tab of Claude Desktop, which reads the same
+settings):
 
-For Claude Desktop, in *claude_desktop_config.json* :
+    claude mcp add --scope user --transport http kiwi http://127.0.0.1:3456/mcp \
+      --header "Authorization: Bearer TOKEN"
 
-    { "mcpServers": { "kiwi": { "command": "/path/to/kiwi",
-                                "args": ["mcp", "--url", "http://127.0.0.1:3456"],
-                                "env": { "KIWI_API_TOKEN": "TOKEN" } } } }
+An agent that only runs local programs (MCP on stdio, such as the Chat
+tab of Claude Desktop with *claude_desktop_config.json*) goes through
+`scripts/kiwi-mcp-bridge.py`, a bridge in Python (standard library
+only):
 
-`kiwi mcp` speaks plain HTTP only: give it the local address of the kiwi.
+    { "mcpServers": { "kiwi": { "command": "python3",
+        "args": ["/path/to/kiwi-mcp-bridge.py", "http://127.0.0.1:3456/mcp"],
+        "env": { "KIWI_API_TOKEN": "TOKEN" } } } }
+
+The connectors of claude.ai (and of the Chat tab of Claude Desktop) call
+the servers from the cloud of Anthropic: they can not reach a kiwi that
+is not public, and are not supported.
 
 # Content versioning and backup
 

@@ -59,7 +59,6 @@ library
     , file-embed
     , filepath
     , full-text-search
-    , http-client
     , http-types
     , lucid2
     , megaparsec

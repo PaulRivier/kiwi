@@ -13,7 +13,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import           Data.Version (showVersion)
 import qualified System.Directory as D
-import           System.Environment (getExecutablePath, lookupEnv)
+import           System.Environment (getExecutablePath)
 import           System.Exit (ExitCode (ExitSuccess), exitFailure, exitWith)
 import qualified System.FilePath as FP
 import           System.IO
@@ -31,7 +31,6 @@ import Kiwi.CLI as CLI
 import Kiwi.ConfigFile as Conf
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Log as L
-import qualified Kiwi.Mcp as Mcp
 import Kiwi.Server (kiwiServer)
 import qualified Kiwi.Utils as U
 import Kiwi.Types
@@ -55,7 +54,6 @@ runKiwiRun = do
     Access action -> runAccess action
     Update c -> runUpdate c
     Reload c -> runReload (CLI.reloadCfp c)
-    Mcp c -> runMcpCli c
 
 
 -- | Every config is read and checked before any server starts, so that
@@ -322,21 +320,3 @@ noEcho action = do
   bracket_ (hSetEcho stdin False)
            (hSetEcho stdin True)
            action
-
-          
-
-
--- | kiwi mcp: the token comes from its file, or from KIWI_API_TOKEN
-runMcpCli :: McpCliConfig -> IO ()
-runMcpCli c = do
-  tokenM <- case CLI.mcpCliTokenFile c of
-    Just f -> do
-      r <- try $ TIO.readFile f
-      case r of
-        Left e -> exitError $ "unable to read the token file " ++ f ++ ": " ++ show (e :: IOException)
-        Right t -> return $ Just (T.strip t)
-    Nothing -> fmap (T.strip . T.pack) <$> lookupEnv "KIWI_API_TOKEN"
-  case tokenM of
-    Just token | not (T.null token) -> Mcp.runMcp (Mcp.McpConfig (CLI.mcpCliUrl c) token)
-    _ -> exitError "an API token is needed: KIWI_API_TOKEN or --token-file \
-                   \(kiwi access KIWI_INI --token LOGIN creates one)"

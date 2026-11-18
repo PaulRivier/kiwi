@@ -16,6 +16,7 @@ module Kiwi.Api
   , apiPatchPage
   , apiCreatePage
   , apiMetadata
+  , serveMcp
   ) where
 
 import           Control.Monad.Reader (local)
@@ -32,6 +33,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import qualified Data.Time as Time
+import qualified Network.Wai as Wai
 import qualified Network.HTTP.Types as Net
 import qualified System.FilePath as FP
 import           Text.Read (readMaybe)
@@ -45,8 +47,10 @@ import qualified Kiwi.Browse as Browse
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
 import qualified Kiwi.Log as L
+import qualified Kiwi.Mcp as Mcp
 import qualified Kiwi.MetaScript as MS
-import           Kiwi.Controller (findPage, getRestrictedDB, keyOrder, textOrder, withContext)
+import           Kiwi.Controller (findPage, getRestrictedDB, keyOrder, sameOrigin, textOrder,
+                                  withContext)
 import           Kiwi.Meta (splitPage)
 import           Kiwi.Pandoc (pageDoc)
 import           Kiwi.Search (alg, explainPages, extractTerms, queryLang, searchLang, termFields)
@@ -487,3 +491,24 @@ apiMetadata source = withBodyText $ \script ->
       case r of
         Left f -> writeFailed f
         Right counts -> answer $ T.unlines $ MS.resultLines source counts
+
+
+-- | POST /mcp: a message of the Model Context Protocol (see "Kiwi.Mcp"),
+-- its tools calling the API in memory (the application given), with the
+-- token of the request. 403 for the Origin of another host (DNS rebinding),
+-- 400 for a version of the protocol that is not known (a client of a newer
+-- version then falls back to initialize), 202 without answer (a
+-- notification).
+serveMcp :: Wai.Application -> ActM ()
+serveMcp app = do
+  same <- sameOrigin
+  versionM <- Scotty.header "MCP-Protocol-Version"
+  case versionM of
+    _ | not same -> failWith Net.status403 "forbidden origin"
+    Just v | TL.toStrict v `notElem` Mcp.protocolVersions ->
+      failWith Net.status400 $ "unsupported protocol version: " <> TL.toStrict v
+    _ -> withBodyText $ \msg -> do
+      req <- Scotty.request
+      answer' <- Scotty.liftIO $
+        Mcp.handleMessage (Mcp.appBackend app req) (BL.fromStrict $ TE.encodeUtf8 msg)
+      maybe (status Net.status202) Scotty.json answer'

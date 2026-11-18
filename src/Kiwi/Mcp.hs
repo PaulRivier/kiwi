@@ -1,47 +1,38 @@
--- | kiwi mcp: a Model Context Protocol server on stdio, for the agents
--- (Claude Code, Claude Desktop…), which is a client of the API of a running
--- kiwi (see "Kiwi.Api"): each tool makes one HTTP request and gives its text
--- answer as it is. The adapter keeps nothing: there is one kiwi, the server,
--- which reads and writes the pages. The token of the API comes from the
--- config of the host (environment), the model never sees it.
+-- | The Model Context Protocol of the agents (Claude Code, Claude Desktop…),
+-- served by kiwi on POST /mcp (see 'Kiwi.Api.serveMcp'): each tool makes
+-- one request to the API (see "Kiwi.Api"), in memory, and gives its text
+-- answer as it is. The API is the only implementation: the MCP only
+-- translates.
 --
--- The protocol: JSON-RPC 2.0, one message by line on stdin and stdout
--- (stdout is only for the protocol: the logs go to stderr). Requests
--- answered: initialize (with the guide of the API as instructions), ping,
--- tools/list, tools/call; the notifications are ignored.
+-- The protocol: JSON-RPC 2.0, one message by POST, the answer in JSON
+-- (neither SSE nor session). Requests answered: initialize (with the guide
+-- of the API as instructions), ping, tools/list, tools/call; the
+-- notifications are ignored.
 module Kiwi.Mcp
-  ( runMcp
-  , McpConfig (..)
-  , handleMessage  -- exported for tests
+  ( handleMessage
+  , appBackend
+  , protocolVersions
   , Backend        -- exported for tests
   , ApiRequest (..)  -- exported for tests
   ) where
 
-import           Control.Exception (SomeException, try)
-import           Control.Monad (forM_, unless)
 import           Data.Aeson ((.=), (.:), (.:?))
 import qualified Data.Aeson as A
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
-import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.Lazy.Char8 as BLC
 import qualified Data.CaseInsensitive as CI
 import           Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import qualified Network.HTTP.Client as H
 import qualified Network.HTTP.Types as Net
-import           System.IO
+import qualified Network.Wai as Wai
+import qualified Network.Wai.Test as WT
 
 import           Paths_kiwi (version)
 import           Data.Version (showVersion)
 
-
--- | Where the API is, and its token
-data McpConfig = McpConfig { mcpUrl :: String      -- ^ base URL of the kiwi
-                           , mcpToken :: T.Text }
 
 -- | A request to the API: method, path, query parameters, headers and body
 data ApiRequest = ApiRequest { apiMethod :: T.Text
@@ -59,59 +50,37 @@ apiGet path params = ApiRequest "GET" path params [] ""
 -- case) and text
 type Backend = ApiRequest -> IO (Int, [(T.Text, T.Text)], T.Text)
 
--- | Runs the server on stdin and stdout, until the end of stdin
-runMcp :: McpConfig -> IO ()
-runMcp cfg = do
-  manager <- H.newManager H.defaultManagerSettings
-  hSetBinaryMode stdin True
-  hSetBinaryMode stdout True
-  hSetBuffering stdout LineBuffering
-  let backend = httpBackend manager cfg
-      loop = do
-        eof <- isEOF
-        unless eof $ do
-          line <- BC.hGetLine stdin
-          unless (BC.all (`elem` (" \t\r" :: String)) line) $ do
-            answers <- handleMessage backend (BL.fromStrict line)
-            forM_ answers $ \a -> BLC.hPutStrLn stdout (A.encode a)
-          loop
-  loop
+-- | The API as an application called in memory, with the token (the
+-- Authorization header) and the address of the client of a request to
+-- /mcp
+appBackend :: Wai.Application -> Wai.Request -> Backend
+appBackend app mcpReq ar = do
+  let query = Net.renderQuery True [ (TE.encodeUtf8 k, Just $ TE.encodeUtf8 v) | (k, v) <- apiParams ar ]
+      req = (WT.setPath Wai.defaultRequest (TE.encodeUtf8 (apiPath ar) <> query))
+              { Wai.requestMethod = TE.encodeUtf8 (apiMethod ar)
+              , Wai.requestHeaders =
+                  filter ((== "Authorization") . fst) (Wai.requestHeaders mcpReq) ++
+                  [ (CI.mk (TE.encodeUtf8 k), TE.encodeUtf8 v) | (k, v) <- apiHeaders ar ]
+              , Wai.remoteHost = Wai.remoteHost mcpReq }
+  r <- WT.runSession (WT.srequest $ WT.SRequest req (BL.fromStrict $ TE.encodeUtf8 $ apiBody ar)) app
+  return ( Net.statusCode (WT.simpleStatus r)
+         , [ (TE.decodeUtf8Lenient (CI.foldedCase k), TE.decodeUtf8Lenient v)
+           | (k, v) <- WT.simpleHeaders r ]
+         , TE.decodeUtf8Lenient (BL.toStrict $ WT.simpleBody r) )
 
--- | The API through HTTP
-httpBackend :: H.Manager -> McpConfig -> Backend
-httpBackend manager cfg ar = do
-  r <- try $ do
-    req <- H.parseRequest (reverse (dropWhile (== '/') $ reverse $ mcpUrl cfg) ++ T.unpack (apiPath ar))
-    let req' = H.setQueryString [ (TE.encodeUtf8 k, Just $ TE.encodeUtf8 v) | (k, v) <- apiParams ar ] req
-                 { H.method = TE.encodeUtf8 (apiMethod ar)
-                 , H.requestHeaders =
-                     ("Authorization", "Bearer " <> TE.encodeUtf8 (mcpToken cfg)) :
-                     [ (CI.mk (TE.encodeUtf8 k), TE.encodeUtf8 v) | (k, v) <- apiHeaders ar ]
-                 , H.requestBody = H.RequestBodyBS (TE.encodeUtf8 $ apiBody ar) }
-    H.httpLbs req' manager
-  return $ case r of
-    Left e -> ( 0, []
-              , T.concat [ "kiwi does not answer at ", T.pack (mcpUrl cfg), ": "
-                         , T.pack (show (e :: SomeException)) ] )
-    Right resp ->
-      ( Net.statusCode (H.responseStatus resp)
-      -- header names in lower case
-      , [ (TE.decodeUtf8Lenient (CI.foldedCase k), TE.decodeUtf8Lenient v)
-        | (k, v) <- H.responseHeaders resp ]
-      , TE.decodeUtf8Lenient (BL.toStrict $ H.responseBody resp) )
-
--- | Answers of a message (none for a notification or a response)
-handleMessage :: Backend -> BL.ByteString -> IO [A.Value]
+-- | Answer of a message (none for a notification or a response)
+handleMessage :: Backend -> BL.ByteString -> IO (Maybe A.Value)
 handleMessage backend msg = case A.decode msg of
-  Nothing -> return [rpcError A.Null (-32700) "parse error"]
+  Nothing -> return $ Just $ rpcError A.Null (-32700) "parse error"
   Just (A.Object o) -> case (KM.lookup "method" o, KM.lookup "id" o) of
     (Just (A.String method), Just rid) -> do
       let params = fromMaybe (A.object []) (KM.lookup "params" o)
       r <- request backend method params
-      return [either (\(c, m) -> rpcError rid c m) (rpcResult rid) r]
+      return $ Just $ either (\(c, m) -> rpcError rid c m) (rpcResult rid) r
     -- notifications, and responses of the client
-    _ -> return []
-  Just _ -> return [rpcError A.Null (-32600) "invalid request"]
+    _ -> return Nothing
+  -- a batch (an array) too: there are none since the version 2025-06-18
+  Just _ -> return $ Just $ rpcError A.Null (-32600) "invalid request"
 
 rpcResult :: A.Value -> A.Value -> A.Value
 rpcResult rid result = A.object ["jsonrpc" .= ("2.0" :: T.Text), "id" .= rid, "result" .= result]

@@ -16,6 +16,7 @@ import           Data.IORef (newIORef, readIORef)
 import           Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import qualified Network.HTTP.Types as Net
 import qualified Network.Wai as Wai
 import           Data.String (fromString)
 import           Network.Wai.Handler.Warp (setHost, setPort)
@@ -64,9 +65,10 @@ kiwiServer cfp c logLevel onReload = do
       opts = defaultOptions { verbose = 0
                             , settings = maybe id (setHost . fromString) (Conf.bind c) $
                                          setPort (Conf.port c) (settings defaultOptions) }
+  api <- apiApp ss
   scottyOptsT opts runActionToIO $ do
     when (logLevel == L.Debug) $ middleware requestLogger
-    kiwiRoute ss
+    kiwiRoute ss api
   where
     -- the login password is never logged (nor the raw request body, which
     -- is not displayed when params are modified)
@@ -77,13 +79,16 @@ kiwiServer cfp c logLevel onReload = do
 -- | The application of a kiwi, as served by 'kiwiServer' (without the
 -- requests logger of the debug mode)
 kiwiApp :: ServerState -> IO Wai.Application
-kiwiApp ss = scottyAppT defaultOptions { verbose = 0 }
-                        (\m -> runReaderT (runServerM m) ss)
-                        (kiwiRoute ss)
+kiwiApp ss = do
+  api <- apiApp ss
+  scottyAppT defaultOptions { verbose = 0 }
+             (\m -> runReaderT (runServerM m) ss)
+             (kiwiRoute ss api)
 
 
-kiwiRoute :: ServerState -> WebM ()
-kiwiRoute ss = do
+-- | The routes of a kiwi, given the application of its API (see 'apiApp')
+kiwiRoute :: ServerState -> Wai.Application -> WebM ()
+kiwiRoute ss api = do
   -- the first middleware is the outer one: all the responses have the headers
   middleware securityHeaders
   -- compressed responses, for the clients that accept them: text types, and
@@ -133,7 +138,34 @@ kiwiRoute ss = do
   post "/login" $ logUserIn
   post "/logout" $ logUserOut
 
-  -- the API, with a token (see "Kiwi.Api")
+  -- the API, with a token (see "Kiwi.Api"), and the MCP of the agents
+  apiRoute
+  post "/mcp" $ withToken (serveMcp api)
+  get "/mcp" mcpMethodNotAllowed
+  delete "/mcp" mcpMethodNotAllowed
+
+  middleware serveTheme
+
+  -- the files of the sources linked by the pages, by uid (see 'serveFile')
+  get "/file/:source/:uid" $ do
+    source <- captureParam "source"
+    uid <- captureParam "uid"
+    withLogin $ serveFile source uid
+
+  notFound $ withLogin serveNotFound
+
+  where
+    editParams = do
+      source <- formParam "source"
+      pId <- formParam "id"
+      -- browsers send the text of a textarea with CRLF line endings
+      sent <- T.replace "\r\n" "\n" <$> formParam "text"
+      return ((source, pId), sent)
+
+
+-- | The routes of the API (see "Kiwi.Api")
+apiRoute :: WebM ()
+apiRoute = do
   get "/api/pages" $ withToken apiPages
   get "/api/vocabulary" $ withToken apiVocabulary
   get "/api/page/:source/:uid" $ do
@@ -164,23 +196,18 @@ kiwiRoute ss = do
     source <- pathParam "source"
     withToken $ apiMetadata source
 
-  middleware serveTheme
+-- | The API alone, as an application, for the tools of the MCP (see
+-- 'serveMcp')
+apiApp :: ServerState -> IO Wai.Application
+apiApp ss = scottyAppT defaultOptions { verbose = 0 }
+                       (\m -> runReaderT (runServerM m) ss)
+                       (defaultHandler (Handler $ withLogin . serveError) >> apiRoute)
 
-  -- the files of the sources linked by the pages, by uid (see 'serveFile')
-  get "/file/:source/:uid" $ do
-    source <- captureParam "source"
-    uid <- captureParam "uid"
-    withLogin $ serveFile source uid
-
-  notFound $ withLogin serveNotFound
-
-  where
-    editParams = do
-      source <- formParam "source"
-      pId <- formParam "id"
-      -- browsers send the text of a textarea with CRLF line endings
-      sent <- T.replace "\r\n" "\n" <$> formParam "text"
-      return ((source, pId), sent)
+-- | GET and DELETE /mcp: no stream from the server, no session
+mcpMethodNotAllowed :: ActM ()
+mcpMethodNotAllowed = do
+  status Net.status405
+  setHeader "Allow" "POST"
 
 
 -- | Security headers of all the responses (pages, theme, images and files of

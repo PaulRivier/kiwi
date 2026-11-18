@@ -23,6 +23,7 @@ module Kiwi.Controller
   , withContext
   , withETag
   , ifAdmin
+  , sameOrigin
   , getRestrictedDB
   , findPage
   , textOrder

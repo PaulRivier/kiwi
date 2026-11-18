@@ -18,9 +18,10 @@
   move, delete or rename tags and fields on all the pages, set, add,
   remove or unset them on a page), committed with the account as author;
   the admins can also run them from a form of the metadata page.
-- **`kiwi mcp`**: MCP server on stdio for the AI agents (Claude Code,
-  Claude Desktop…), a client of the API of a running kiwi (token in
-  `KIWI_API_TOKEN` or `--token-file`).
+- **MCP**: the server serves the MCP of the AI agents on `POST /mcp`
+  (Claude Code…), with the API token; its tools call the API.
+  `scripts/kiwi-mcp-bridge.py` is a stdio bridge for the agents that need
+  one (Chat tab of Claude Desktop).
 
 ## v0.4.4.0 - 2026-11-16
 
