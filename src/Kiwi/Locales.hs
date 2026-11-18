@@ -75,9 +75,10 @@ loc_english = Locales
   , loc_UnlinkedFiles = "Files linked by no page"
   , loc_CopyFileLink = "Copy a link to this file"
   , loc_Backlinks = "Backlinks"
-  , loc_MetaScript = "Metadata script"
-  , loc_MetaScriptHelp = "One command by line, applied to the headers of the pages of the source, all of them or none, in one commit (see the API in the README)."
-  , loc_Source = "Source"
+  , loc_OpenMetadataEditor = "Open the metadata editor"
+  , loc_MetadataEditor = "Metadata editor"
+  , loc_MetaScriptHelp = "Changes of the headers of many pages: all of them or none, in one commit. Check shows the pages that would change, without writing anything. The syntax is below."
+  , loc_Check = "Check"
   , loc_Apply = "Apply"
   -- , loc_TimeLocale = enTimeLocale
   }
@@ -145,9 +146,10 @@ loc_french = Locales
   , loc_UnlinkedFiles = "Fichiers liés par aucune page"
   , loc_CopyFileLink = "Copier un lien vers ce fichier"
   , loc_Backlinks = "Rétroliens"
-  , loc_MetaScript = "Script de métadonnées"
-  , loc_MetaScriptHelp = "Une commande par ligne, appliquée aux en-têtes des pages de la source, toutes ou aucune, en un seul commit (voir l'API dans le README)."
-  , loc_Source = "Source"
+  , loc_OpenMetadataEditor = "Ouvrir l'éditeur de métadonnées"
+  , loc_MetadataEditor = "Éditeur de métadonnées"
+  , loc_MetaScriptHelp = "Modifications des en-têtes de nombreuses pages : toutes ou aucune, en un seul commit. « Tester » montre les pages qui changeraient, sans rien écrire. La syntaxe (en anglais) est en dessous."
+  , loc_Check = "Tester"
   , loc_Apply = "Appliquer"
   -- , loc_TimeLocale = frTimeLocale
   }

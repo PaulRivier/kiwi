@@ -6,6 +6,7 @@ module Kiwi.Write
   , updatePage
   , createPage
   , runMetaScript
+  , metaScriptResult
   ) where
 
 import           Control.Concurrent.MVar (withMVar)
@@ -138,90 +139,128 @@ createPage ss loginM source pathM sent = withMVar (pagesDBLock ss) $ \_ -> runEx
               if taken then go (n + 1) else return p
 
 -- | Applies the commands of a metadata script (see "Kiwi.MetaScript") to the
--- headers of the pages of a source that the user can read, archives
--- included, in their order, all of them or none: a command that can not
--- apply to a page, a command on all the pages that changes none (a typo,
--- most likely), a page of a command that does not exist, or a changed page
--- that the user can not write (admin right for "access") stops everything.
--- The changed files are written, committed in one commit whose message
--- holds the commands (after a commit of their former changes, see
--- 'updatePage'), and the pages are reloaded, under the lock of the reloads.
--- The result is the number of pages changed by each command.
-runMetaScript :: ServerState -> Maybe Login -> T.Text -> [MS.Command] ->
-                 IO (Either Edit.SaveFailure [(MS.Command, Int)])
-runMetaScript ss loginM source cmds = withMVar (pagesDBLock ss) $ \_ -> runExceptT $ do
+-- headers of the pages of their "pages" lines that the user can write,
+-- archives included, in their order, all of them or none. A source of a
+-- "pages" line that the user can not read, a SOURCE/* where the user can
+-- write no page, a SOURCE/UID that the user can not write, a command that can
+-- not apply to a page, a command on "*" or SOURCE/* pages that changes none
+-- (a typo, most likely), or a change of "access" without the admin right on
+-- the page stops everything. Unless only checked, the changed files are
+-- written, committed in one commit whose message holds the script (after a
+-- commit of their former changes, see 'updatePage'), and the pages are
+-- reloaded, under the lock of the reloads. The result is the number of pages
+-- changed, and the pages changed by each command.
+runMetaScript :: ServerState -> Maybe Login -> Bool -> [MS.Command] ->
+                 IO (Either Edit.SaveFailure (Int, [(MS.Command, [Page])]))
+runMetaScript ss loginM check cmds = withMVar (pagesDBLock ss) $ \_ -> runExceptT $ do
   db <- liftIO $ readIORef (pagesDB ss)
   let cmc = customMetaConfig db
-      pages = DI.query (pagesIndex db) $
-                DI.And [U.qOnly FieldSource source, Auth.readableAnyArchiveQuery loginM]
+      readable = DI.query (pagesIndex db) (Auth.readableAnyArchiveQuery loginM)
+      byUid = M.fromList [ (pageUID p, p) | p <- readable ]
+      canWrite p = maybe False (>= AccessWrite) (Auth.pageAccessLevel loginM p)
+      writable = filter canWrite readable
+      sources = L.sort $ L.nub $ map (fst . pageUID) readable
       user = maybe "" loginUser loginM
-  when (null pages) $ throwError $ Edit.SaveInvalid $ "no page in source " ++ T.unpack source
-  files <- fmap M.fromList $ forM pages $ \p -> do
+      ref (s, u) = T.unpack s ++ "/" ++ T.unpack u
+      lineAt n = "line " ++ show n ++ ": "
+      at c = lineAt (MS.commandLine c) ++ T.unpack (MS.commandText c) ++ ": "
+      -- the pages of a "pages" line
+      resolve ps = fmap (M.fromList . concat) $ forM (MS.pagesTargets ps) $ \t -> case t of
+        MS.AllSources
+          | null writable -> Left $ Edit.SaveForbidden $ lineAt n ++ "the account can change no page"
+          | otherwise -> Right [ (pageUID p, p) | p <- writable ]
+        MS.WholeSource s
+          | s `notElem` sources -> Left $ Edit.SaveInvalid $ concat
+              [ lineAt n, "no source ", T.unpack s, "; sources: "
+              , T.unpack (T.intercalate ", " sources) ]
+          | otherwise -> case [ (pageUID p, p) | p <- writable, fst (pageUID p) == s ] of
+              [] -> Left $ Edit.SaveForbidden $ lineAt n ++ "the account can change no page of " ++ T.unpack s
+              found -> Right found
+        MS.OnePage s u -> case M.lookup (s, u) byUid of
+          Nothing -> Left $ Edit.SaveInvalid $ lineAt n ++ "no page " ++ ref (s, u)
+          Just p | canWrite p -> Right [((s, u), p)]
+                 | otherwise -> Left $ Edit.SaveForbidden $
+                     lineAt n ++ "the account can not change " ++ ref (s, u)
+        where n = MS.pagesLine ps
+  selections <- liftEither $ fmap M.fromList $
+    forM (L.nubBy (\a b -> MS.pagesLine a == MS.pagesLine b) $ map MS.commandPages cmds) $ \ps ->
+      (,) (MS.pagesLine ps) <$> resolve ps
+  let selected = M.unions (M.elems selections)
+  files <- fmap M.fromList $ forM (M.elems selected) $ \p -> do
     (_, text) <- withExceptT Edit.SaveFailed $ ExceptT $ readPageFile (pageAbsoluteFSPath p)
     (header, content) <- liftEither $ first (\e -> Edit.SaveFailed $ concat
                            [pageAbsoluteFSPath p, ": ", e]) $ splitPage cmc text
-    return (snd $ pageUID p, (p, header, content))
-  let ref uid = T.unpack source ++ "/" ++ T.unpack uid
-      at c = "line " ++ show (MS.commandLine c) ++ " (" ++ T.unpack (MS.commandText c) ++ "): "
-      tagsOfSource = [ t | KeyText t <- DI.getFieldKeys (DI.narrow (pagesIndex db)
-                                          (U.qOnly FieldSource source)) FieldTag ]
-      -- the tags of the source close to a tag that no page has
-      closeTags t = take 5 [ Tags.prettyTag x | x <- tagsOfSource
-                           , let l = T.toLower (last' $ Tags.tagToSegments t)
-                           , not (T.null l), l `T.isInfixOf` T.toLower x ]
+    return (pageUID p, (p, header, content))
+  let -- the tags of these sources close to a tag that no page has
+      closeTags ss' t = take 5 $ L.nub
+        [ Tags.prettyTag x | s <- ss'
+        , KeyText x <- DI.getFieldKeys (DI.narrow (pagesIndex db) (U.qOnly FieldSource s)) FieldTag
+        , let l = T.toLower (last' $ Tags.tagToSegments t)
+        , not (T.null l), l `T.isInfixOf` T.toLower x ]
       last' xs = if null xs then "" else last xs
-      step (headers, counts, admins) c = case MS.commandScope c of
-        MS.OnePage uid -> case M.lookup uid headers of
-          Nothing -> Left $ at c ++ "no page " ++ ref uid
-          Just h -> do
-            r <- first (at c ++) $ MS.applyCommand cmc c h
-            let n = maybe 0 (const 1) r
-            return ( maybe headers (\h' -> M.insert uid h' headers) r
-                   , (c, n) : counts
-                   , [ uid | MS.commandField c == "access", n > 0 ] ++ admins )
-        MS.AllPages -> do
-          results <- forM (M.toList headers) $ \(uid, h) ->
-            (,) uid <$> first (\e -> at c ++ ref uid ++ ": " ++ e) (MS.applyCommand cmc c h)
-          let changed = [ (uid, h') | (uid, Just h') <- results ]
-          when (null changed) $ Left $ at c ++ "it changes no page" ++
-            case (MS.commandField c, MS.commandOp c) of
-              ("tags", MS.Move a _) -> hint (closeTags a)
-              ("tags", MS.Delete a) -> hint (closeTags a)
-              _ -> ""
-          return ( M.union (M.fromList changed) headers
-                 , (c, length changed) : counts
-                 , [ uid | MS.commandField c == "access", (uid, _) <- changed ] ++ admins )
-      hint [] = ""
-      hint ts = "; tags close to it: " ++ T.unpack (T.intercalate ", " ts)
-  (final, counts, admins) <- liftEither $ first Edit.SaveInvalid $
+      step (headers, done, admins) c = do
+        let ps = MS.commandPages c
+            sel = M.findWithDefault M.empty (MS.pagesLine ps) selections
+        results <- forM (M.keys sel) $ \k -> case M.lookup k headers of
+          Nothing -> Right (k, Nothing)
+          Just h -> (,) k <$> first (\e -> at c ++ ref k ++ ": " ++ e) (MS.applyCommand cmc c h)
+        let changed = [ (k, h') | (k, Just h') <- results ]
+            hint ts = if null ts then "" else "; tags close to it: " ++ T.unpack (T.intercalate ", " ts)
+            selSources = L.nub $ map fst (M.keys sel)
+        when (MS.hasWildcard ps && null changed) $ Left $ at c ++ "it changes no page" ++
+          case (MS.commandField c, MS.commandOp c) of
+            ("tags", MS.Move a _) -> hint (closeTags selSources a)
+            ("tags", MS.Delete a) -> hint (closeTags selSources a)
+            _ -> ""
+        return ( M.union (M.fromList changed) headers
+               , (c, [ p | (k, _) <- changed, Just p <- [M.lookup k sel] ]) : done
+               , [ k | MS.commandField c == "access", (k, _) <- changed ] ++ admins )
+  (final, done, admins) <- liftEither $ first Edit.SaveInvalid $
     foldM step (M.map (\(_, h, _) -> h) files, [], []) cmds
   let changed = [ (p, writePage cmc h content)
-                | (uid, (p, original, content)) <- M.toList files
-                , Just h <- [M.lookup uid final]
+                | (k, (p, original, content)) <- M.toList files
+                , Just h <- [M.lookup k final]
                 , writeHeader cmc h /= writeHeader cmc original ]
-      refused = [ ref (snd $ pageUID p) | (p, _) <- changed
-                , let needed = if snd (pageUID p) `elem` admins then AccessAdmin else AccessWrite
-                , not (maybe False (>= needed) $ Auth.pageAccessLevel loginM p) ]
+      refused = [ ref (pageUID p) | (p, _) <- changed, pageUID p `elem` admins
+                , not (maybe False (>= AccessAdmin) $ Auth.pageAccessLevel loginM p) ]
   unless (null refused) $ throwError $ Edit.SaveForbidden $
-    "the account can not change these pages: " ++ L.intercalate ", " refused
+    "the account can not change the access of these pages: " ++ L.intercalate ", " refused
   forM_ changed $ \(p, text) ->
-    liftEither $ first (\e -> Edit.SaveInvalid $ ref (snd $ pageUID p) ++ ": " ++ e) $
+    liftEither $ first (\e -> Edit.SaveInvalid $ ref (pageUID p) ++ ": " ++ e) $
       checkPageText (contentDir ss) db (pageAbsoluteFSPath p) text
-  unless (null changed) $ do
+  unless (check || null changed) $ do
     let paths = map (pageAbsoluteFSPath . fst) changed
+        changedSources = T.intercalate ", " $ L.sort $ L.nub $ map (fst . pageUID . fst) changed
         count = T.pack (show $ length changed) <> " pages"
-        message = T.concat [ "Metadata of ", source, ": ", count, " (kiwi ", kiwiName ss, ")\n\n"
-                           , T.unlines (map MS.commandText cmds) ]
+        message = T.concat [ "Metadata of ", changedSources, ": ", count, " (kiwi ", kiwiName ss, ")\n\n"
+                           , T.unlines (MS.scriptText cmds) ]
     liftIO $ when (gitCommit ss) $
       commitPaths ss "Kiwi" ("Pre-update commit of " <> count <> " (kiwi " <> kiwiName ss <> ")") paths
     forM_ changed $ \(p, text) ->
       withExceptT (\e -> Edit.SaveFailed $ show (e :: IOException)) $ ExceptT $ try $
         Edit.writePageFile (pageAbsoluteFSPath p) text
     liftIO $ do
-      logger ss L.Info $ T.concat [ "metadata of ", count, " changed by ", user, " in ", source ]
+      logger ss L.Info $ T.concat [ "metadata of ", count, " changed by ", user, " in ", changedSources ]
       when (gitCommit ss) $ commitPaths ss (user <> " via Kiwi") message paths
       DB.reloadPages ss
-  return (reverse counts)
+  return (length changed, reverse done)
+
+-- | What a metadata script did (see 'runMetaScript'), or would do when only
+-- checked: the number of pages changed, then the number of pages changed by
+-- each command, with these pages when checked (at most 20 by command)
+metaScriptResult :: Bool -> (Int, [(MS.Command, [Page])]) -> [T.Text]
+metaScriptResult check (total, done) =
+  (if check then T.concat ["check only, nothing written: ", pages total, " would change"]
+   else pages total <> " changed") :
+  concat [ T.concat [ "line ", tshow (MS.commandLine c), ": ", MS.commandText c, ": "
+                    , pages (length ps) ]
+           : (if check then listed ps else [])
+         | (c, ps) <- done ]
+  where
+    tshow = T.pack . show
+    pages n = tshow n <> if n == 1 then " page" else " pages"
+    listed ps = [ T.concat ["  ", s, "/", u, " ", pageTitle p] | p <- take 20 ps, let (s, u) = pageUID p ]
+                ++ [ T.concat ["  ... and ", tshow (length ps - 20), " more"] | length ps > 20 ]
 
 -- | Commits these files (see 'Git.commitFiles'); the failures are logged
 commitPaths :: ServerState -> T.Text -> T.Text -> [FilePath] -> IO ()

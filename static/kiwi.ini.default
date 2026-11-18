@@ -48,10 +48,13 @@ lang: english
 # If you want more metadata. Threshold is the minimum ratio of relevance that must
 # be reached before the metadata is suggested in the metadata-browser.
 # Types: text | int | date (YYYY-MM-DD) | bool (yes, true, 1 | no, false, 0)
+# The description, optional, tells what the field is for (on the metadata
+# page, and for the agents).
 
 # [metadata category]
 # type: text
 # threshold: 0
+# description: the kind of document
 # 
 # [metadata authors]
 # type: text

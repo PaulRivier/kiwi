@@ -16,6 +16,7 @@ module Kiwi.Api
   , apiPatchPage
   , apiCreatePage
   , apiMetadata
+  , apiMetadataGuide
   , serveMcp
   ) where
 
@@ -166,7 +167,7 @@ apiVocabulary = do
                      [ (t, count K.FieldTag k) | k@(K.KeyText t) <- DI.getFieldKeys sub K.FieldTag ]
             langs = [ (Browse.showKeyLabel k, count K.FieldLang k)
                     | k <- DI.getFieldKeys sub K.FieldLang ]
-            customs = [ (K.cmcName c, typeName (K.cmcType c),
+            customs = [ (K.cmcName c, typeName (K.cmcType c) <> maybe "" ("; " <>) (K.cmcDescription c),
                          [ (Browse.showKeyLabel k, count f k)
                          | k <- sortOn keyOrder (DI.getFieldKeys sub f) ])
                       | c <- sortOn (textOrder . K.cmcName) (K.customMetaConfig db)
@@ -475,22 +476,29 @@ apiCreatePage source = withBodyText $ \text -> do
     contentPath ss (s, _) path = K.contentDir ss FP.</> T.unpack s FP.</> path
 
 
--- | POST /api/metadata/SOURCE: applies the metadata script of the body to
--- the pages of the source (see "Kiwi.MetaScript" and 'Write.runMetaScript'):
--- all of its commands, or none. The answer gives the number of pages
--- changed by each command.
-apiMetadata :: T.Text -> ActM ()
-apiMetadata source = withBodyText $ \script ->
+-- | POST /api/metadata: applies the metadata script of the body (see
+-- "Kiwi.MetaScript" and 'Write.runMetaScript'): all of its commands, or
+-- none; with "check=yes", nothing is written. The answer gives the number of
+-- pages changed by each command (and these pages, when checked).
+apiMetadata :: ActM ()
+apiMetadata = withBodyText $ \script -> do
+  checkM <- queryParamMaybe "check"
+  let check = checkM == Just ("yes" :: T.Text)
   case MS.parseScript script of
     Left err -> failWith Net.status400 (T.pack err)
     Right [] -> failWith Net.status400 "the script has no command"
     Right cmds -> do
       ss <- asksK id
       loginM <- asksK (K.login . K.requestState)
-      r <- Scotty.liftIO $ Write.runMetaScript ss loginM source cmds
+      r <- Scotty.liftIO $ Write.runMetaScript ss loginM check cmds
       case r of
         Left f -> writeFailed f
-        Right counts -> answer $ T.unlines $ MS.resultLines source counts
+        Right done -> answer $ T.unlines $ Write.metaScriptResult check done
+
+-- | GET /api/metadata-guide: the syntax of the metadata scripts (the same
+-- text as on the metadata editor)
+apiMetadataGuide :: ActM ()
+apiMetadataGuide = answer $ TE.decodeUtf8Lenient DP.metadataScriptPage
 
 
 -- | POST /mcp: a message of the Model Context Protocol (see "Kiwi.Mcp"),

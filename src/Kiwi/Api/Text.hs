@@ -67,7 +67,8 @@ pagesText pathsM total pages = T.unlines $ header : concatMap pageLines pages
 
 -- | Vocabulary of a source: its tags (each one with its parents, as written
 -- in the headers, and its number of pages), its langs, and its custom
--- fields with their values, each with its number of pages
+-- fields (with their type and description) with their values, each with its
+-- number of pages
 vocabularyText :: T.Text -> Int -> [(TagId, Int)] -> [(T.Text, Int)] ->
                   [(T.Text, T.Text, [(T.Text, Int)])] -> T.Text
 vocabularyText source total tags langs customs = T.unlines $

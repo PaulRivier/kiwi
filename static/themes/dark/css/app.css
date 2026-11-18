@@ -1242,27 +1242,28 @@ form.page-editor textarea.editor-text {
   background: none;
 }
 
-/* metadata scripts (admins), at the bottom of the metadata page */
-.metadata-page form.metadata-script {
+/* metadata editor (admins) */
+.metadata-editor form.metadata-script {
   display: flex;
   flex-direction: column;
   gap: 0.6em;
 }
 
-.metadata-page form.metadata-script textarea {
+.metadata-editor form.metadata-script textarea {
   width: 100%;
   box-sizing: border-box;
   font-family: monospace;
 }
 
-.metadata-page form.metadata-script button {
-  align-self: flex-start;
+.metadata-editor form.metadata-script .buttons {
+  display: flex;
+  gap: 0.6em;
 }
 
-.metadata-page pre.script-result {
+.metadata-editor pre.script-result {
   white-space: pre-wrap;
 }
 
-.metadata-page pre.script-error {
+.metadata-editor pre.script-error {
   color: rgb(var(--kiwi-error));
 }

@@ -6,6 +6,7 @@ module Kiwi.Controller
   , serveSearch
   , serveMetadata
   , serveMetaScript
+  , serveMetadataEditor
   , serveDoctor
   , serveReadme
   , serveCommonMark
@@ -180,17 +181,21 @@ serveEmbeddedDoc name withHeader defaultTitle content = do
 serveMetadata :: ActM ()
 serveMetadata = do
   db <- getRestrictedDB
-  admin <- Auth.isAdmin
-  r <- metadataPage db $ if admin then Just (Nothing, "", Nothing) else Nothing
+  r <- metadataPage db
   htmlETag db r
 
--- | Runs a metadata script sent by an admin from the form of /metadata (see
--- 'Write.runMetaScript'), then shows the page with the result, and the
--- script to correct it
+-- | The metadata editor of the admins: GET, an empty script; POST, the
+-- script sent is checked or run (see 'Write.runMetaScript'), as the
+-- "action" parameter tells ("apply" or "check"), and comes back with the
+-- result, to correct it
+serveMetadataEditor :: ActM ()
+serveMetadataEditor = ifAdmin $ editorPage "" Nothing
+
 serveMetaScript :: ActM ()
 serveMetaScript = ifAdmin $ do
-  source <- formParam "source"
   script <- T.replace "\r\n" "\n" <$> formParam "script"
+  action <- formParam "action"
+  let check = action /= ("apply" :: T.Text)
   withEditRequest script $ do
     ss <- asksK id
     loginM <- asksK (K.login . K.requestState)
@@ -198,17 +203,20 @@ serveMetaScript = ifAdmin $ do
       Left err -> return $ Left (T.pack err)
       Right [] -> return $ Left "the script has no command"
       Right cmds -> do
-        r <- liftIO $ Write.runMetaScript ss loginM source cmds
-        return $ either (Left . Edit.saveFailureText) (Right . MS.resultLines source) r
-    db <- getRestrictedDB
-    page <- metadataPage db (Just (Just source, script, Just result))
-    html page
+        r <- liftIO $ Write.runMetaScript ss loginM check cmds
+        return $ either (Left . Edit.saveFailureText) (Right . Write.metaScriptResult check) r
+    editorPage script (Just result)
 
--- | The metadata page (see 'serveMetadata'), with the form of the metadata
--- scripts when given (the source chosen, the script, the result of its run)
-metadataPage :: K.PagesDB -> Maybe (Maybe T.Text, T.Text, Maybe (Either T.Text [T.Text])) ->
-                ActM TL.Text
-metadataPage db formM = do
+-- | The page of the metadata editor, with its script and result
+editorPage :: T.Text -> Maybe (Either T.Text [T.Text]) -> ActM ()
+editorPage script result = do
+  let guide = snd <$> embeddedDoc "metadata-script.md" False
+                                  (TE.decodeUtf8Lenient DP.metadataScriptPage)
+  html =<< V.renderMetadataEditor script result guide
+
+-- | The metadata page (see 'serveMetadata')
+metadataPage :: K.PagesDB -> ActM TL.Text
+metadataPage db = do
   ctx <- asksK (K.context . K.requestState)
   admin <- Auth.isAdmin
   let idx = K.pagesIndex db
@@ -219,19 +227,24 @@ metadataPage db formM = do
                                      map K.cmcName $ K.customMetaConfig db)
       section s =
         let sub = DI.narrow idx (U.qOnly K.FieldSource s)
-        in (s, [ (f, fieldLink s f, map (fmap $ entry s sub f) $ keysForest f keys)
+        in (s, [ (f, fieldLink s f, description f, map (fmap $ entry s sub f) $ keysForest f keys)
                | f <- fields, let keys = DI.getFieldKeys sub f, not (null keys) ])
       -- a custom field: the pages of the source having it
       fieldLink s f@(K.FieldCustom _) =
         Just $ Browse.browseUrl ctx $ Browse.addFieldToReq (Browse.sourcesReq $ S.singleton s) f
       fieldLink _ _ = Nothing
+      -- a custom field: its description, else its name
+      description (K.FieldCustom n) =
+        Just $ case [ d | c <- K.customMetaConfig db, K.cmcName c == n, Just d <- [K.cmcDescription c] ] of
+          d : _ -> d
+          [] -> n
+      description _ = Nothing
       entry s sub f k = V.MetaEntry
         { V.metaLabel = keyLabel f k
         , V.metaCopy  = keyCopy f k
         , V.metaLink  = Browse.browseUrl ctx $ Browse.addToReq (Browse.sourcesReq $ S.singleton s) (f, k)
         , V.metaCount = S.size $ DI.lookupIndex sub f k }
-  V.renderMetadata (map section sources) $
-    (\(source, script, result) -> V.ScriptForm sources source script result) <$> formM
+  V.renderMetadata admin (map section sources)
   where
     -- a sub-tag shows its last segment, below its parent
     keyLabel K.FieldTag (K.KeyText t) = case reverse (Tags.tagToSegments t) of

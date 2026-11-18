@@ -14,10 +14,14 @@
   `/api/guide`, in compact text, with API tokens (`kiwi access --token`,
   `--revoke-tokens`). New `agent-guide` setting. Writes: `PATCH` (exact
   passages), `PUT` (whole text, `If-Match`), creation (`POST
-  /api/pages/SOURCE`) and metadata scripts (`POST /api/metadata/SOURCE`:
-  move, delete or rename tags and fields on all the pages, set, add,
-  remove or unset them on a page), committed with the account as author;
-  the admins can also run them from a form of the metadata page.
+  /api/pages/SOURCE`) and metadata scripts (`POST /api/metadata`: on the
+  pages of `pages SOURCE/*,SOURCE/UID,…` lines, move, delete, rename, set,
+  add, remove or unset tags and fields; `check=yes` to try without
+  writing; syntax in `/api/metadata-guide`), committed with the account as
+  author; the admins run them from the metadata editor
+  (`/metadata-editor`, linked from the metadata page).
+- Custom metadata can have a `description` in `kiwi.ini`, shown on the
+  metadata page and given to the agents with the vocabulary.
 - **MCP**: the server serves the MCP of the AI agents on `POST /mcp`
   (Claude Code…), with the API token; its tools call the API.
   `scripts/kiwi-mcp-bridge.py` is a stdio bridge for the agents that need

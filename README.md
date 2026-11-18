@@ -480,6 +480,7 @@ file, with an entry similar to the following.
     [metadata category]
     type: text
     threshold: 0.8
+    description: the kind of document
 
     [metadata authors]
     type: text
@@ -488,7 +489,9 @@ file, with an entry similar to the following.
 `threshold` defines when a custom filter for this metadata key will
 show in the browsing interface. At `0.8`, it will appear as soon as
 the number of pages having this metadata is more than 80% of the total
-number of pages matching the current browsing filters.
+number of pages matching the current browsing filters. `description`,
+optional, tells what the field is for: it is the tooltip of the field on
+the *Metadata* page, and the agents get it with the vocabulary.
 
 Then restart Kiwi. You can use them in metadata section of pages like
 so :
@@ -700,8 +703,9 @@ token stops working when its account is removed or gets a new password.
   three passages (lines with their section, or headings). `"exact phrase"` and
   `-excluded` words are allowed; `source`, `archive=yes` and `limit` (10 by
   default) too. The search page of the web interface is not changed.
-* `GET /api/vocabulary` : the tags, langs and custom fields of each
-  source (`source` to choose them), with their number of pages.
+* `GET /api/vocabulary` : the tags, langs and custom fields (with their
+  description) of each source (`source` to choose them), with their number
+  of pages.
 * `GET /api/page/SOURCE/UID` : the text of the page, without its uid, and
   the hash of its file as `ETag`. `part=outline` gives its outline (tags,
   summary, backlinks, sections with their lines), `part=section&title=T`
@@ -729,33 +733,37 @@ and are committed when the file is in a git repository (author
   when the name is taken); the admins can give its path (`path=folder/name`,
   without extension). The account must have the write right on the new
   page, by the access of the source (an admin can set it in the header).
-* `POST /api/metadata/SOURCE` : changes the headers of the pages of a
-  source with a script, one command by line, all of them or none, in one
-  commit (a command on all the pages that changes none is an error):
+* `POST /api/metadata` : changes the headers of many pages with a
+  script, all of its commands or none, in one commit; `check=yes` writes
+  nothing and lists the pages that each command would change. A `pages`
+  line chooses the pages of the commands after it (`SOURCE/*`,
+  `SOURCE/UID`, or `*`, separated by commas), among those that the account
+  can change:
 
-      # on all the pages of the source
+      # on all the pages of a source
+      pages cuisine/*
       meta tags move "cuisine > matériel" "matériel > cuisine"
       meta tags delete obsolete
       meta ingredients move bananas banana
-      meta ingredients delete salt
       meta author rename-to writer
-      # on one page, by its uid
-      page 0123456789 meta summary set "First aid: wounds, burns"
-      page 0123456789 meta tags add health
-      page 0123456789 meta tags remove todo
-      page 0123456789 meta lang unset
+      # on a few pages
+      pages cuisine/0123456789,plantes/ABCDEFGHJK
+      meta summary set "First aid: wounds, burns"
+      meta tags add health
+      meta tags remove todo
+      meta lang unset
 
-  A tag moves or goes with its sub-tags. Changing `access` needs the
-  admin right on the page. The admins can also run such a script from the
-  form at the bottom of the *Metadata* page: for instance a script written
-  by an agent, read before it is applied.
+  The syntax is in `GET /api/metadata-guide`, and below the form of the
+  metadata editor (`/metadata-editor`, link at the top of the *Metadata*
+  page), where the admins run the same scripts: for instance a script
+  written by an agent, checked then applied.
 
 ## MCP server for the agents
 
 Kiwi serves the MCP (Model Context Protocol) of the agents on `POST
 /mcp`, with the same API token. Its tools are `search`, `list_pages`,
 `vocabulary`, `read_page`, `folders`, `edit_page`, `write_page`,
-`create_page` and `edit_metadata`: each one calls the API, with the
+`create_page`, `edit_metadata` and `metadata_guide`: each one calls the API, with the
 rights of the account. The agent gets the guide of `/api/guide` when it
 connects. Nothing runs on the side of the agent.
 

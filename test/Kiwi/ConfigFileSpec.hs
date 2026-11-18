@@ -48,14 +48,15 @@ configSpec = do
     fmap Conf.editor c `shouldBe` Right Nothing
     fmap (metaAccess . Conf.defaultMeta) c `shouldBe` Right (Just [("admin", AccessRead)])
 
-  it "reads ui-lang, toc, editor and the custom metadata types" $ do
+  it "reads ui-lang, toc, editor and the custom metadata types and descriptions" $ do
     let c = Conf.parseConfig $ ini [ "ui-lang: french", "toc: off"
                                    , "editor: emacsclient -n -s kiwi" ]
-                               <> "[metadata year]\ntype: int\n"
+                               <> "[metadata year]\ntype: int\ndescription: of publication\n"
     fmap Conf.uiLang c `shouldBe` Right UI_French
     fmap Conf.toc c `shouldBe` Right TocOff
     fmap Conf.editor c `shouldBe` Right (Just ("emacsclient", ["-n", "-s", "kiwi"]))
     fmap (map cmcType . Conf.customMetaConfig) c `shouldBe` Right [CmtInt]
+    fmap (map cmcDescription . Conf.customMetaConfig) c `shouldBe` Right [Just "of publication"]
     -- an empty editor disables the edition, as no editor
     fmap Conf.editor (Conf.parseConfig $ ini ["editor:"]) `shouldBe` Right Nothing
 

@@ -12,7 +12,7 @@ module Kiwi.View
   , renderPreview
   , MetaEntry (..)
   , renderMetadata
-  , ScriptForm (..)
+  , renderMetadataEditor
   , renderDoctor
   , renderLoginForm
   , renderNotFound
@@ -200,20 +200,36 @@ data MetaEntry = MetaEntry { metaLabel :: T.Text  -- ^ as displayed
                            }
 
 -- | Metadata of the pages, by source: the fields, with a link to the pages
--- having them, if any, and their keys with their sub-keys (sub-tags)
-renderMetadata :: [(T.Text, [(K.MetaField, Maybe T.Text, Forest MetaEntry)])] ->
-                  Maybe ScriptForm -> ActM TL.Text
-renderMetadata sources form = do
+-- having them and a description, if any, and their keys with their sub-keys (sub-tags); for
+-- the admins, a link to the metadata editor
+renderMetadata :: Bool -> [(T.Text, [(K.MetaField, Maybe T.Text, Maybe T.Text, Forest MetaEntry)])] ->
+                  ActM TL.Text
+renderMetadata admin sources = do
   loc <- getLocales
-  renderView (K.loc_Metadata loc) ReloadAction Nothing $ metadataView loc sources form
+  renderView (K.loc_Metadata loc) ReloadAction Nothing $ metadataView loc admin sources
 
--- | The form of the metadata scripts (admins): the sources, the source
--- chosen, the script, and the result of its last run, if any (an error, or
--- what it did)
-data ScriptForm = ScriptForm { scriptSources :: [T.Text]
-                             , scriptSource :: Maybe T.Text
-                             , scriptText :: T.Text
-                             , scriptResult :: Maybe (Either T.Text [T.Text]) }
+-- | The metadata editor (admins): the script, the result of its last run or
+-- check, if any (an error, or what it did), then the syntax of the scripts
+renderMetadataEditor :: T.Text -> Maybe (Either T.Text [T.Text]) -> Either String PD.Pandoc ->
+                        ActM TL.Text
+renderMetadataEditor script result guide = do
+  loc <- getLocales
+  renderView (K.loc_MetadataEditor loc) NoActions Nothing $ div_ [class_ "metadata-editor"] $ do
+    h1_ [class_ "page-title"] $ toHtml $ K.loc_MetadataEditor loc
+    forM_ result $ \r -> case r of
+      Left err -> pre_ [class_ "script-result script-error"] $ toHtml err
+      Right ls -> pre_ [class_ "script-result"] $ toHtml $ T.unlines ls
+    form_ [action_ "/metadata-editor", method_ "post", class_ "metadata-script"] $ do
+      p_ [class_ "help"] $ toHtml $ K.loc_MetaScriptHelp loc
+      -- the browser drops a newline at the start of a textarea
+      textarea_ [name_ "script", rows_ "14", spellcheck_ "false"] $ toHtml ("\n" <> script)
+      div_ [class_ "buttons"] $ do
+        button_ [type_ "submit", name_ "action", value_ "check"] $ toHtml $ K.loc_Check loc
+        button_ [type_ "submit", name_ "action", value_ "apply"] $ toHtml $ K.loc_Apply loc
+    -- links of embedded documents are not relative to any source
+    case guide of
+      Right doc -> div_ [class_ "document"] $ writeHtml5 (const $ Just Nothing) doc
+      Left err -> pre_ [class_ "script-error"] $ toHtml err
 
 -- | Login form, with an error message if previous attempt failed
 renderLoginForm :: Bool -> ActM TL.Text
@@ -628,34 +644,23 @@ doctorView loc ctx errors broken unlinked = div_ [class_ "doctor-page"] $ do
         span_ [class_ "file"] $ toHtml path
         copyButton (K.loc_CopyFileLink loc) (cmFileLink path uid)
 
-metadataView :: K.Locales -> [(T.Text, [(K.MetaField, Maybe T.Text, Forest MetaEntry)])] ->
-                Maybe ScriptForm -> Html ()
-metadataView loc sources formM = div_ [class_ "metadata-page"] $ do
+metadataView :: K.Locales -> Bool -> [(T.Text, [(K.MetaField, Maybe T.Text, Maybe T.Text, Forest MetaEntry)])] ->
+                Html ()
+metadataView loc admin sources = div_ [class_ "metadata-page"] $ do
   h1_ [class_ "page-title"] $ toHtml $ K.loc_Metadata loc
+  when admin $ p_ [class_ "metadata-editor-link"] $
+    a_ [href_ "/metadata-editor"] $ toHtml $ K.loc_OpenMetadataEditor loc
   forM_ sources $ \(source, fields) -> section_ $ do
     h2_ $ toHtml source
-    -- the name of a custom field is a link to the pages having it
-    forM_ fields $ \(field, fieldLink, entries) ->
+    -- the name of a custom field is a link to the pages having it, its
+    -- description as title
+    forM_ fields $ \(field, fieldLink, descriptionM, entries) ->
       fieldset_ [class_ "flex", class_ (fieldClass field)] $ do
-        legend_ $ case fieldLink of
+        legend_ (maybe [] (\d -> [title_ d]) descriptionM) $ case fieldLink of
           Nothing -> toHtml $ fieldName loc field
           Just l  -> a_ [href_ l, class_ "key", title_ (K.loc_PagesWithField loc)] $
                        toHtml $ fieldName loc field
         ul_ [class_ "meta-list"] $ mapM_ entryTree entries
-  forM_ formM $ \form -> section_ [id_ "metadata-script"] $ do
-    h2_ $ toHtml $ K.loc_MetaScript loc
-    forM_ (scriptResult form) $ \r -> case r of
-      Left err -> pre_ [class_ "script-result script-error"] $ toHtml err
-      Right ls -> pre_ [class_ "script-result"] $ toHtml $ T.unlines ls
-    form_ [action_ "/metadata-script#metadata-script", method_ "post", class_ "metadata-script"] $ do
-      p_ [class_ "help"] $ toHtml $ K.loc_MetaScriptHelp loc
-      label_ $ do
-        toHtml (K.loc_Source loc <> " ")
-        select_ [name_ "source"] $ forM_ (scriptSources form) $ \s ->
-          option_ ([value_ s] ++ [selected_ "" | Just s == scriptSource form]) $ toHtml s
-      -- the browser drops a newline at the start of a textarea
-      textarea_ [name_ "script", rows_ "12", spellcheck_ "false"] $ toHtml ("\n" <> scriptText form)
-      button_ [type_ "submit"] $ toHtml $ K.loc_Apply loc
   where
     entryTree :: Tree MetaEntry -> Html ()
     entryTree (Node e children) = li_ $ do

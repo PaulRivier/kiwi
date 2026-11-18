@@ -1,32 +1,38 @@
--- | The language of the changes of metadata of the API (POST
--- /api/metadata/SOURCE): one command by line, on all the pages of a source
--- or on one page.
+-- | The language of the changes of metadata (POST /api/metadata, and the
+-- metadata editor of the admins): one directive or command by line. A
+-- "pages" line chooses the pages of the commands that follow it, until the
+-- next "pages" line: "*" (every page), SOURCE/* (the pages of a source),
+-- SOURCE/UID (a page), separated by commas.
 --
 -- > # comment
+-- > pages cuisine/*
 -- > meta tags move "cuisine > matériel" "matériel > cuisine"
--- > meta tags delete obsolete
 -- > meta ingrédients move bananes banane
--- > meta ingrédients delete sel
+-- > pages cuisine/*,plantes/*
 -- > meta auteur rename-to author
--- > page 0123456789 meta summary set "First aid: wounds, burns"
--- > page 0123456789 meta tags add santé
--- > page 0123456789 meta tags remove todo
--- > page 0123456789 meta lang unset
+-- > pages cuisine/0123456789,plantes/ABCDEFGHJK
+-- > meta summary set "First aid: wounds, burns"
+-- > meta tags add santé
+-- > meta lang unset
 --
--- An argument with spaces is between double quotes (\" and \\ inside). A
--- value is written as in a header ("a > b, c" for tags). The commands apply
--- to the header of the files, in their order (see 'applyCommand').
+-- An argument with spaces is between double quotes (\" and \\ inside), as
+-- a source with spaces ("Mes notes"/*). A value is written as in a header
+-- ("a > b, c" for tags). The commands apply to the header of the files, in
+-- their order (see 'applyCommand').
 module Kiwi.MetaScript
-  ( Scope (..)
+  ( Target (..)
+  , Pages (..)
   , Op (..)
   , Command (..)
   , parseScript
+  , hasWildcard
   , applyCommand
   , commandText
-  , resultLines
+  , scriptText
   ) where
 
-import           Data.Char (isSpace)
+import           Data.Char (isAlphaNum, isSpace)
+import           Data.Either (partitionEithers)
 import           Data.List (nubBy)
 import           Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
@@ -41,62 +47,92 @@ import           Kiwi.Types
 import           Kiwi.Utils (readCustomValue)
 
 
--- | The pages of a command: every page of the source, or one page by its uid
-data Scope = AllPages | OnePage T.Text
+-- | An item of a "pages" line
+data Target = AllSources              -- ^ "*": every page
+            | WholeSource T.Text      -- ^ SOURCE/*: the pages of a source
+            | OnePage T.Text T.Text   -- ^ SOURCE/UID: a page
+  deriving (Eq, Show)
+
+-- | A "pages" line: its number and its items
+data Pages = Pages { pagesLine :: Int
+                   , pagesTargets :: [Target] }
   deriving (Eq, Show)
 
 -- | What a command does to a field
-data Op = Move T.Text T.Text  -- ^ a value becomes another one (all the pages)
-        | Delete T.Text       -- ^ a value is removed (all the pages)
-        | RenameTo T.Text     -- ^ the key becomes another one (all the pages)
-        | Set T.Text          -- ^ the field gets this value (one page)
-        | Add T.Text          -- ^ values added to a list (one page)
-        | Remove T.Text       -- ^ values removed from a list (one page)
-        | Unset               -- ^ the field is removed (one page)
+data Op = Move T.Text T.Text  -- ^ a value becomes another one
+        | Delete T.Text       -- ^ a value is removed (a tag with its sub-tags)
+        | RenameTo T.Text     -- ^ the key becomes another one
+        | Set T.Text          -- ^ the field gets this value
+        | Add T.Text          -- ^ values added to a list
+        | Remove T.Text       -- ^ values removed from a list (exact values)
+        | Unset               -- ^ the field is removed
   deriving (Eq, Show)
 
--- | A command, with its line in the script
+-- | A command, with its line in the script, and the "pages" line before it
 data Command = Command { commandLine :: Int
-                       , commandScope :: Scope
+                       , commandPages :: Pages
                        , commandField :: T.Text
                        , commandOp :: Op }
   deriving (Eq, Show)
 
+-- | Whether a "pages" line has "*" or SOURCE/* (a command on such pages
+-- that changes none is an error: a typo, most likely)
+hasWildcard :: Pages -> Bool
+hasWildcard = any wild . pagesTargets
+  where wild (OnePage _ _) = False
+        wild _ = True
+
 
 type Parser = Parsec Void T.Text
 
--- | The commands of a script, or the errors of its lines (with their line
--- and column, and what was expected)
+-- | The commands of a script, each one with its "pages" line, or the errors
+-- of its lines (with their line and column, and what was expected). A
+-- command before any "pages" line is an error.
 parseScript :: T.Text -> Either String [Command]
 parseScript script =
-  case partitionEithers' [ parseLine n l | (n, l) <- zip [1 ..] (T.lines script)
-                                         , let s = T.strip l
-                                         , not (T.null s), not ("#" `T.isPrefixOf` s) ] of
+  case partitionEithers (go Nothing numbered) of
     ([], cmds) -> Right cmds
     (errs, _)  -> Left $ concat errs
   where
-    partitionEithers' es = ([ e | Left e <- es ], [ c | Right c <- es ])
+    numbered = [ (n, l) | (n, l) <- zip [1 ..] (T.lines script)
+                        , let s = T.strip l, not (T.null s), not ("#" `T.isPrefixOf` s) ]
+    go _ [] = []
+    go pagesM ((n, l) : rest) = case parseLine n l of
+      Left e -> Left e : go pagesM rest
+      Right (Left targets) -> go (Just $ Pages n targets) rest
+      Right (Right mk) -> case pagesM of
+        Nothing -> Left ("line " ++ show n ++ ": no \"pages\" line before this command\n")
+                   : go pagesM rest
+        Just ps -> Right (mk ps) : go pagesM rest
 
-parseLine :: Int -> T.Text -> Either String Command
-parseLine n l = case runParser (hspace *> commandP <* eof) ("line " ++ show n) l of
+-- | A line: the items of a "pages" line, or a command waiting for its pages
+parseLine :: Int -> T.Text -> Either String (Either [Target] (Pages -> Command))
+parseLine n l = case runParser (hspace *> lineP <* eof) ("line " ++ show n) l of
   Left e  -> Left (errorBundlePretty e)
-  Right c -> Right c
+  Right r -> Right r
   where
+    lineP = (Left <$> pagesP) <|> (Right <$> commandP)
+    pagesP = keyword "pages" *> (targetP `sepBy1` (char ',' *> hspace))
+    targetP = (AllSources <$ char '*' <|> sourceTarget) <* hspace
+    sourceTarget = do
+      s <- quoted <|> (T.pack <$> some (satisfy sourceChar)) <?> "source, or *"
+      _ <- char '/'
+      (WholeSource s <$ char '*') <|>
+        (OnePage s . T.pack <$> some (satisfy uidChar) <?> "uid, or *")
+    sourceChar c = not (isSpace c) && c `notElem` ['/', ',', '"', '*']
+    uidChar c = isAlphaNum c || c `elem` ['-', '_']
     commandP = do
-      scope <- option AllPages (OnePage <$> (keyword "page" *> argument "uid"))
       _ <- keyword "meta"
       field <- argument "field"
-      op <- case scope of
-        AllPages -> choice
-          [ Move <$> (keyword "move" *> argument "old value") <*> argument "new value"
-          , Delete <$> (keyword "delete" *> argument "value")
-          , RenameTo <$> (keyword "rename-to" *> argument "new field") ]
-        OnePage _ -> choice
-          [ Set <$> (keyword "set" *> argument "value")
-          , Add <$> (keyword "add" *> argument "value")
-          , Remove <$> (keyword "remove" *> argument "value")
-          , Unset <$ keyword "unset" ]
-      return $ Command n scope field op
+      op <- choice
+        [ Move <$> (keyword "move" *> argument "old value") <*> argument "new value"
+        , Delete <$> (keyword "delete" *> argument "value")
+        , RenameTo <$> (keyword "rename-to" *> argument "new field")
+        , Set <$> (keyword "set" *> argument "value")
+        , Add <$> (keyword "add" *> argument "value")
+        , Remove <$> (keyword "remove" *> argument "value")
+        , Unset <$ keyword "unset" ]
+      return $ \ps -> Command n ps field op
 
 -- | A word of the language, before a space or the end of the line
 keyword :: T.Text -> Parser T.Text
@@ -107,20 +143,21 @@ argument :: String -> Parser T.Text
 argument what = (quoted <|> word <?> what) <* (hspace1 <|> eof)
   where
     word = T.pack <$> some (satisfy (\c -> not (isSpace c) && c /= '"'))
-    quoted = do
-      _ <- char '"'
-      cs <- many (escaped <|> satisfy (`notElem` ['"', '\\']))
-      _ <- char '"' <?> "closing quote"
-      return (T.pack cs)
-    escaped = char '\\' *> (char '"' <|> char '\\')
 
--- | A command as it would be written, for the messages
+-- | A text between double quotes, with \" and \\ inside
+quoted :: Parser T.Text
+quoted = do
+  _ <- char '"'
+  cs <- many (escaped <|> satisfy (`notElem` ['"', '\\']))
+  _ <- char '"' <?> "closing quote"
+  return (T.pack cs)
+  where escaped = char '\\' *> (char '"' <|> char '\\')
+
+-- | A command as it would be written, for the messages (without its
+-- "pages" line)
 commandText :: Command -> T.Text
-commandText c = T.unwords $ scope ++ ["meta", quote (commandField c)] ++ op
+commandText c = T.unwords $ ["meta", quote (commandField c)] ++ op
   where
-    scope = case commandScope c of
-      AllPages  -> []
-      OnePage u -> ["page", u]
     op = case commandOp c of
       Move a b   -> ["move", quote a, quote b]
       Delete a   -> ["delete", quote a]
@@ -129,11 +166,37 @@ commandText c = T.unwords $ scope ++ ["meta", quote (commandField c)] ++ op
       Add a      -> ["add", quote a]
       Remove a   -> ["remove", quote a]
       Unset      -> ["unset"]
-    quote t | T.any (\ch -> isSpace ch || ch == '"') t || T.null t =
-                "\"" <> T.concatMap esc t <> "\""
-            | otherwise = t
-    esc ch | ch `elem` ['"', '\\'] = T.pack ['\\', ch]
-           | otherwise = T.singleton ch
+
+-- | A "pages" line as it would be written
+pagesText :: Pages -> T.Text
+pagesText ps = "pages " <> T.intercalate "," (map target $ pagesTargets ps)
+  where
+    target AllSources = "*"
+    target (WholeSource s) = source s <> "/*"
+    target (OnePage s u) = source s <> "/" <> u
+    source s | T.any (\ch -> isSpace ch || ch `elem` ['/', ',', '"', '*']) s || T.null s =
+                 "\"" <> T.concatMap esc s <> "\""
+             | otherwise = s
+
+-- | The commands as they would be written, each "pages" line before its
+-- commands (for the messages of the commits)
+scriptText :: [Command] -> [T.Text]
+scriptText = go Nothing
+  where
+    go _ [] = []
+    go prev (c : cs)
+      | Just (pagesLine $ commandPages c) == prev = commandText c : go prev cs
+      | otherwise = pagesText (commandPages c) : commandText c
+                    : go (Just $ pagesLine $ commandPages c) cs
+
+-- | An argument as written: between quotes when needed
+quote :: T.Text -> T.Text
+quote t | T.any (\ch -> isSpace ch || ch == '"') t || T.null t = "\"" <> T.concatMap esc t <> "\""
+        | otherwise = t
+
+esc :: Char -> T.Text
+esc ch | ch `elem` ['"', '\\'] = T.pack ['\\', ch]
+       | otherwise = T.singleton ch
 
 
 -- | Kind of a field, for the commands
@@ -154,8 +217,8 @@ fieldKind cmc k
           c : _ -> Just c
           []    -> Nothing
 
--- | Applies a command to the header of a page (when it is in the scope of
--- the command): the new header, Nothing when the command does not change
+-- | Applies a command to the header of a page (one of the pages of its
+-- "pages" line): the new header, Nothing when the command does not change
 -- it, or why the command can not apply (an invalid value, a field that can
 -- not be changed so). "uid" and "previous-uids" can never be changed. A
 -- value is read as in a header (see 'parseHeader'), and refused when it can
@@ -174,7 +237,7 @@ applyCommand cmc c header
       (kind, Remove v) -> do
         old <- items kind <$> setField field v emptyMeta
         setItems kind (filter (\x -> not (any (equal kind x) old)) (current kind))
-      (Single, _) -> Left $ field' ++ " can only be changed page by page"
+      (Single, _) -> Left $ field' ++ " has one value: use set or unset"
       (TagsField', Move a b) ->
         let (sa, sb) = (tagToSegments a, tagToSegments b)
             moved t = let s = tagToSegments t
@@ -230,12 +293,3 @@ applyCommand cmc c header
 -- | Text with these characters escaped by a backslash
 escape :: String -> T.Text -> T.Text
 escape cs = T.concatMap (\ch -> if ch `elem` cs then T.pack ['\\', ch] else T.singleton ch)
-
--- | Lines telling what a script did in a source: the number of changes,
--- then the number of pages changed by each command
-resultLines :: T.Text -> [(Command, Int)] -> [T.Text]
-resultLines source counts =
-  T.concat [ T.pack (show $ sum $ map snd counts), " changes in ", source ] :
-  [ T.concat [ "line ", T.pack (show $ commandLine c), ": ", commandText c, ": "
-             , T.pack (show n), if n == 1 then " page" else " pages" ]
-  | (c, n) <- counts ]

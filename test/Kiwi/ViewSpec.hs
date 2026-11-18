@@ -335,7 +335,7 @@ viewSpec = do
         "<a class=\"field\" title=\"The pages with this metadata\" href=\"/browse?has=author\">author</a>"
       meta <- get "/metadata"
       liftIO $ body meta `shouldSatisfy` T.isInfixOf
-        "<legend><a href=\"/browse?source=s&amp;has=author\" class=\"key\" \
+        "<legend title=\"author\"><a href=\"/browse?source=s&amp;has=author\" class=\"key\" \
         \title=\"The pages with this metadata\">author</a></legend>"
       -- not the other fields
       liftIO $ body meta `shouldSatisfy` T.isInfixOf "<legend>Tags</legend>"
@@ -353,27 +353,36 @@ viewSpec = do
       liftIO $ map position legends `shouldSatisfy` (\ps -> and $ zipWith (<) ps (drop 1 ps))
       liftIO $ meta `shouldSatisfy` T.isInfixOf "<fieldset class=\"flex internal-meta\"><legend>Language"
 
-  it "runs the metadata scripts of the form of the metadata page, for admins only" $
+  it "runs the metadata scripts of the metadata editor, for admins only" $
     withKiwiAccounts [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
                      [ ("a.md", "uid: a\ntitle: A\ntags: x > y\naccess: family:w\n\nText")
                      , ("b.md", "uid: b\ntitle: B\ntags: x\naccess: family:w\n\nText") ] $
     WT.runSession $ do
-      let form = "/metadata-script"
-          script s = "source=s&script=" <> s
+      let form = "/metadata-editor"
+          script action s = "action=" <> action <> "&script=pages+s%2F*%0D%0A" <> s
       _ <- postForm "/login" "username=bob&password=secret"
       readerMeta <- get "/metadata"
-      liftIO $ body readerMeta `shouldNotSatisfy` T.isInfixOf "metadata-script"
-      refused <- postForm form (script "meta+tags+move+x+z")
+      liftIO $ body readerMeta `shouldNotSatisfy` T.isInfixOf "metadata-editor"
+      readerEditor <- get form
+      liftIO $ WT.simpleStatus readerEditor `shouldBe` Net.status403
+      refused <- postForm form (script "apply" "meta+tags+move+x+z")
       liftIO $ WT.simpleStatus refused `shouldBe` Net.status403
       _ <- postForm "/logout" ""
       _ <- postForm "/login" "username=ann&password=secret"
       adminMeta <- get "/metadata"
-      liftIO $ body adminMeta `shouldSatisfy` T.isInfixOf "action=\"/metadata-script#metadata-script\""
-      bad <- postForm form (script "meta+tags+move+nothing+z")
+      liftIO $ body adminMeta `shouldSatisfy` T.isInfixOf "href=\"/metadata-editor\""
+      editor <- get form
+      -- the syntax below the form
+      liftIO $ body editor `shouldSatisfy` T.isInfixOf "action=\"/metadata-editor\""
+      liftIO $ body editor `shouldSatisfy` T.isInfixOf "Metadata scripts</h1>"
+      bad <- postForm form (script "apply" "meta+tags+move+nothing+z")
       liftIO $ body bad `shouldSatisfy` T.isInfixOf "it changes no page"
       -- the script stays in the form
       liftIO $ body bad `shouldSatisfy` T.isInfixOf "meta tags move nothing z</textarea>"
-      ok <- postForm form (script "meta+tags+move+x+z")
-      liftIO $ body ok `shouldSatisfy` T.isInfixOf "line 1: meta tags move x z: 2 pages"
-      -- the page shows the new vocabulary
-      liftIO $ body ok `shouldSatisfy` T.isInfixOf "tag=z"
+      checked <- postForm form (script "check" "meta+tags+move+x+z")
+      liftIO $ body checked `shouldSatisfy` T.isInfixOf "nothing written"
+      ok <- postForm form (script "apply" "meta+tags+move+x+z")
+      liftIO $ body ok `shouldSatisfy` T.isInfixOf "line 2: meta tags move x z: 2 pages"
+      -- the metadata page shows the new vocabulary
+      meta <- get "/metadata"
+      liftIO $ body meta `shouldSatisfy` T.isInfixOf "tag=z"

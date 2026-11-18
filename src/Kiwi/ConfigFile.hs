@@ -86,9 +86,11 @@ customMetaParser :: T.Text -> SectionParser K.CustomMetaConfig
 customMetaParser name' = do
   cmcType <- fieldOf "type" K.parseCustomMetaType
   cmcThreshold <- fieldDefOf "threshold" number 1.0
+  cmcDescription <- fieldMbOf "description" string
   return K.CustomMetaConfig { K.cmcName = name'
                             , K.cmcType = cmcType
                             , K.cmcThreshold = cmcThreshold
+                            , K.cmcDescription = cmcDescription
                             }
 
 

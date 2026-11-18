@@ -84,7 +84,7 @@ apiSpec = do
       r <- get (tokenOf "bob") "/api/vocabulary"
       liftIO $ T.lines (body r) `shouldBe`
         [ "source s: 2 pages", "tags (pages):", "  a (1)", "  a > b (1)", "  c (2)"
-        , "lang: English (2)", "zone (text): north (1)" ]
+        , "lang: English (2)", "zone (text; the area): north (1)" ]
 
   it "gives the text of a page without its uid, its hash as ETag, and parts of it" $
     onKiwi $ \cd tokenOf -> do
@@ -318,50 +318,75 @@ apiSpec = do
                           "ann via Kiwi|Create s:" `L.isPrefixOf` create
         _ -> False
 
-  it "applies a metadata script to the pages of a source, all or nothing" $
+  it "applies a metadata script to the pages of its pages lines, all or nothing" $
     withKiwiConfig [] [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
       [ ("a.md", "title: A\nuid: a\ntags: cuisine > matériel, x\naccess: family:w\n\nA\n")
       , ("b.md", "title: B\nuid: b\ntags: cuisine > matériel > poêle\naccess: family:w\n\nB\n")
-      , ("c.md", "title: C\nuid: c\ntags: cuisine\naccess: family\n\nC\n") ] $ \cd ss app -> do
+      , ("c.md", "title: C\nuid: c\ntags: cuisine > matériel\naccess: family\n\nC\n") ] $ \cd ss app -> do
       accs <- readIORef (accounts ss)
       made <- mapM Auth.newApiToken accs
       _ <- Auth.dumpTokens (M.fromList $ map snd made) (Auth.tokensFile $ kiwiDir ss)
       let tokenOf l = case [ t | (a, (t, _)) <- zip accs made, accountId a == l ] of
             t : _ -> t
             [] -> error $ "no token for " ++ T.unpack l
-          script token s = WT.srequest $ WT.SRequest
+          script' path token s = WT.srequest $ WT.SRequest
             (WT.setPath Wai.defaultRequest
                { Wai.requestMethod = "POST"
                , Wai.requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 token)] }
-               "/api/metadata/s")
+               path)
             (TLE.encodeUtf8 $ TL.fromStrict s)
-          fileOf name = TE.decodeUtf8 <$> BS.readFile (cd FP.</> "s" FP.</> name)
+          script = script' "/api/metadata"
+          fileOf' name = TE.decodeUtf8 <$> BS.readFile (cd FP.</> "s" FP.</> name)
       flip WT.runSession app $ do
         -- a typo stops everything, with the close tags
-        typo <- script (tokenOf "bob") "meta tags move \"cuisine > matériel\" \"matériel > cuisine\"\n\
-                                       \meta tags delete matérial\n"
+        typo <- script (tokenOf "bob") "pages s/*\nmeta tags move \"cuisine > matériel\" \"matériel > cuisine\"\n\
+                                       \meta tags delete \"x > matériel\"\n"
         liftIO $ status typo `shouldBe` 400
-        liftIO $ body typo `shouldSatisfy` T.isInfixOf "line 2"
-        a0 <- liftIO $ fileOf "a.md"
+        liftIO $ body typo `shouldSatisfy` T.isInfixOf "line 3"
+        liftIO $ body typo `shouldSatisfy` T.isInfixOf "tags close to it: cuisine > matériel"
+        a0 <- liftIO $ fileOf' "a.md"
         liftIO $ a0 `shouldSatisfy` T.isInfixOf "cuisine > matériel"
-        -- bob can not write c
-        refused <- script (tokenOf "bob") "page c meta summary set Cuisine\n"
+        -- bob can not write c, nor read a source t
+        refused <- script (tokenOf "bob") "pages s/c\nmeta summary set Cuisine\n"
         liftIO $ status refused `shouldBe` 403
-        syntax <- script (tokenOf "bob") "meta tags move x\n"
+        unknown <- script (tokenOf "bob") "pages t/*\nmeta tags delete x\n"
+        liftIO $ status unknown `shouldBe` 400
+        liftIO $ body unknown `shouldSatisfy` T.isInfixOf "no source t; sources: s"
+        missing <- script (tokenOf "bob") "pages s/zz\nmeta tags delete x\n"
+        liftIO $ body missing `shouldSatisfy` T.isInfixOf "line 1: no page s/zz"
+        syntax <- script (tokenOf "bob") "pages *\nmeta tags move x\n"
         liftIO $ status syntax `shouldBe` 400
-        ok <- script (tokenOf "bob") "meta tags move \"cuisine > matériel\" \"matériel > cuisine\"\n\
-                                     \page a meta tags remove x\npage a meta summary set \"About A\"\n"
+        -- the check writes nothing, and lists the pages
+        let ok' = "pages s/*\nmeta tags move \"cuisine > matériel\" \"matériel > cuisine\"\n\
+                  \pages s/a\nmeta tags remove x\nmeta summary set \"About A\"\n"
+        checked <- script' "/api/metadata?check=yes" (tokenOf "bob") ok'
+        liftIO $ status checked `shouldBe` 200
+        liftIO $ T.lines (body checked) `shouldBe`
+          [ "check only, nothing written: 2 pages would change"
+          , "line 2: meta tags move \"cuisine > matériel\" \"matériel > cuisine\": 2 pages"
+          , "  s/a A", "  s/b B"
+          , "line 4: meta tags remove x: 1 page", "  s/a A"
+          , "line 5: meta summary set \"About A\": 1 page", "  s/a A" ]
+        a1 <- liftIO $ fileOf' "a.md"
+        liftIO $ a1 `shouldBe` a0
+        -- c, which bob can not write, is left out of s/*
+        ok <- script (tokenOf "bob") ok'
         liftIO $ status ok `shouldBe` 200
         liftIO $ T.lines (body ok) `shouldBe`
-          [ "4 changes in s"
-          , "line 1: meta tags move \"cuisine > matériel\" \"matériel > cuisine\": 2 pages"
-          , "line 2: page a meta tags remove x: 1 page"
-          , "line 3: page a meta summary set \"About A\": 1 page" ]
-        a <- liftIO $ fileOf "a.md"
+          [ "2 pages changed"
+          , "line 2: meta tags move \"cuisine > matériel\" \"matériel > cuisine\": 2 pages"
+          , "line 4: meta tags remove x: 1 page"
+          , "line 5: meta summary set \"About A\": 1 page" ]
+        a <- liftIO $ fileOf' "a.md"
         liftIO $ a `shouldBe` "title: A\nsummary: About A\nuid: a\ntags: matériel > cuisine\n\
                               \access: family:w\n\nA\n"
-        b <- liftIO $ fileOf "b.md"
+        b <- liftIO $ fileOf' "b.md"
         liftIO $ b `shouldSatisfy` T.isInfixOf "tags: matériel > cuisine > poêle\n"
+        c <- liftIO $ fileOf' "c.md"
+        liftIO $ c `shouldSatisfy` T.isInfixOf "tags: cuisine > matériel\n"
         -- the index follows
         r <- get (tokenOf "bob") "/api/pages?tag=mat%C3%A9riel"
         liftIO $ take 1 (T.lines $ body r) `shouldBe` ["2 pages, the most recently modified first"]
+        -- the syntax, for the agents
+        guide <- get (tokenOf "bob") "/api/metadata-guide"
+        liftIO $ body guide `shouldSatisfy` T.isInfixOf "# Metadata scripts"

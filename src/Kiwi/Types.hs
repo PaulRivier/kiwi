@@ -283,6 +283,7 @@ data CustomMetaConfig =
   CustomMetaConfig { cmcName    :: T.Text
                    , cmcType    :: CustomMetaType
                    , cmcThreshold :: Float
+                   , cmcDescription :: Maybe T.Text  -- ^ what the field is for
                    }
   deriving (Show)
 
@@ -554,11 +555,12 @@ data Locales = Locales
   , loc_CopyFileLink :: T.Text
   -- | legend of the pages linking to a page
   , loc_Backlinks :: T.Text
-  -- | form of the metadata scripts (admins, /metadata): title, help, source,
-  -- button
-  , loc_MetaScript :: T.Text
+  -- | metadata editor (admins, /metadata-editor): its link on /metadata,
+  -- title, help, buttons
+  , loc_OpenMetadataEditor :: T.Text
+  , loc_MetadataEditor :: T.Text
   , loc_MetaScriptHelp :: T.Text
-  , loc_Source :: T.Text
+  , loc_Check :: T.Text
   , loc_Apply :: T.Text
   -- , loc_TimeLocale :: Time.TimeLocale
   }
