@@ -40,7 +40,7 @@ your account can read, and only change those it can write.
   whole page again: the rest of the page stays as it is, even if someone
   else changes it meanwhile.
 - Change the metadata of many pages at once with a metadata script (its
-  syntax: the metadata guide, `GET /api/metadata-guide`). Check it first,
+  syntax: the tool `metadata_guide`, or `GET /api/metadata-guide`). Check it first,
   and show the user the pages it would change before changing the
   vocabulary of the wiki.
 - Tell the user what you wrote, with the `SOURCE/UID` of the pages.
