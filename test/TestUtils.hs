@@ -50,6 +50,7 @@ mkPage uid tags access archive day =
        , pageArchive = archive
        , pageCustomMeta = []
        , pagePreviousUids = []
+       , pageAnnotations = []
        }
 
 -- | Database of these pages, indexed as by 'DB.updatePagesDB'

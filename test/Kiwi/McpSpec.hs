@@ -55,18 +55,19 @@ mcpSpec = do
     (Just a, _) <- run "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"
     let names = do A.Array ts <- result a >>= field "tools"
                    return [ n | t <- foldr (:) [] ts, Just (A.String n) <- [field "name" t] ]
-    names `shouldBe` Just [ "search", "facets", "list_pages", "read_page", "folders"
+    names `shouldBe` Just [ "search", "facets", "list_pages", "links", "read_page", "folders"
                           , "edit_page", "write_page", "create_page", "edit_metadata", "metadata_guide" ]
 
   it "calls the API, and gives its text with the hash of a page" $ do
     (as, calls) <- run "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"list_pages\",\"arguments\":{\"sources\":[\"s\"],\"tags\":[\"a > b\"],\
                        \\"fields\":{\"zone\":\"north\"},\"has_fields\":[\"author\"],\
-                       \\"show_fields\":[\"zone\"],\"limit\":5}}}"
+                       \\"show\":[\"title\",\"zone\"],\"pages\":[\"s/p\"],\"limit\":5}}}"
     fmap toolText as `shouldBe` Just (Just "ok")
     calls `shouldBe` [ApiRequest "GET" "/api/pages" [ ("source", "s"), ("tag", "a > b")
                                                     , ("m.zone", "north"), ("has", "author")
-                                                    , ("show", "zone"), ("limit", "5") ] [] ""]
+                                                    , ("page", "s/p"), ("show", "title,zone")
+                                                    , ("limit", "5") ] [] ""]
     (_, facetCalls) <- run "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\
                            \\"name\":\"facets\",\"arguments\":{\"tags\":[\"sport\",\"cuisine\"]}}}"
     facetCalls `shouldBe` [ApiRequest "GET" "/api/facets" [("tag", "sport"), ("tag", "cuisine")] [] ""]
@@ -88,9 +89,9 @@ mcpSpec = do
   it "sends the edits of a page as JSON, and a new text with its hash" $ do
     (_, calls) <- run "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\
                       \\"name\":\"edit_page\",\"arguments\":{\"page\":\"s/p\",\
-                      \\"edits\":[{\"old\":\"a\",\"new\":\"b\"}]}}}"
-    map (\r -> (apiMethod r, apiPath r, apiBody r)) calls
-      `shouldBe` [("PATCH", "/api/page/s/p", "{\"edits\":[{\"new\":\"b\",\"old\":\"a\"}]}")]
+                      \\"edits\":[{\"old\":\"a\",\"new\":\"b\"}],\"message\":\"why\"}}}"
+    map (\r -> (apiMethod r, apiPath r, apiParams r, apiBody r)) calls
+      `shouldBe` [("PATCH", "/api/page/s/p", [("message", "why")], "{\"edits\":[{\"new\":\"b\",\"old\":\"a\"}]}")]
     (_, puts) <- run "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\
                      \\"name\":\"write_page\",\"arguments\":{\"page\":\"s/p\",\"hash\":\"abc\",\
                      \\"text\":\"title: T\\n\\nx\\n\"}}}"

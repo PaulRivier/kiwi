@@ -7,6 +7,7 @@ module Kiwi.Api
   ( withToken
   , apiPages
   , apiFacets
+  , apiLinks
   , apiPage
   , apiPageMeta
   , apiFolders
@@ -22,7 +23,7 @@ module Kiwi.Api
 
 import           Control.Monad.Reader (local)
 import           Data.IORef (readIORef)
-import           Data.List (sortOn)
+import           Data.List (nub, sortOn)
 import           Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as M
 import           Data.Ord (Down (..))
@@ -126,57 +127,77 @@ pathsFor = do
   if admin then Just <$> asksK K.contentDir else return Nothing
 
 
--- | GET /api/pages: the pages matching the metadata of the parameters (as on
--- /browse: "tag", "lang", "m.FIELD", "has"; "source" and "archive=yes" for
--- the context), modified since a day ("since=YYYY-MM-DD"), the most recently
--- modified first, at most "limit" of them (100 by default), with the values
--- of the custom fields of the "show" parameters
+-- | GET /api/pages: the pages selected by the parameters (see
+-- 'withSelection'), the most recently modified first, at most "limit" of
+-- them (100 by default): SOURCE/UID alone, with the fields of "show" under
+-- each one (see 'AT.pagesText')
 apiPages :: ActM ()
-apiPages = withSelection ["limit", "show"] $ \db pages -> do
-  params <- queryParams
-  let shown = [ v | ("show", v) <- params ]
-      known = map K.cmcName (K.customMetaConfig db)
-  case filter (`notElem` known) shown of
-    f : _ -> failWith Net.status400 $ "unknown metadata: " <> f
-    [] -> intParam "limit" 100 $ \limit ->
+apiPages = withSelection ["limit", "show"] $ \db pages ->
+  withShow (AT.pageFields ++ map K.cmcName (K.customMetaConfig db)) $ \shown ->
+    intParam "limit" 100 $ \limit ->
       answer $ AT.pagesText shown (length pages) (take limit $ sortOn (Down . K.pageMTime) pages)
 
+-- | The fields of the "show" parameters (repeated, or separated by commas),
+-- all of them among the given ones (400 otherwise); none without them
+withShow :: [T.Text] -> ([T.Text] -> ActM ()) -> ActM ()
+withShow known run = do
+  params <- queryParams
+  let shown = nub [ f | ("show", v) <- params, f <- map T.strip (T.splitOn "," v), not (T.null f) ]
+  case filter (`notElem` known) shown of
+    f : _ -> failWith Net.status400 $ T.concat [ "unknown field for show: ", f, "; known: "
+                                                , T.intercalate ", " known ]
+    [] -> run shown
+
 -- | The pages that the user can read matching the metadata of the parameters
--- (as on /browse: "tag", "lang", "m.FIELD", "has", "access" for the admins;
--- "source" and "archive=yes" for the context) and "since=YYYY-MM-DD", the
--- parameters given excepted, with the restricted database; 400 for a wrong
--- parameter
+-- (as on /browse: "tag" (all of them), "lang", "m.FIELD", "has", "access"
+-- for the admins; "source" and "archive=yes" for the context),
+-- "since=YYYY-MM-DD", "page=SOURCE/UID" (one of them) and "has=annotations"
+-- (pages with pending annotations), the parameters given excepted, with the
+-- restricted database; 400 for a wrong parameter
 withSelection :: [T.Text] -> (K.PagesDB -> [K.Page] -> ActM ()) -> ActM ()
 withSelection others run = do
   db <- getRestrictedDB
   ctx <- asksK (K.context . K.requestState)
   params <- queryParams
   admin <- Auth.isAdmin
-  let filters = filter ((`notElem` ("since" : others)) . fst) $ Url.withoutContextParams params
+  let filters = [ (k, v) | (k, v) <- Url.withoutContextParams params
+                         , k `notElem` ("since" : "page" : others), (k, v) /= ("has", "annotations") ]
+      annotated = ("has", "annotations") `elem` params
+      pageParams = [ v | ("page", v) <- params ]
   sinceM <- queryParamMaybe "since"
-  case (Browse.decodeReq (K.customMetaConfig db) filters, traverse readDay sinceM) of
-    (Left err, _) -> failWith Net.status400 err
-    (_, Nothing) -> failWith Net.status400 "invalid since, expected YYYY-MM-DD"
-    (Right req, _) | not admin && M.member K.FieldAccess req ->
+  case (Browse.decodeReq (K.customMetaConfig db) filters, traverse readDay sinceM, traverse pageRef pageParams) of
+    (Left err, _, _) -> failWith Net.status400 err
+    (_, Nothing, _) -> failWith Net.status400 "invalid since, expected YYYY-MM-DD"
+    (_, _, Nothing) -> failWith Net.status400 "invalid page, expected SOURCE/UID"
+    (Right req, _, _) | not admin && M.member K.FieldAccess req ->
                        failWith Net.status400 "unknown parameter: access"
-    (Right req, Just since) -> do
+    (Right req, Just since, Just uids) -> do
       let req' = Browse.sourcesReq (K.contextSources ctx) <> req
           idx = K.pagesIndex db
           selected = if M.null req' then DI.documentsList idx
                      else DI.documentsList $ DI.narrow idx $ Browse.reqToQuery req'
-      run db $ maybe id (\d -> filter ((>= d) . Time.utctDay . K.pageMTime)) since selected
+          keep p = maybe True (\d -> Time.utctDay (K.pageMTime p) >= d) since
+                   && (null uids || K.pageUID p `elem` uids)
+                   && (not annotated || not (null $ K.pageAnnotations p))
+      run db $ filter keep selected
   where
     readDay :: T.Text -> Maybe Time.Day
     readDay = Time.parseTimeM False Time.defaultTimeLocale "%Y-%-m-%-d" . T.unpack
+    pageRef v = case T.breakOnEnd "/" v of
+      (s, u) | T.length s > 1 && not (T.null u) -> Just (T.dropEnd 1 s, u)
+      _ -> Nothing
 
 -- | GET /api/facets: for each source of the pages selected by the
 -- parameters of /api/pages (see 'withSelection'; all the pages that the user
 -- can read without them), the tags, langs and custom fields of these pages,
--- with the number of pages of each value: the agent narrows its selection
--- step by step, as a person on /browse
+-- with the number of pages of each value, or only those of "show" (tags,
+-- lang, custom fields): the agent narrows its selection step by step, as a
+-- person on /browse
 apiFacets :: ActM ()
-apiFacets = withSelection [] $ \db pages -> do
-  let idx = DI.narrowOnSet (K.pagesIndex db) (S.fromList $ map K.pageUID pages)
+apiFacets = withSelection ["show"] $ \db pages ->
+ withShow (["tags", "lang"] ++ map K.cmcName (K.customMetaConfig db)) $ \shown -> do
+  let wants f = null shown || f `elem` shown
+      idx = DI.narrowOnSet (K.pagesIndex db) (S.fromList $ map K.pageUID pages)
       sources = [ s | K.KeyText s <- DI.getFieldKeys idx K.FieldSource ]
       facets s =
         let sub = DI.narrow idx (U.qOnly K.FieldSource s)
@@ -189,9 +210,11 @@ apiFacets = withSelection [] $ \db pages -> do
                          [ (Browse.showKeyLabel k, count f k)
                          | k <- sortOn keyOrder (DI.getFieldKeys sub f) ])
                       | c <- sortOn (textOrder . K.cmcName) (K.customMetaConfig db)
+                      , wants (K.cmcName c)
                       , let f = K.FieldCustom (K.cmcName c)
                       , not (null $ DI.getFieldKeys sub f) ]
-        in AT.facetsText s (DI.cardinal sub) tags langs customs
+        in AT.facetsText s (DI.cardinal sub) (if wants "tags" then Just tags else Nothing)
+                         (if wants "lang" then Just langs else Nothing) customs
   if null pages
     then answer "no page\n"
     else answer $ T.intercalate "\n" $ map facets $ sortOn textOrder sources
@@ -201,6 +224,21 @@ apiFacets = withSelection [] $ \db pages -> do
       K.CmtInt  -> "int"
       K.CmtDate -> "date"
       K.CmtBool -> "bool"
+
+-- | GET /api/links: the links between pages, for the pages selected by the
+-- parameters of /api/pages (see 'withSelection'): by source, one link by
+-- line, from the uid of the page to the uid of the page it links (see
+-- 'AT.linksText')
+apiLinks :: ActM ()
+apiLinks = withSelection [] $ \db pages -> do
+  let bySource = M.fromListWith (++) [ (fst (K.pageUID p), [p]) | p <- pages ]
+      exists uid = maybe False (const True) $ DI.findDoc (K.pagesIndex db) uid
+  if null pages
+    then answer "no page\n"
+    else answer $ T.intercalate "\n"
+           [ AT.linksText s [ (snd (K.pageUID p), snd l, exists l)
+                            | p <- sortOn (snd . K.pageUID) ps, l <- U.nodup (K.pageLinks p) ]
+           | (s, ps) <- sortOn (textOrder . fst) (M.toList bySource) ]
 
 -- | The page of the request, readable by the user, archived or not, with
 -- the text of its file (as shown to an editor with the right of the user:
@@ -227,7 +265,7 @@ withApiPage source uid run = do
 -- section of title T; "part=lines&from=N&to=M" these lines.
 -- "numbered=yes" gives the lines after their number (not for the outline).
 apiPage :: T.Text -> T.Text -> ActM ()
-apiPage source uid = withApiPage source uid $ \p (text, hash, offset) -> do
+apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
   partM <- queryParamMaybe "part"
   numberedM <- queryParamMaybe "numbered"
   let numbered = numberedM == Just ("yes" :: T.Text)
@@ -246,7 +284,7 @@ apiPage source uid = withApiPage source uid $ \p (text, hash, offset) -> do
       let backlinks = sortOn (textOrder . K.pageTitle) $
                         DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
       secs <- pageSections p text offset total
-      answer $ AT.outlineText paths p hash total backlinks secs
+      answer $ AT.outlineText paths p offset total backlinks secs
     Just "section" -> do
       titleM <- queryParamMaybe "title"
       case titleM of
@@ -342,18 +380,22 @@ apiSearch = do
           excludedTerms = map fst $ termsOf (AS.queryExcluded q)
           excluded = S.fromList [ uid | (uid, _, _) <- explainPages (K.searchEngine db) excludedTerms ]
           -- the fields are only computed for the pages shown (lazily)
-          hits = [ AS.Hit p score found (termFields p found)
+          -- the union of the terms: the pages with more terms first, then
+          -- by score (with few pages, the IDF of a term in half of them or
+          -- more is 0 or less, so the score alone could put a page with
+          -- fewer terms first)
+          hits = sortOn (\h -> (Down (length $ AS.hitTerms h), Down (AS.hitScore h)))
+                 [ AS.Hit p score found (termFields p found)
                  | (uid, score, found) <- explainPages (K.searchEngine db) (map fst terms)
                  , visible uid, not (S.member uid excluded)
                  , Just p <- [findPage db uid]
                  , all (AS.hasPhrase p) (AS.queryPhrases q) ]
-          ranked = AS.rankHits (map fst terms) hits
-          total = length (AS.rankedHits ranked)
+          total = length hits
       if null terms
         then failWith Net.status400 "the query has no word to search"
         else do
-          results <- mapM (withPassages (map fst terms)) (take limit $ AS.rankedHits ranked)
-          answer $ AS.searchText (T.strip raw) lang terms ranked total results
+          results <- mapM (withPassages (map fst terms)) (take limit hits)
+          answer $ AS.searchText (T.strip raw) lang terms total results
   where
     -- the passages of a page, read from its file, with the lines of the text
     -- of /api/page
@@ -433,7 +475,8 @@ apiPutPage source uid = withWritablePage source uid $ \p level -> withBodyText $
     Just hash -> do
       ss <- asksK id
       user <- userName
-      r <- Scotty.liftIO $ Write.updatePage ss user p (Edit.sentText level hash text)
+      messageM <- queryParamMaybe "message"
+      r <- Scotty.liftIO $ Write.updatePage ss user messageM p (Edit.sentText level hash text)
       case r of
         Left f -> writeFailed f
         Right (newHash, ignored) -> saved Net.status200 "saved" (source, uid) newHash
@@ -461,7 +504,8 @@ apiPatchPage source uid = withWritablePage source uid $ \p level -> do
             Right (_, t) | Right (shown, _) <- Edit.editorText (K.customMetaConfig db) level t
                          , Right (_, rs) <- Edit.applyEdits edits' shown -> rs
             _ -> []
-      r <- Scotty.liftIO $ Write.updatePage ss user p (Edit.editsChange level edits')
+      messageM <- queryParamMaybe "message"
+      r <- Scotty.liftIO $ Write.updatePage ss user messageM p (Edit.editsChange level edits')
       case r of
         Left f -> writeFailed f
         Right (newHash, ignored) -> saved Net.status200 "saved" (source, uid) newHash $
@@ -480,10 +524,11 @@ apiPatchPage source uid = withWritablePage source uid $ \p level -> do
 apiCreatePage :: T.Text -> ActM ()
 apiCreatePage source = withBodyText $ \text -> do
   pathM <- queryParamMaybe "path"
+  messageM <- queryParamMaybe "message"
   ss <- asksK id
   loginM <- asksK (K.login . K.requestState)
   admin <- Auth.isAdmin
-  r <- Scotty.liftIO $ Write.createPage ss loginM source (T.unpack <$> pathM) text
+  r <- Scotty.liftIO $ Write.createPage ss loginM messageM source (T.unpack <$> pathM) text
   case r of
     Left f -> writeFailed f
     Right (uid, path) -> do
@@ -501,6 +546,7 @@ apiCreatePage source = withBodyText $ \text -> do
 apiMetadata :: ActM ()
 apiMetadata = withBodyText $ \script -> do
   checkM <- queryParamMaybe "check"
+  messageM <- queryParamMaybe "message"
   let check = checkM == Just ("yes" :: T.Text)
   case MS.parseScript script of
     Left err -> failWith Net.status400 (T.pack err)
@@ -508,7 +554,7 @@ apiMetadata = withBodyText $ \script -> do
     Right cmds -> do
       ss <- asksK id
       loginM <- asksK (K.login . K.requestState)
-      r <- Scotty.liftIO $ Write.runMetaScript ss loginM check cmds
+      r <- Scotty.liftIO $ Write.runMetaScript ss loginM messageM check cmds
       case r of
         Left f -> writeFailed f
         Right done -> answer $ T.unlines $ Write.metaScriptResult check done

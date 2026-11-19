@@ -204,11 +204,12 @@ tools :: [Tool]
 tools =
   [ Tool "search"
       "Full-text search in the wiki. Use it first to find where an information is, before \
-      \reading pages. The pages containing all the words come first; each result gives the \
-      \page (SOURCE/UID), its title, tags, which words it contains and where, and up to three \
+      \reading pages. The words are alternatives: the pages containing any of them are found, \
+      \best first (the more words, the better), so add synonyms freely. There is no OR nor \
+      \AND operator (OR is searched as a word). Each result gives the page (SOURCE/UID), its \
+      \title, tags, how many of the words it contains and where, its summary, and up to three \
       \passages with their line and section. Words are matched by their stem. \
-      \\"exact phrase\" and -excluded words are allowed. When nothing is found, try synonyms \
-      \or fewer words."
+      \\"exact phrase\" and -excluded words are allowed."
       [ ("query", prop "string" "The words to search, e.g. burns \"first aid\" -baby")
       , sourcesProp, archiveProp
       , ("limit", prop "integer" "Maximum number of pages (10 by default).") ]
@@ -226,25 +227,34 @@ tools =
       \pages with list_pages once the selection is small. For a precise information, use \
       \search instead. Before writing a page, look at the facets to reuse the existing tags \
       \and values."
-      selectionProps [] (Right . apiGet "/api/facets" . selectionParams)
+      (selectionProps ++
+       [("show", stringsProp "Only these facets: tags, lang, or custom fields; all without it.")])
+      [] (\o -> Right $ apiGet "/api/facets" (selectionParams o ++ showParam o))
       asIs
   , Tool "list_pages"
-      "List the pages matching metadata, the most recently modified first, one by line: \
-      \SOURCE/UID, day, title, tags, then summary and the values of the fields of show_fields. \
-      \Narrow the selection with facets first; without filter and with a high limit, it is \
-      \the inventory of the wiki. To prepare a metadata script, list the pages having a field \
-      \(has_fields) with its values (show_fields)."
+      "List the pages matching metadata, the most recently modified first: SOURCE/UID alone, \
+      \and under each page the fields of show (title, tags, summary, lang, modified, \
+      \annotations, custom fields), written as in a header. Narrow the selection with facets \
+      \or search first. show [title, tags] gives an inventory; has_fields and show with a \
+      \custom field prepare a metadata script; has_fields [annotations] finds the pages with \
+      \pending annotations."
       (selectionProps ++
-       [ ("show_fields", stringsProp "Custom fields whose values are given under each page.")
+       [ ("show", stringsProp "Fields given under each page: title, tags, summary, lang, modified (day), annotations (number of pending ones), custom fields.")
        , ("limit", prop "integer" "Maximum number of pages (100 by default).") ])
       []
-      (\o -> Right $ apiGet "/api/pages" ( selectionParams o ++ [ ("show", f) | f <- texts o "show_fields" ]
-                                           ++ optional o ["limit"] ))
+      (\o -> Right $ apiGet "/api/pages" (selectionParams o ++ showParam o ++ optional o ["limit"]))
+      asIs
+  , Tool "links"
+      "The links between the pages matching the filters (all the pages without filter), by \
+      \source: one link by line, UID -> UID, with (missing) when the linked page does not \
+      \exist or can not be read. The pages that no page links are those absent on the right. \
+      \The pages linking one page are in its outline (read_page, part outline)."
+      selectionProps [] (Right . apiGet "/api/links" . selectionParams)
       asIs
   , Tool "read_page"
       "Read a page (SOURCE/UID): its header, then its content in CommonMark. For a long page, \
-      \read its outline first (part: outline: tags, summary, backlinks, sections with their \
-      \lines), then only the section or the lines you need. The hash identifies the version \
+      \read its outline first (part: outline: tags, summary, pending annotations, backlinks, \
+      \sections with their lines), then only the section or the lines you need. The hash identifies the version \
       \of the file."
       [ ("page", prop "string" "The page, as SOURCE/UID.")
       , ("part", A.object [ "type" .= ("string" :: T.Text)
@@ -290,12 +300,13 @@ tools =
               , "properties" .= A.object [ "old" .= prop "string" "Exact text of the page to replace."
                                          , "new" .= prop "string" "Its replacement (empty to delete it)." ]
               , "required" .= (["old", "new"] :: [T.Text]) ]
-          , "description" .= ("The replacements, in their order." :: T.Text) ]) ]
+          , "description" .= ("The replacements, in their order." :: T.Text) ])
+      , messageProp ]
       ["page", "edits"]
       (\o -> do
           (s, u) <- maybe (Left "missing argument: page") pagePath (text o "page")
           edits <- maybe (Left "missing argument: edits") Right (KM.lookup "edits" o)
-          return $ ApiRequest "PATCH" (T.concat ["/api/page/", s, "/", u]) []
+          return $ ApiRequest "PATCH" (T.concat ["/api/page/", s, "/", u]) (optional o ["message"])
                      [("Content-Type", "application/json")]
                      (TE.decodeUtf8 $ BL.toStrict $ A.encode $ A.object ["edits" .= edits]))
       asIs
@@ -305,13 +316,14 @@ tools =
       \changed since."
       [ ("page", prop "string" "The page, as SOURCE/UID.")
       , ("hash", prop "string" "The hash of the page as read.")
-      , ("text", prop "string" "The new text: header, blank line, content.") ]
+      , ("text", prop "string" "The new text: header, blank line, content.")
+      , messageProp ]
       ["page", "hash", "text"]
       (\o -> do
           (s, u) <- maybe (Left "missing argument: page") pagePath (text o "page")
           h <- maybe (Left "missing argument: hash") Right (text o "hash")
           t <- maybe (Left "missing argument: text") Right (text o "text")
-          return $ ApiRequest "PUT" (T.concat ["/api/page/", s, "/", u]) []
+          return $ ApiRequest "PUT" (T.concat ["/api/page/", s, "/", u]) (optional o ["message"])
                      [("If-Match", "\"" <> h <> "\"")] t)
       asIs
   , Tool "create_page"
@@ -321,12 +333,13 @@ tools =
       \named after the title; admins may give its path."
       [ ("source", prop "string" "The source of the page.")
       , ("text", prop "string" "The text of the page: header, blank line, content.")
-      , ("path", prop "string" "Path of the file from the top of the source, without extension (admins only).") ]
+      , ("path", prop "string" "Path of the file from the top of the source, without extension (admins only).")
+      , messageProp ]
       ["source", "text"]
       (\o -> do
           s <- maybe (Left "missing argument: source") Right (text o "source")
           t <- maybe (Left "missing argument: text") Right (text o "text")
-          return $ ApiRequest "POST" ("/api/pages/" <> s) (optional o ["path"]) [] t)
+          return $ ApiRequest "POST" ("/api/pages/" <> s) (optional o ["path", "message"]) [] t)
       asIs
   , Tool "edit_metadata"
       "Change the metadata (headers) of many pages at once, with a script: one line by \
@@ -340,11 +353,12 @@ tools =
       \also runs on the pages that the account can only read, marked \"(read only)\": the \
       \user can then apply the script with an account that can change them."
       [ ("script", prop "string" "The lines of the script; # starts a comment.")
-      , ("check", prop "boolean" "true to only check the script and list the pages it would change, writing nothing.") ]
+      , ("check", prop "boolean" "true to only check the script and list the pages it would change, writing nothing.")
+      , messageProp ]
       ["script"]
       (\o -> do
           sc <- maybe (Left "missing argument: script") Right (text o "script")
-          return $ ApiRequest "POST" "/api/metadata" [ ("check", "yes") | flag o "check" ] [] sc)
+          return $ ApiRequest "POST" "/api/metadata" ([ ("check", "yes") | flag o "check" ] ++ optional o ["message"]) [] sc)
       asIs
   , Tool "metadata_guide"
       "The syntax of the metadata scripts of edit_metadata, with examples."
@@ -365,7 +379,8 @@ selectionProps =
   , ("fields", A.object [ "type" .= ("object" :: T.Text)
                         , "additionalProperties" .= A.object ["type" .= ("string" :: T.Text)]
                         , "description" .= ("Custom fields the pages must have, with this value: {\"author\": \"Smith\"}." :: T.Text) ])
-  , ("has_fields", stringsProp "Custom fields the pages must have, whatever their value.")
+  , ("has_fields", stringsProp "Custom fields the pages must have, whatever their value; annotations: the pages with pending annotations.")
+  , ("pages", stringsProp "Only these pages, as SOURCE/UID.")
   , ("since", prop "string" "Only the pages modified since this day, YYYY-MM-DD.") ]
 
 -- | Parameters of /api/pages and /api/facets from the arguments of
@@ -375,4 +390,13 @@ selectionParams o =
   contextParams o ++ [ ("tag", t) | t <- texts o "tags" ]
   ++ [ ("m." <> AK.toText k, v) | Just (A.Object fs) <- [KM.lookup "fields" o], (k, A.String v) <- KM.toList fs ]
   ++ [ ("has", f) | f <- texts o "has_fields" ]
+  ++ [ ("page", p) | p <- texts o "pages" ]
   ++ optional o ["since"]
+
+-- | The "show" parameter of the "show" argument
+showParam :: A.Object -> [(T.Text, T.Text)]
+showParam o = [ ("show", T.intercalate "," fs) | let fs = texts o "show", not (null fs) ]
+
+-- | The "message" argument of the tools that write
+messageProp :: (T.Text, A.Value)
+messageProp = ("message", prop "string" "Optional: what was done and why, kept in the history of the page (git commit message).")

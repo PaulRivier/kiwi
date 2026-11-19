@@ -4,7 +4,9 @@
 -- a first line tells what was found and what was cut.
 module Kiwi.Api.Text
   ( pageRef
+  , pageFields
   , pagesText
+  , linksText
   , facetsText
   , Section (..)
   , sections
@@ -47,10 +49,16 @@ sourcePath :: FP.FilePath -> Page -> T.Text
 sourcePath contentDir' p =
   T.pack $ FP.makeRelative (contentDir' FP.</> T.unpack (fst $ pageUID p)) (pageAbsoluteFSPath p)
 
--- | List of pages, one by line (SOURCE/UID, day of modification, title,
--- tags), with their summary and the values of these custom fields (when the
--- page has them) on the next lines. The first line gives the number of pages
--- found and of pages shown.
+-- | The fields of a page that the lists can show, besides its custom
+-- fields (see 'pagesText')
+pageFields :: [T.Text]
+pageFields = ["title", "tags", "summary", "lang", "modified", "annotations"]
+
+-- | List of pages, one by line (SOURCE/UID), each one followed by the given
+-- fields that it has, one by line, written as in a header ("  tags: a > b,
+-- c"; "modified": the day of the last change; "annotations": the number of
+-- its pending annotations; a custom field by its name). The first line gives
+-- the number of pages found and of pages shown.
 pagesText :: [T.Text] -> Int -> [Page] -> T.Text
 pagesText fields total pages = T.unlines $ header : concatMap pageLines pages
   where
@@ -59,25 +67,31 @@ pagesText fields total pages = T.unlines $ header : concatMap pageLines pages
            | otherwise = T.concat [count total, ", ", T.pack (show shown), " shown (limit)"]
     count n = T.concat [T.pack (show n), if n == 1 then " page" else " pages"
                        , ", the most recently modified first"]
-    pageLines p =
-      T.intercalate "  " [ pageRef p, dayText (pageMTime p), pageTitle p
-                         , "[" <> T.intercalate ", " (map tagText $ pageTags p) <> "]" ]
-      : [ "  summary: " <> s | Just s <- [pageSummary p] ]
-      ++ [ T.concat ["  ", f, ": ", T.intercalate ", " (map showCustomValue ks)]
-         | f <- fields, CustomMetaData f' ks <- pageCustomMeta p, f' == f, not (null ks) ]
+    pageLines p = pageRef p : [ T.concat ["  ", f, ": ", v] | f <- fields, Just v <- [field p f] ]
+    field p f = case f of
+      "title" -> Just (pageTitle p)
+      "tags" -> list (map tagText $ pageTags p)
+      "summary" -> pageSummary p
+      "lang" -> Just (showCustomValue $ KeyLang $ pageLang p)
+      "modified" -> Just (dayText $ pageMTime p)
+      "annotations" -> if null (pageAnnotations p) then Nothing
+                       else Just (T.pack $ show $ length $ pageAnnotations p)
+      _ -> list [ showCustomValue k | CustomMetaData f' ks <- pageCustomMeta p, f' == f, k <- ks ]
+    list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
 
 -- | Facets of some pages of a source: their tags (each one with its parents,
 -- as written in the headers, and its number of pages), their langs, and
 -- their custom fields (with their type and description) with their values,
--- each with its number of pages
-facetsText :: T.Text -> Int -> [(TagId, Int)] -> [(T.Text, Int)] ->
+-- each with its number of pages; the tags and langs only when given
+facetsText :: T.Text -> Int -> Maybe [(TagId, Int)] -> Maybe [(T.Text, Int)] ->
               [(T.Text, T.Text, [(T.Text, Int)])] -> T.Text
-facetsText source total tags langs customs = T.unlines $
-  [ T.concat ["source ", source, ": ", T.pack (show total), if total == 1 then " page" else " pages"]
-  , "tags (pages):" ]
-  ++ (if null tags then ["  (none)"]
-      else [ T.concat ["  ", tagText t, " (", T.pack (show n), ")"] | (t, n) <- tags ])
-  ++ [ "lang: " <> counts langs ]
+facetsText source total tagsM langsM customs = T.unlines $
+  [ T.concat ["source ", source, ": ", T.pack (show total), if total == 1 then " page" else " pages"] ]
+  ++ (case tagsM of
+        Nothing -> []
+        Just [] -> ["tags (pages):", "  (none)"]
+        Just tags -> "tags (pages):" : [ T.concat ["  ", tagText t, " (", T.pack (show n), ")"] | (t, n) <- tags ])
+  ++ [ "lang: " <> counts langs | Just langs <- [langsM] ]
   ++ [ T.concat [name, " (", typ, "): ", counts values] | (name, typ, values) <- customs ]
   where
     counts vs = T.intercalate ", " [ T.concat [v, " (", T.pack (show n), ")"] | (v, n) <- vs ]
@@ -112,18 +126,31 @@ sections (PD.Pandoc _ blocks) offset total =
         Just (lvl, inlinesText ils, line + offset)
       _ -> Nothing
 
+-- | Links of pages of a source: (uid of the page, uid of the page it links,
+-- whether this one exists for the user), one by line, "(missing)" after a
+-- link to a page that does not exist or that the user can not read
+linksText :: T.Text -> [(T.Text, T.Text, Bool)] -> T.Text
+linksText source links = T.unlines $
+  T.concat [ "source ", source, ": ", T.pack (show $ length links)
+           , if length links == 1 then " link" else " links" ]
+  : [ T.concat [from, " -> ", to, if exists then "" else " (missing)"] | (from, to, exists) <- links ]
+
 -- | Outline of a page: its reference and title, tags, summary, path (for
--- admins), hash of the file, number of lines, the pages linking it, then
--- its sections, with their lines
-outlineText :: Maybe FP.FilePath -> Page -> T.Text -> Int -> [Page] -> [Section] -> T.Text
-outlineText pathsM p hash total backlinks secs = T.unlines $
+-- admins), number of lines, the lines of its pending annotations (in the
+-- text, given the number of lines before its content), the pages linking
+-- it, then its sections, with their lines. The hash of the file is not in
+-- it (the ETag gives it).
+outlineText :: Maybe FP.FilePath -> Page -> Int -> Int -> [Page] -> [Section] -> T.Text
+outlineText pathsM p offset total backlinks secs = T.unlines $
   [ T.intercalate "  " [pageRef p, pageTitle p]
   , "tags: " <> T.intercalate ", " (map tagText $ pageTags p) ]
   ++ [ "summary: " <> s | Just s <- [pageSummary p] ]
   ++ [ "path: " <> sourcePath cd p | Just cd <- [pathsM] ]
-  ++ [ "hash: " <> hash
-     , T.concat ["lines: ", T.pack (show total)]
-     , "backlinks: " <> if null backlinks then "(none)"
+  ++ [ T.concat ["lines: ", T.pack (show total)] ]
+  ++ [ T.concat [ "annotations: ", T.pack (show $ length as), " (lines "
+                , T.intercalate ", " [ T.pack (show $ a + offset) | a <- as ], ")" ]
+     | let as = pageAnnotations p, not (null as) ]
+  ++ [ "backlinks: " <> if null backlinks then "(none)"
                         else T.intercalate "; " [ pageRef b <> " " <> pageTitle b | b <- backlinks ]
      , if null secs then "sections: (none)" else "sections (lines):" ]
   ++ [ T.concat [ "  ", T.pack (show $ sectionFrom s), "-", T.pack (show $ sectionTo s), "  "

@@ -82,6 +82,7 @@ library
       Kiwi.Auth
       Kiwi.Browse
       Kiwi.CLI
+      Kiwi.Annotation
       Kiwi.ConfigFile
       Kiwi.Controller
       Kiwi.DefaultPages

@@ -27,6 +27,9 @@ your account can read, and only change those it can write.
 - Link to another page of the same source with its uid:
   `[text](page:UID)` or `[text](page:UID#section-anchor)`. Link to a file of
   the source with `[name](file:UID)`. Never use raw HTML.
+- Annotations: a paragraph starting with `!!` is a request left in the
+  page, pending. Once you have done what it asks, change its `!!` into
+  `!-` and keep its text: the user sees what was asked, and removes it.
 
 ## Working with the wiki
 
@@ -36,14 +39,20 @@ your account can read, and only change those it can write.
   first, and say why the API is not enough.
 - Search before writing: the information may already be there. Enrich an
   existing page rather than creating a close one.
-- To find a precise information, search. To see what the wiki holds on a
+- To find a precise information, search: the words are alternatives, the
+  pages with the most of them come first, so give synonyms. To see what
+  the wiki holds on a
   subject, explore its metadata step by step, as a person would: the
   facets (tags, fields and their values, with their number of pages) of
   all the pages, then of the pages with a tag, then with one more tag or
   value... and list the pages once the selection is small. Each step
   costs little.
 - Read little: ask for the outline of a long page, then read only the
-  section you need.
+  section you need. List the pages with only the fields you need
+  (`show`).
+- To handle the pending annotations, find their pages (`has_fields:
+  [annotations]`), and read the lines that the outline of each page
+  gives.
 - Reuse the vocabulary of the wiki (tags, custom fields, their values):
   look at the facets before choosing the tags of a page.
 - Change a page by replacing exact passages of its text, not by sending the
@@ -51,9 +60,11 @@ your account can read, and only change those it can write.
   else changes it meanwhile.
 - Change the metadata of many pages at once with a metadata script (its
   syntax: the tool `metadata_guide`, or `GET /api/metadata-guide`). List
-  the pages having a field with their values (`has_fields`,
-  `show_fields`) to prepare it. Check it first, and show the user the
+  the pages having a field with their values (`has_fields`, `show`) to
+  prepare it. Check it first, and show the user the
   pages it would change before changing the vocabulary of the wiki. The
   check also lists the pages that your account can only read: the user
   can apply the script with an account that can change them.
+- Give a short `message` when you write: it goes to the history of the
+  page.
 - Tell the user what you wrote, with the `SOURCE/UID` of the pages.

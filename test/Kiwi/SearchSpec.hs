@@ -31,6 +31,7 @@ searchSpec = do
              , pageArchive = False
              , pageCustomMeta = []
              , pagePreviousUids = []
+             , pageAnnotations = []
              }
       se = SE.insertDocs [ page "a" "Un développement en été"
                          , page "b" "Elle est aimée"

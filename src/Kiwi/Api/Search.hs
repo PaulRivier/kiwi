@@ -1,7 +1,8 @@
 -- | Full-text search of the API, apart from the one of the web pages (see
 -- 'Kiwi.Search.searchPages'): same index, same words and stems, but other
--- rules, made for an agent. The pages that contain all the terms come first,
--- and alone when there are some; each page tells which terms it contains,
+-- rules, made for an agent. The pages that contain one of the terms, in the
+-- order of the score of the engine (the more terms, the better); each page
+-- tells which terms it contains,
 -- and where (title, tags, content), and gives a few passages of its text with
 -- their line and section. A query can hold exact phrases ("first aid") and
 -- excluded words (-baby).
@@ -9,8 +10,6 @@ module Kiwi.Api.Search
   ( Query (..)
   , parseQuery
   , Hit (..)
-  , Ranked (..)
-  , rankHits
   , hasPhrase
   , Passage (..)
   , passages
@@ -65,23 +64,24 @@ data Hit = Hit { hitPage :: Page
                , hitTerms :: [T.Text]
                , hitFields :: [PageField] }
 
--- | The pages to show: those with all the terms of the query (True) when
--- there are some, else those with some of them (False), best first, with
--- the number of the other pages found
-data Ranked = Ranked { rankedHits :: [Hit]
-                     , rankedComplete :: Bool
-                     , rankedOthers :: Int }
-
--- | Pages found for these terms (see 'Ranked')
-rankHits :: [T.Text] -> [Hit] -> Ranked
-rankHits terms hits =
-  let n = length (nub terms)
-      (complete, partial) = (filter full hits, filter (not . full) hits)
-      full h = length (hitTerms h) >= n
-      byTerms = sortOn (\h -> (Down (length $ hitTerms h), Down (hitScore h)))
-  in if null complete
-     then Ranked (byTerms partial) False 0
-     else Ranked (byTerms complete) True (length partial)
+-- Unused since the API search gives the union of the terms, as /search
+-- -- | The pages to show: those with all the terms of the query (True) when
+-- -- there are some, else those with some of them (False), best first, with
+-- -- the number of the other pages found
+-- data Ranked = Ranked { rankedHits :: [Hit]
+--                      , rankedComplete :: Bool
+--                      , rankedOthers :: Int }
+--
+-- -- | Pages found for these terms (see 'Ranked')
+-- rankHits :: [T.Text] -> [Hit] -> Ranked
+-- rankHits terms hits =
+--   let n = length (nub terms)
+--       (complete, partial) = (filter full hits, filter (not . full) hits)
+--       full h = length (hitTerms h) >= n
+--       byTerms = sortOn (\h -> (Down (length $ hitTerms h), Down (hitScore h)))
+--   in if null complete
+--      then Ranked (byTerms partial) False 0
+--      else Ranked (byTerms complete) True (length partial)
 
 -- | Whether the title or the content of a page has the phrase: its terms
 -- follow one another
@@ -137,8 +137,8 @@ passageAfter = 24
 -- query and its lang, then each page (see 'AT.pagesText'), the terms it
 -- contains (shown by the words of the query that give them) and where, its
 -- summary and its passages
-searchText :: T.Text -> Lang -> [(T.Text, T.Text)] -> Ranked -> Int -> [(Hit, [Passage])] -> T.Text
-searchText query lang terms ranked total results = T.unlines $ header : concatMap hitLines results
+searchText :: T.Text -> Lang -> [(T.Text, T.Text)] -> Int -> [(Hit, [Passage])] -> T.Text
+searchText query lang terms total results = T.unlines $ header : concatMap hitLines results
   where
     n = length (nub $ map fst terms)
     wordOf t = fromMaybe t (lookup t terms)
@@ -146,13 +146,7 @@ searchText query lang terms ranked total results = T.unlines $ header : concatMa
     header = T.concat $
       [ T.pack (show total), if total == 1 then " page" else " pages", " for ", query
       , " (", T.toLower (T.pack $ show lang), ")" ]
-      ++ (if total == 0 then []
-          else if rankedComplete ranked
-            then [ ", with all the terms" ]
-                 ++ [ T.concat ["; ", T.pack (show $ rankedOthers ranked)
-                               , " other pages have only some of them"]
-                    | rankedOthers ranked > 0 ]
-            else [ ", none with all the terms" ])
+      ++ [ ", best first" | total > 1 ]
       ++ [ T.concat [", ", T.pack (show shown), " shown (limit)"] | shown < total ]
     hitLines (h, ps) =
       let p = hitPage h

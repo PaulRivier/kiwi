@@ -34,6 +34,16 @@ apiSpec = do
               , ("sub/q.md", "uid: q\ntitle: Other\ntags: c\naccess: family\nzone: north\n\n\
                              \Q [p](page:p)\n")
               , ("secret.md", "uid: secret\ntitle: Secret\naccess: nobody\n\nS\n") ]
+      -- a kiwi of these pages (default access: public), read by an account
+      withKiwiAccounts' files test = withKiwiConfig [] [("bob", "secret", ["family"])] files $
+                                       \_ ss app -> do
+        accs <- readIORef (accounts ss)
+        made <- mapM Auth.newApiToken accs
+        _ <- Auth.dumpTokens (M.fromList $ map snd made) (Auth.tokensFile $ kiwiDir ss)
+        let token = case made of
+              (t, _) : _ -> t
+              [] -> error "no token"
+        WT.runSession (test (get token)) app
       onKiwi test = withKiwiConfig ["agent-guide: s/q"]
                       [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])] pages $
                       \cd ss app -> do
@@ -83,11 +93,18 @@ apiSpec = do
       r <- get (tokenOf "bob") "/api/pages"
       liftIO $ status r `shouldBe` 200
       liftIO $ lookup "Cache-Control" (WT.simpleHeaders r) `shouldBe` Just "no-store"
-      let ls = T.lines (body r)
-      liftIO $ take 1 ls `shouldBe` ["2 pages, the most recently modified first"]
-      liftIO $ ls `shouldSatisfy` any (\l -> "s/p  " `T.isPrefixOf` l &&
-                                             "  Page  [a > b, c]" `T.isSuffixOf` l)
-      liftIO $ ls `shouldSatisfy` elem "  summary: About p"
+      -- SOURCE/UID alone without show
+      liftIO $ L.sort (T.lines (body r)) `shouldBe`
+        L.sort ["2 pages, the most recently modified first", "s/p", "s/q"]
+      -- the fields of show, as in a header, in the order asked
+      shownP <- get (tokenOf "bob") "/api/pages?page=s/p&show=title,tags&show=summary,zone"
+      liftIO $ T.lines (body shownP) `shouldBe`
+        [ "1 page, the most recently modified first", "s/p", "  title: Page", "  tags: a > b, c"
+        , "  summary: About p" ]
+      badShow <- get (tokenOf "bob") "/api/pages?show=nope"
+      liftIO $ status badShow `shouldBe` 400
+      badPage <- get (tokenOf "bob") "/api/pages?page=nope"
+      liftIO $ status badPage `shouldBe` 400
       tagged <- get (tokenOf "ann") "/api/pages?tag=a&limit=5"
       liftIO $ take 1 (T.lines $ body tagged) `shouldBe` ["1 page, the most recently modified first"]
       -- no path in the lists, even for the admins
@@ -97,11 +114,9 @@ apiSpec = do
       liftIO $ case T.lines (body shown) of
         [h, q, z] -> do
           h `shouldBe` "1 page, the most recently modified first"
-          q `shouldSatisfy` T.isPrefixOf "s/q  "
+          q `shouldBe` "s/q"
           z `shouldBe` "  zone: north"
         other -> expectationFailure (show other)
-      unknownField <- get (tokenOf "bob") "/api/pages?show=nope"
-      liftIO $ status unknownField `shouldBe` 400
       limited <- get (tokenOf "ann") "/api/pages?limit=1"
       liftIO $ take 1 (T.lines $ body limited)
         `shouldBe` ["3 pages, the most recently modified first, 1 shown (limit)"]
@@ -125,6 +140,38 @@ apiSpec = do
       liftIO $ body none `shouldBe` "no page\n"
       bad <- get (tokenOf "bob") "/api/facets?x=y"
       liftIO $ status bad `shouldBe` 400
+      -- only the facets of show
+      onlyTags <- get (tokenOf "bob") "/api/facets?show=tags"
+      liftIO $ T.lines (body onlyTags) `shouldBe`
+        [ "source s: 2 pages", "tags (pages):", "  a (1)", "  a > b (1)", "  c (2)" ]
+      onlyZone <- get (tokenOf "bob") "/api/facets?show=zone"
+      liftIO $ T.lines (body onlyZone) `shouldBe` [ "source s: 2 pages", "zone (text; the area): north (1)" ]
+      badShow <- get (tokenOf "bob") "/api/facets?show=title"
+      liftIO $ status badShow `shouldBe` 400
+
+  it "gives the links of the pages selected, by source" $
+    withKiwiAccounts' [ ("a.md", "title: A\nuid: a\n\n[b](page:b) [b2](page:b#x) [z](page:z) [s](page:s)\n")
+                      , ("b.md", "title: B\nuid: b\ntags: t\n\n[a](page:a)\n")
+                      , ("c.md", "title: C\nuid: c\n\nC\n")
+                      , ("s.md", "title: S\nuid: s\naccess: nobody\n\nS\n") ] $ \get' -> do
+      r <- get' "/api/links"
+      liftIO $ T.lines (body r) `shouldBe`
+        [ "source s: 4 links", "a -> b", "a -> s (missing)", "a -> z (missing)", "b -> a" ]
+      tagged <- get' "/api/links?tag=t"
+      liftIO $ T.lines (body tagged) `shouldBe` [ "source s: 1 link", "b -> a" ]
+      none <- get' "/api/links?tag=nope"
+      liftIO $ body none `shouldBe` "no page\n"
+
+  it "finds the pending annotations of the pages, and gives their lines" $
+    withKiwiAccounts' [ ("a.md", "title: A\nuid: a\n\nIntro\n\n!! fix this\nplease\n\n```\n!! code\n```\n\n\
+                                 \!- done\n\n# T\n!! again\n")
+                      , ("b.md", "title: B\nuid: b\n\n!- done\n") ] $ \get' -> do
+      annotated <- get' "/api/pages?has=annotations&show=annotations"
+      liftIO $ T.lines (body annotated) `shouldBe`
+        [ "1 page, the most recently modified first", "s/a", "  annotations: 2" ]
+      -- in the outline, the lines of the text of the page (header of 2 lines)
+      outline <- get' "/api/page/s/a?part=outline"
+      liftIO $ T.lines (body outline) `shouldSatisfy` elem "annotations: 2 (lines 5, 15)"
 
   it "gives the text of a page without its uid, its hash as ETag, and parts of it" $
     onKiwi $ \cd tokenOf -> do
@@ -202,7 +249,7 @@ apiSpec = do
         r <- search "link"
         liftIO $ r `shouldSatisfy` any (\l -> "s/a  " `T.isPrefixOf` l && "  1/1 in content" `T.isSuffixOf` l)
 
-  it "searches the pages with all the terms first, with passages" $ do
+  it "searches the pages with any of the terms, the best first, with passages" $ do
     let docs = [ ("aid.md", "title: First aid\nuid: aid\ntags: health\n\n# Wounds\n\n\
                             \Clean the wound with water.\n\n## Burns\n\n\
                             \Cool the burn with water for long minutes.\n")
@@ -224,23 +271,25 @@ apiSpec = do
       flip WT.runSession app $ do
         burns <- search "water burns"
         liftIO $ burns `shouldSatisfy` \ls -> case ls of
-          h : p : rest -> h == "1 page for water burns (english), with all the terms" &&
+          h : p : rest -> h == "1 page for water burns (english)" &&
                           "s/aid  " `T.isPrefixOf` p && "  2/2 in content" `T.isSuffixOf` p &&
                           -- the uid is not in the text: the content starts at line 4
                           rest == [ "  l.6 § Wounds: Clean the wound with water."
                                   , "  l.8: ## Burns"
                                   , "  l.10 § Burns: Cool the burn with water for long minutes." ]
           _ -> False
+        -- the union of the terms, the pages with both first
         aid <- search "first aid"
-        liftIO $ take 1 aid `shouldBe`
-          ["2 pages for first aid (english), with all the terms; 1 other pages have only some of them"]
+        liftIO $ take 1 aid `shouldBe` ["3 pages for first aid (english), best first"]
+        liftIO $ map (T.take 7) (filter ("s/" `T.isPrefixOf`) aid) `shouldSatisfy` \ps ->
+          L.sort (take 2 ps) == ["s/aid  ", "s/baby "] && drop 2 ps == ["s/snow "]
         phrase <- search "\"aid kit\""
         liftIO $ map (T.take 7) (drop 1 phrase) `shouldBe` ["s/baby ", "  l.3: "]
         excluded <- search "first -baby"
         liftIO $ excluded `shouldSatisfy` \ls -> length (filter ("s/" `T.isPrefixOf`) ls) == 2 &&
                                                  not (any ("s/baby" `T.isPrefixOf`) ls)
         partial <- search "snow burns"
-        liftIO $ take 1 partial `shouldBe` ["2 pages for snow burns (english), none with all the terms"]
+        liftIO $ take 1 partial `shouldBe` ["2 pages for snow burns (english), best first"]
         liftIO $ partial `shouldSatisfy` any (\l -> "s/snow  " `T.isPrefixOf` l &&
                                                     "  1/2 (snow) in title" `T.isSuffixOf` l)
 
@@ -301,8 +350,8 @@ apiSpec = do
     file <- fileOf cd "p.md"
     liftIO $ file `shouldBe` "title: New\nuid: p\naccess: family:w, friends\n\nBye\n"
     -- the index is up to date
-    r <- get (tokenOf "bob") "/api/pages"
-    liftIO $ body r `shouldSatisfy` T.isInfixOf "  New  ["
+    r <- get (tokenOf "bob") "/api/pages?show=title"
+    liftIO $ T.lines (body r) `shouldSatisfy` elem "  title: New"
 
   it "replaces exact passages of a page" $ onWriteKiwi $ \cd tokenOf -> do
     let patchWith edits = send "PATCH" (tokenOf "bob") [] "/api/page/s/p" edits
@@ -350,8 +399,10 @@ apiSpec = do
         git cd ["commit", "-q", "-m", "init"]
       created <- send "POST" (tokenOf "ann") [] "/api/pages/s" "title: Burns\n\nCool it.\n"
       liftIO $ status created `shouldBe` 201
-      _ <- send "PATCH" (tokenOf "bob") [] "/api/page/s/p"
+      _ <- send "PATCH" (tokenOf "bob") [] "/api/page/s/p?message=Earth%20is%20better"
              "{\"edits\": [{\"old\": \"World\", \"new\": \"Earth\"}]}"
+      lastMessage <- liftIO $ gitOut cd ["log", "-1", "--format=%B"]
+      liftIO $ lastMessage `shouldBe` "Edit s:p (kiwi kiwi)\n\nEarth is better\n\n"
       logs <- liftIO $ gitOut cd ["log", "--format=%an|%s"]
       liftIO $ take 2 (lines logs) `shouldSatisfy` \ls -> case ls of
         [edit, create] -> edit == "bob via Kiwi|Edit s:p (kiwi kiwi)" &&

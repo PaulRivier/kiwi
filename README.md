@@ -354,6 +354,16 @@ files that no page links, archived pages included (Kiwi does not serve
 them), each one with a button that copies a link to it
 (`[cake.jpg](file:K3M9QW2TZ1)`).
 
+A paragraph that starts with `!!` is an *annotation*: a request left in
+the page, for an agent or anyone, shown in a frame. Once done, its mark
+becomes `!-` (shown faded), and its text stays until someone removes it.
+The agents find the pages with pending annotations through the API
+(`has=annotations`), and their lines in the outline of each page.
+
+    !! Add the cooking time.
+
+    !- Add the cooking time.
+
 
 ### images and files
 
@@ -697,27 +707,36 @@ An admin logged in on the web can also open the `GET` routes in the
 browser, without token (for instance `/api/facets`, to see what the
 agents get); the writes always need a token.
 
-* `GET /api/pages` : the pages, the most recently modified first, one by
-  line (`SOURCE/UID`, day, title, tags, then summary), filtered as on the
-  browse page (`source`, `tag`, `lang`, `m.FIELD`, `has`, `archive=yes`;
-  several `tag` are all required), with `since=YYYY-MM-DD` and `limit`
-  (100 by default). `show=FIELD` gives the values of a custom field under
-  each page.
+The lists of pages (`/api/pages`, `/api/facets`, `/api/links`) choose
+their pages with the filters of the browse page (`source`, `tag`, `lang`,
+`m.FIELD=VALUE`, `has=FIELD`, `archive=yes`; several `tag` are all
+required), `since=YYYY-MM-DD`, `page=SOURCE/UID` (repeated: these pages)
+and `has=annotations` (the pages with pending annotations, see below).
+
+* `GET /api/pages` : the pages, the most recently modified first, at most
+  `limit` (100 by default): one `SOURCE/UID` by line, and under it the
+  fields of `show` (`show=title,tags,summary,lang,modified,annotations`
+  and custom fields by their name), written as in a header.
 * `GET /api/search?q=QUERY` : full-text search for the agents. The pages
-  that contain all the words come first (alone when there are some), each
-  one with the words it contains, where (title, tags, content), and up to
-  three passages (lines with their section, or headings). `"exact phrase"` and
-  `-excluded` words are allowed; `source`, `archive=yes` and `limit` (10 by
-  default) too. The search page of the web interface is not changed.
+  that contain any of the words, those with the most of them first, each
+  one with the words it contains, where (title, tags, content), its
+  summary and up to three passages (lines with their section, or
+  headings). `"exact phrase"` and `-excluded` words are allowed; `source`,
+  `archive=yes` and `limit` (10 by default) too. The search page of the
+  web interface is not changed.
 * `GET /api/facets` : the tags, langs and custom fields (with their
   description) of the pages selected by the filters of `/api/pages` (all
   the pages without them), by source, each value with its number of
-  pages. The agents explore the wiki with it as a person does on the
-  browse page: a tag, then another one…, and list the pages once there
-  are few of them.
+  pages (`show=tags,lang,FIELD`: only these). The agents explore the wiki
+  with it as a person does on the browse page: a tag, then another one…,
+  and list the pages once there are few of them.
+* `GET /api/links` : the links between pages, by source, one by line
+  (`UID -> UID`, with `(missing)` when the linked page does not exist or
+  can not be read).
 * `GET /api/page/SOURCE/UID` : the text of the page, without its uid, and
   the hash of its file as `ETag`. `part=outline` gives its outline (tags,
-  summary, backlinks, sections with their lines), `part=section&title=T`
+  summary, lines of its pending annotations, backlinks, sections with
+  their lines), `part=section&title=T`
   one section, `part=lines&from=N&to=M` some lines, and `numbered=yes`
   numbers the lines.
 * `GET /api/page/SOURCE/UID/meta` : the header of the page.
@@ -729,7 +748,7 @@ agents get); the writes always need a token.
 
 The writes need the write right on the page, as in the browser editor,
 and are committed when the file is in a git repository (author
-`LOGIN via Kiwi`):
+`LOGIN via Kiwi`; `message=…` adds a message to the one of the commit):
 
 * `PATCH /api/page/SOURCE/UID` : replaces exact passages of the text of
   the page, with a JSON body `{"edits": [{"old": "…", "new": "…"}]}`. Each
@@ -773,7 +792,7 @@ and are committed when the file is in a git repository (author
 
 Kiwi serves the MCP (Model Context Protocol) of the agents on `POST
 /mcp`, with the same API token. Its tools are `search`, `facets`,
-`list_pages`, `read_page`, `folders`, `edit_page`, `write_page`,
+`list_pages`, `links`, `read_page`, `folders`, `edit_page`, `write_page`,
 `create_page`, `edit_metadata` and `metadata_guide`: each one calls the API, with the
 rights of the account. The agent gets the guide of `/api/guide` when it
 connects. Nothing runs on the side of the agent.

@@ -250,6 +250,9 @@ data Page =
        , pageArchive :: !Bool  -- ^ only in the archives navigation
        , pageCustomMeta :: ![CustomMetaData]
        , pagePreviousUids :: ![T.Text]  -- ^ uids replaced by kiwi (previous-uids)
+       -- | lines of the content (from 1) where its pending annotations start
+       -- (see "Kiwi.Annotation")
+       , pageAnnotations :: ![Int]
        }
   deriving (Show)
 

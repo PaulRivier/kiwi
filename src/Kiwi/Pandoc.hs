@@ -38,6 +38,7 @@ import qualified Text.Pandoc.Definition as PD
 import qualified Text.Pandoc.Walk as PW
 -- import qualified Text.Pandoc.Shared as PS
 
+import           Kiwi.Annotation (annotationLines)
 import           Kiwi.Files (isFileUid, isImagePath)
 import           Kiwi.HtmlWriter (pageTargetAttrs, lineKey, brokenLinkClass)
 import           Kiwi.LangDetect (resolveLang)
@@ -375,5 +376,6 @@ loadPageIO fullPath source md cmc scM = do
                                   , pageArchive = fromMaybe False $ metaArchive meta
                                   , pageCustomMeta = metaCustom meta
                                   , pagePreviousUids = fromMaybe [] $ metaPreviousUids header
+                                  , pageAnnotations = annotationLines (pandocBody p)
                                   }
         in Right $ Loaded page header unknown invalid

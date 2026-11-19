@@ -203,7 +203,7 @@ serveMetaScript = ifAdmin $ do
       Left err -> return $ Left (T.pack err)
       Right [] -> return $ Left "the script has no command"
       Right cmds -> do
-        r <- liftIO $ Write.runMetaScript ss loginM check cmds
+        r <- liftIO $ Write.runMetaScript ss loginM Nothing check cmds
         return $ either (Left . Edit.saveFailureText) (Right . Write.metaScriptResult check) r
     editorPage script (Just result)
 
@@ -573,7 +573,7 @@ serveSavePage :: K.PageUID -> T.Text -> T.Text -> ActM ()
 serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest sent $ do
   ss <- asksK id
   user <- maybe "" K.loginUser <$> asksK (K.login . K.requestState)
-  result <- liftIO $ Write.updatePage ss user p (Edit.sentText level hash sent)
+  result <- liftIO $ Write.updatePage ss user Nothing p (Edit.sentText level hash sent)
   case result of
     Right (_, ignored) -> do
       unless (null ignored) $
