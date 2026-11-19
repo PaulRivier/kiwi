@@ -100,7 +100,8 @@ mcpSpec = do
 
   -- POST /mcp, on a whole kiwi: the tools call its API in memory
   let pages = [ ("p.md", "title: Page\nuid: p\naccess: family:w\n\nHello world\n")
-              , ("g.md", "title: Guide\nuid: g\naccess: family\n\nBe kind\n") ]
+              , ("g.md", "title: Guide\nuid: g\naccess: family\n\nBe kind\n")
+              , ("n.md", "title: Note\nuid: n\naccess: family\n\n!! to do\n") ]
       onKiwi test = withKiwiConfig ["agent-guide: s/g"] [("bob", "secret", ["family"])] pages $
                       \cd ss app -> do
         accs <- readIORef (accounts ss)
@@ -136,6 +137,14 @@ mcpSpec = do
     q <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"search\",\"arguments\":{\"query\":\"hello world\"}}}"
     liftIO $ fmap (T.isPrefixOf "1 page for hello world") (answer q >>= toolText) `shouldBe` Just True
+    -- the pages with pending annotations
+    ann <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\
+                         \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":[\"annotations\"]}}}"
+    liftIO $ (answer ann >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n"
+    -- a list sent as a string holding its JSON, as some clients do
+    annStr <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\
+                            \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":\"[\\\"annotations\\\"]\"}}}"
+    liftIO $ (answer annStr >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n"
     e <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"edit_page\",\"arguments\":{\"page\":\"s/p\",\
                        \\"edits\":[{\"old\":\"Hello\",\"new\":\"Hi\"}]}}}"

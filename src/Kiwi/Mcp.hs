@@ -175,14 +175,25 @@ text o k = case KM.lookup (AK.fromText k) o of
   Just (A.Number n) -> Just $ T.pack $ show (round n :: Integer)
   _ -> Nothing
 
+-- | The strings of a list argument. Some clients send a list as a string
+-- holding its JSON (["a","b"]): it is read as the list. A string alone is a
+-- list of one string.
 texts :: A.Object -> T.Text -> [T.Text]
 texts o k = case KM.lookup (AK.fromText k) o of
-  Just (A.Array vs) -> [ s | A.String s <- foldr (:) [] vs ]
-  Just (A.String s) -> [s]
+  Just (A.Array vs) -> strings vs
+  Just (A.String s)
+    | Just (A.Array vs) <- A.decodeStrict (TE.encodeUtf8 s) -> strings vs
+    | otherwise -> [s]
   _ -> []
+  where strings vs = [ s | A.String s <- foldr (:) [] vs ]
 
+-- | A boolean argument: true, or the string "true" (some clients send
+-- every argument as a string)
 flag :: A.Object -> T.Text -> Bool
-flag o k = KM.lookup (AK.fromText k) o == Just (A.Bool True)
+flag o k = case KM.lookup (AK.fromText k) o of
+  Just (A.Bool b) -> b
+  Just (A.String s) -> T.toLower (T.strip s) == "true"
+  _ -> False
 
 contextParams :: A.Object -> [(T.Text, T.Text)]
 contextParams o = [ ("source", s) | s <- texts o "sources" ] ++ [ ("archive", "yes") | flag o "archive" ]
