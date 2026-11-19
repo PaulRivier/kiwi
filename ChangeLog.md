@@ -12,7 +12,8 @@
   the most of them first), `/api/pages` (`SOURCE/UID`, and the fields of
   `show`), `/api/facets` (tags and fields of the pages selected, with
   their number of pages, to explore the wiki step by step), `/api/links`
-  (the links between pages), `/api/page/SOURCE/UID` (with its outline, sections
+  (the links between pages), `/api/page/SOURCE/UID` (lines counted from
+  the first line of the content) (with its outline, sections
   and lines), `/api/page/SOURCE/UID/meta`, `/api/folders/SOURCE` and
   `/api/guide`, in compact text, with API tokens (`kiwi access --token`,
   `--revoke-tokens`; an admin logged in on the web can also read the `GET`

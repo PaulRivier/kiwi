@@ -738,7 +738,8 @@ and `has=annotations` (the pages with pending annotations, see below).
   summary, lines of its pending annotations, backlinks, sections with
   their lines), `part=section&title=T`
   one section, `part=lines&from=N&to=M` some lines, and `numbered=yes`
-  numbers the lines.
+  numbers the lines. Everywhere in the API, the lines are those of the
+  content, from its first line: the header is not numbered.
 * `GET /api/page/SOURCE/UID/meta` : the header of the page.
 * `GET /api/folders/SOURCE` (admins) : the folders of the source, with
   their number of pages. The admins also get the path of the file of a

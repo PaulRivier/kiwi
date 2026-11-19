@@ -48,7 +48,8 @@ your account can read, and only change those it can write.
   value... and list the pages once the selection is small. Each step
   costs little.
 - Read little: ask for the outline of a long page, then read only the
-  section you need. List the pages with only the fields you need
+  section you need. Line numbers (outline, passages, annotations, parts)
+  count from the first line of the content, the header apart. List the pages with only the fields you need
   (`show`).
 - To handle the pending annotations, find their pages (`has_fields:
   [annotations]`), and read the lines that the outline of each page

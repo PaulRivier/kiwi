@@ -168,10 +168,10 @@ apiSpec = do
                       , ("b.md", "title: B\nuid: b\n\n!- done\n") ] $ \get' -> do
       annotated <- get' "/api/pages?has=annotations&show=annotations"
       liftIO $ T.lines (body annotated) `shouldBe`
-        [ "1 page, the most recently modified first", "s/a", "  annotations: 2" ]
-      -- in the outline, the lines of the text of the page (header of 2 lines)
+        [ "1 page, the most recently modified first", "s/a", "  annotations: 3, 13" ]
+      -- in the outline too: the lines of the content, without the header
       outline <- get' "/api/page/s/a?part=outline"
-      liftIO $ T.lines (body outline) `shouldSatisfy` elem "annotations: 2 (lines 5, 15)"
+      liftIO $ T.lines (body outline) `shouldSatisfy` elem "annotations (lines): 3, 13"
 
   it "gives the text of a page without its uid, its hash as ETag, and parts of it" $
     onKiwi $ \cd tokenOf -> do
@@ -184,14 +184,23 @@ apiSpec = do
                                  \Hello\n\n## Two\n\nWorld\n\n# Three\n\nEnd [q](page:q)\n"
       outline <- get (tokenOf "bob") "/api/page/s/p?part=outline"
       liftIO $ T.lines (body outline) `shouldSatisfy` \ls ->
-        L.isSubsequenceOf [ "s/p  Page", "tags: a > b, c", "summary: About p", "lines: 15"
+        L.isSubsequenceOf [ "s/p  Page", "tags: a > b, c", "summary: About p", "lines: 11"
                           , "backlinks: s/q Other", "sections (lines):"
-                          , "  5-12  # One", "  9-12  ## Two", "  13-15  # Three" ] ls
+                          , "  1-8  # One", "  5-8  ## Two", "  9-11  # Three" ] ls
+      -- the lines are those of the content: the same for the admin, who sees
+      -- one more line of header
+      outlineAnn <- get (tokenOf "ann") "/api/page/s/p?part=outline"
+      liftIO $ T.lines (body outlineAnn) `shouldSatisfy` elem "  9-11  # Three"
       section <- get (tokenOf "bob") "/api/page/s/p?part=section&title=two"
       liftIO $ body section `shouldBe` "## Two\n\nWorld\n\n"
-      liftIO $ lookup "Kiwi-Lines" (WT.simpleHeaders section) `shouldBe` Just "9-12"
-      numbered <- get (tokenOf "bob") "/api/page/s/p?part=lines&from=13&to=20&numbered=yes"
-      liftIO $ body numbered `shouldBe` "    13\t# Three\n    14\t\n    15\tEnd [q](page:q)\n"
+      liftIO $ lookup "Kiwi-Lines" (WT.simpleHeaders section) `shouldBe` Just "5-8"
+      numbered <- get (tokenOf "bob") "/api/page/s/p?part=lines&from=9&to=20&numbered=yes"
+      liftIO $ body numbered `shouldBe` "     9\t# Three\n    10\t\n    11\tEnd [q](page:q)\n"
+      -- the whole page numbered: the header without numbers
+      whole <- get (tokenOf "bob") "/api/page/s/p?numbered=yes"
+      liftIO $ take 6 (T.lines $ body whole) `shouldBe`
+        [ "      \ttitle: Page", "      \tsummary: About p", "      \ttags: a > b, c", "      \t"
+        , "     1\t# One", "     2\t" ]
       missing <- get (tokenOf "bob") "/api/page/s/p?part=section&title=Four"
       liftIO $ status missing `shouldBe` 404
       meta <- get (tokenOf "ann") "/api/page/s/p/meta"
@@ -273,10 +282,10 @@ apiSpec = do
         liftIO $ burns `shouldSatisfy` \ls -> case ls of
           h : p : rest -> h == "1 page for water burns (english)" &&
                           "s/aid  " `T.isPrefixOf` p && "  2/2 in content" `T.isSuffixOf` p &&
-                          -- the uid is not in the text: the content starts at line 4
-                          rest == [ "  l.6 § Wounds: Clean the wound with water."
-                                  , "  l.8: ## Burns"
-                                  , "  l.10 § Burns: Cool the burn with water for long minutes." ]
+                          -- the lines of the content, without the header
+                          rest == [ "  l.3 § Wounds: Clean the wound with water."
+                                  , "  l.5: ## Burns"
+                                  , "  l.7 § Burns: Cool the burn with water for long minutes." ]
           _ -> False
         -- the union of the terms, the pages with both first
         aid <- search "first aid"
@@ -284,7 +293,7 @@ apiSpec = do
         liftIO $ map (T.take 7) (filter ("s/" `T.isPrefixOf`) aid) `shouldSatisfy` \ps ->
           L.sort (take 2 ps) == ["s/aid  ", "s/baby "] && drop 2 ps == ["s/snow "]
         phrase <- search "\"aid kit\""
-        liftIO $ map (T.take 7) (drop 1 phrase) `shouldBe` ["s/baby ", "  l.3: "]
+        liftIO $ map (T.take 7) (drop 1 phrase) `shouldBe` ["s/baby ", "  l.1: "]
         excluded <- search "first -baby"
         liftIO $ excluded `shouldSatisfy` \ls -> length (filter ("s/" `T.isPrefixOf`) ls) == 2 &&
                                                  not (any ("s/baby" `T.isPrefixOf`) ls)
@@ -361,10 +370,13 @@ apiSpec = do
     liftIO $ status bad `shouldBe` 400
     ok <- patchWith "{\"edits\": [{\"old\": \"Hello\\n\", \"new\": \"Hello\\n\\nNew line\\n\"}]}"
     liftIO $ status ok `shouldBe` 200
-    -- the text starts with "title: Page" (the uid is not shown): Hello is line 3
-    liftIO $ T.lines (body ok) `shouldSatisfy` elem "lines: 3-5"
+    -- the lines of the content: Hello is line 1
+    liftIO $ T.lines (body ok) `shouldSatisfy` elem "lines: 1-3"
     file <- fileOf cd "p.md"
     liftIO $ file `shouldBe` "title: Page\nuid: p\naccess: family:w, friends\n\nHello\n\nNew line\n\nWorld\n"
+    -- an edit of the header
+    inHeader <- patchWith "{\"edits\": [{\"old\": \"title: Page\", \"new\": \"title: Page 2\"}]}"
+    liftIO $ T.lines (body inHeader) `shouldSatisfy` elem "lines: header"
 
   it "creates a page with a new uid, named after its title" $ onWriteKiwi $ \cd tokenOf -> do
     -- the default access of the pages is public (read only): bob can not

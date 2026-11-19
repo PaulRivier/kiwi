@@ -12,6 +12,8 @@ module Kiwi.Api.Text
   , sections
   , outlineText
   , numberedLines
+  , unnumbered
+  , headerLength
   , linesRange
   , foldersText
   , tagText
@@ -19,6 +21,7 @@ module Kiwi.Api.Text
   ) where
 
 import qualified Data.Map.Strict as M
+import           Data.List (findIndex)
 import           Data.Maybe (mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Time as Time
@@ -56,8 +59,8 @@ pageFields = ["title", "tags", "summary", "lang", "modified", "annotations"]
 
 -- | List of pages, one by line (SOURCE/UID), each one followed by the given
 -- fields that it has, one by line, written as in a header ("  tags: a > b,
--- c"; "modified": the day of the last change; "annotations": the number of
--- its pending annotations; a custom field by its name). The first line gives
+-- c"; "modified": the day of the last change; "annotations": the lines of
+-- its pending annotations, in its content; a custom field by its name). The first line gives
 -- the number of pages found and of pages shown.
 pagesText :: [T.Text] -> Int -> [Page] -> T.Text
 pagesText fields total pages = T.unlines $ header : concatMap pageLines pages
@@ -74,8 +77,7 @@ pagesText fields total pages = T.unlines $ header : concatMap pageLines pages
       "summary" -> pageSummary p
       "lang" -> Just (showCustomValue $ KeyLang $ pageLang p)
       "modified" -> Just (dayText $ pageMTime p)
-      "annotations" -> if null (pageAnnotations p) then Nothing
-                       else Just (T.pack $ show $ length $ pageAnnotations p)
+      "annotations" -> if null (pageAnnotations p) then Nothing else Just (annotationsText p)
       _ -> list [ showCustomValue k | CustomMetaData f' ks <- pageCustomMeta p, f' == f, k <- ks ]
     list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
 
@@ -107,10 +109,10 @@ data Section = Section { sectionLevel :: Int
   deriving (Eq, Show)
 
 -- | Sections of a page, from its document (its top-level headings have their
--- line in the content, see 'lineKey'), the number of lines before its content
--- in the text, and the number of lines of the text
-sections :: PD.Pandoc -> Int -> Int -> [Section]
-sections (PD.Pandoc _ blocks) offset total =
+-- line in the content, see 'lineKey') and the number of lines of its
+-- content; the lines are those of the content, without the header
+sections :: PD.Pandoc -> Int -> [Section]
+sections (PD.Pandoc _ blocks) total =
   let headings = mapMaybe heading blocks
       next (lvl, _, _) rest =
         case [ l | (lvl', _, l) <- rest, lvl' <= lvl ] of
@@ -123,8 +125,12 @@ sections (PD.Pandoc _ blocks) offset total =
     heading b = case b of
       PD.Header lvl (_, _, kvs) ils -> do
         line <- lookup lineKey kvs >>= readMaybe . T.unpack
-        Just (lvl, inlinesText ils, line + offset)
+        Just (lvl, inlinesText ils, line)
       _ -> Nothing
+
+-- | Lines of the pending annotations of a page, in its content
+annotationsText :: Page -> T.Text
+annotationsText p = T.intercalate ", " (map (T.pack . show) $ pageAnnotations p)
 
 -- | Links of pages of a source: (uid of the page, uid of the page it links,
 -- whether this one exists for the user), one by line, "(missing)" after a
@@ -136,26 +142,33 @@ linksText source links = T.unlines $
   : [ T.concat [from, " -> ", to, if exists then "" else " (missing)"] | (from, to, exists) <- links ]
 
 -- | Outline of a page: its reference and title, tags, summary, path (for
--- admins), number of lines, the lines of its pending annotations (in the
--- text, given the number of lines before its content), the pages linking
--- it, then its sections, with their lines. The hash of the file is not in
--- it (the ETag gives it).
-outlineText :: Maybe FP.FilePath -> Page -> Int -> Int -> [Page] -> [Section] -> T.Text
-outlineText pathsM p offset total backlinks secs = T.unlines $
+-- admins), number of lines of its content, the lines of its pending
+-- annotations, the pages linking it, then its sections, with their lines
+-- (lines of the content, without the header). The hash of the file is not
+-- in it (the ETag gives it).
+outlineText :: Maybe FP.FilePath -> Page -> Int -> [Page] -> [Section] -> T.Text
+outlineText pathsM p total backlinks secs = T.unlines $
   [ T.intercalate "  " [pageRef p, pageTitle p]
   , "tags: " <> T.intercalate ", " (map tagText $ pageTags p) ]
   ++ [ "summary: " <> s | Just s <- [pageSummary p] ]
   ++ [ "path: " <> sourcePath cd p | Just cd <- [pathsM] ]
   ++ [ T.concat ["lines: ", T.pack (show total)] ]
-  ++ [ T.concat [ "annotations: ", T.pack (show $ length as), " (lines "
-                , T.intercalate ", " [ T.pack (show $ a + offset) | a <- as ], ")" ]
-     | let as = pageAnnotations p, not (null as) ]
+  ++ [ "annotations (lines): " <> annotationsText p | not (null $ pageAnnotations p) ]
   ++ [ "backlinks: " <> if null backlinks then "(none)"
                         else T.intercalate "; " [ pageRef b <> " " <> pageTitle b | b <- backlinks ]
      , if null secs then "sections: (none)" else "sections (lines):" ]
   ++ [ T.concat [ "  ", T.pack (show $ sectionFrom s), "-", T.pack (show $ sectionTo s), "  "
                 , T.replicate (sectionLevel s) "#", " ", sectionTitle s ]
      | s <- secs ]
+
+-- | Number of lines of the header of a page text, its blank line included:
+-- the line before the first line of its content
+headerLength :: T.Text -> Int
+headerLength t = let ls = T.lines t in maybe (length ls) (+ 1) (findIndex T.null ls)
+
+-- | The place of a number before a line that has none (see 'numberedLines')
+unnumbered :: T.Text
+unnumbered = T.replicate 6 " " <> "\t"
 
 -- | Lines of a text, from the first given one, each one after its number and
 -- a tab (as "cat -n")

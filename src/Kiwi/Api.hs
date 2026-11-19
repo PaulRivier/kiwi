@@ -53,7 +53,6 @@ import qualified Kiwi.Mcp as Mcp
 import qualified Kiwi.MetaScript as MS
 import           Kiwi.Controller (findPage, getRestrictedDB, keyOrder, sameOrigin, textOrder,
                                   withContext, withLogin)
-import           Kiwi.Meta (splitPage)
 import           Kiwi.Pandoc (pageDoc)
 import           Kiwi.Search (alg, explainPages, extractTerms, queryLang, searchLang, termFields)
 import           Kiwi.Types (ActM)
@@ -264,12 +263,16 @@ withApiPage source uid run = do
 -- outline (see 'AT.outlineText'); "part=section&title=T" the lines of its
 -- section of title T; "part=lines&from=N&to=M" these lines.
 -- "numbered=yes" gives the lines after their number (not for the outline).
+-- The lines are those of the content, from its first line: the header is
+-- not numbered, nor in the parts.
 apiPage :: T.Text -> T.Text -> ActM ()
 apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
   partM <- queryParamMaybe "part"
   numberedM <- queryParamMaybe "numbered"
   let numbered = numberedM == Just ("yes" :: T.Text)
-      total = length (T.lines text)
+      (headerLines, contentLines) = splitAt offset (T.lines text)
+      content = T.unlines contentLines
+      total = length contentLines
       send from ls
         | numbered = answer $ AT.numberedLines from ls
         | otherwise = do
@@ -277,41 +280,44 @@ apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
             setHeader "Kiwi-Lines" $ TL.pack $ show from ++ "-" ++ show (from + length ls - 1)
             answer $ T.unlines ls
   case partM :: Maybe T.Text of
-    Nothing -> send 1 (T.lines text)
+    Nothing
+      | numbered -> answer $ T.unlines (map (AT.unnumbered <>) headerLines)
+                             <> AT.numberedLines 1 contentLines
+      | otherwise -> do
+          setHeader "Content-Type" "text/markdown; charset=utf-8"
+          answer text
     Just "outline" -> do
       db <- getRestrictedDB
       paths <- pathsFor
       let backlinks = sortOn (textOrder . K.pageTitle) $
                         DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
-      secs <- pageSections p text offset total
-      answer $ AT.outlineText paths p offset total backlinks secs
+      secs <- pageSections p content
+      answer $ AT.outlineText paths p total backlinks secs
     Just "section" -> do
       titleM <- queryParamMaybe "title"
       case titleM of
         Nothing -> failWith Net.status400 "missing parameter: title"
         Just title -> do
-          secs <- pageSections p text offset total
+          secs <- pageSections p content
           let norm = T.toCaseFold . T.strip
           case filter ((== norm title) . norm . AT.sectionTitle) secs of
-            s : _ -> uncurry send $ AT.linesRange (AT.sectionFrom s) (AT.sectionTo s) text
+            s : _ -> uncurry send $ AT.linesRange (AT.sectionFrom s) (AT.sectionTo s) content
             [] -> failWith Net.status404 $ T.unlines $
                     ("no section " <> title <> ", the sections are:") :
                     map (("  " <>) . AT.sectionTitle) secs
     Just "lines" ->
       intParam "from" 1 $ \from -> intParam "to" total $ \to ->
-        uncurry send $ AT.linesRange from to text
+        uncurry send $ AT.linesRange from to content
     Just other -> failWith Net.status400 $ "invalid part: " <> other
                     <> " (expected outline, section or lines)"
 
--- | Sections of the text of a page (see 'AT.sections'), its content parsed
--- again
-pageSections :: K.Page -> T.Text -> Int -> Int -> ActM [AT.Section]
-pageSections p text offset total = do
+-- | Sections of the content of a page (see 'AT.sections'), parsed again
+pageSections :: K.Page -> T.Text -> ActM [AT.Section]
+pageSections p content = do
   db <- getDB
-  return $ case splitPage (K.customMetaConfig db) text >>= \(_, content) ->
-                  pageDoc (K.sourceFiles db) p { K.pageBody = content } of
+  return $ case pageDoc (K.sourceFiles db) p { K.pageBody = content } of
     Left _ -> []
-    Right doc -> AT.sections doc offset total
+    Right doc -> AT.sections doc (length $ T.lines content)
 
 -- | GET /api/page/SOURCE/UID/meta: the header of the page (see
 -- 'withApiPage'), with the hash of its file as ETag
@@ -397,20 +403,12 @@ apiSearch = do
           results <- mapM (withPassages (map fst terms)) (take limit hits)
           answer $ AS.searchText (T.strip raw) lang terms total results
   where
-    -- the passages of a page, read from its file, with the lines of the text
-    -- of /api/page
+    -- the passages of a page, from its content as loaded, with the lines of
+    -- its content
     withPassages terms h = do
       let p = AS.hitPage h
-      db <- getDB
-      loginM <- asksK (K.login . K.requestState)
-      fileE <- Scotty.liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
-      case (fileE, Auth.pageAccessLevel loginM p) of
-        (Right (_, t), Just level)
-          | Right (text, offset) <- Edit.editorText (K.customMetaConfig db) level t -> do
-              let total = length (T.lines text)
-              secs <- pageSections p text offset total
-              return (h, AS.passages (K.pageLang p) terms text offset secs)
-        _ -> return (h, [])
+      secs <- pageSections p (K.pageBody p)
+      return (h, AS.passages (K.pageLang p) terms (K.pageBody p) secs)
 
 
 -- | Text of the body of a request, LF line endings, at most 'maxTextLength'
@@ -497,20 +495,23 @@ apiPatchPage source uid = withWritablePage source uid $ \p level -> do
       user <- userName
       db <- getDB
       let edits' = [ (T.replace "\r\n" "\n" o, T.replace "\r\n" "\n" n) | (o, n) <- edits ]
-      -- the lines of the new passages, from the text before the save (for
-      -- the answer only)
+      -- the lines of the new passages in the content ("header" for those
+      -- of the header), from the text before the save (for the answer only)
       before <- Scotty.liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
       let ranges = case before of
             Right (_, t) | Right (shown, _) <- Edit.editorText (K.customMetaConfig db) level t
-                         , Right (_, rs) <- Edit.applyEdits edits' shown -> rs
+                         , Right (new, rs) <- Edit.applyEdits edits' shown ->
+                             let off = AT.headerLength new
+                             in nub [ if z <= off then "header"
+                                           else T.pack (show (max 1 (a - off)) ++ "-" ++ show (z - off))
+                                         | (a, z) <- rs ]
             _ -> []
       messageM <- queryParamMaybe "message"
       r <- Scotty.liftIO $ Write.updatePage ss user messageM p (Edit.editsChange level edits')
       case r of
         Left f -> writeFailed f
         Right (newHash, ignored) -> saved Net.status200 "saved" (source, uid) newHash $
-          [ "lines: " <> T.intercalate ", " [ T.pack (show a ++ "-" ++ show z) | (a, z) <- ranges ]
-          | not (null ranges) ] ++
+          [ "lines: " <> T.intercalate ", " ranges | not (null ranges) ] ++
           [ "ignored keys (not allowed): " <> T.intercalate ", " ignored | not (null ignored) ]
   where
     editsParser = A.withObject "body" $ \o -> do

@@ -265,8 +265,9 @@ tools =
   , Tool "read_page"
       "Read a page (SOURCE/UID): its header, then its content in CommonMark. For a long page, \
       \read its outline first (part: outline: tags, summary, pending annotations, backlinks, \
-      \sections with their lines), then only the section or the lines you need. The hash identifies the version \
-      \of the file."
+      \sections with their lines), then only the section or the lines you need. Line numbers \
+      \count from the first line of the content: the header is not numbered (read it whole, \
+      \or with list_pages and show). The hash identifies the version of the file."
       [ ("page", prop "string" "The page, as SOURCE/UID.")
       , ("part", A.object [ "type" .= ("string" :: T.Text)
                           , "enum" .= (["outline", "section", "lines"] :: [T.Text])
