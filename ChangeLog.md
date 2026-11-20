@@ -32,9 +32,9 @@
 - **MCP**: the server serves the MCP of the AI agents on `POST /mcp`
   (Claude Code…), with the API token; its tools call the API.
   `scripts/kiwi-mcp-bridge.py` is a stdio bridge for the agents that need
-  one (Chat tab of Claude Desktop); its tools `download_page` and
-  `upload_page` let an agent (Claude Code) change a page as a local file,
-  with its own tools.
+  one (Chat tab of Claude Desktop). An agent with a shell (Claude Code)
+  can change a page as a local file with curl, when your agent guide
+  gives the URL and the variable of the token (see *doc/AGENTS.md*).
 
 ## v0.4.4.0 - 2026-11-16
 

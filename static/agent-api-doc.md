@@ -53,6 +53,28 @@ your account can read, and only change those it can write.
 - Change a page by replacing exact passages of its text, not by sending the
   whole page again: the rest of the page stays as it is, even if someone
   else changes it meanwhile.
+- But if you have a shell, and the guide of the user gives the URL of the
+  server and the environment variable that holds your API token, prefer
+  to change a page as a local file, with your own tools:
+  1. Download its text to a file; the command prints its `ETag`, keep it:
+
+         curl -sS -o FILE -w '%header{etag}\n' \
+           -H "Authorization: Bearer $VARIABLE" URL/api/page/SOURCE/UID
+
+  2. Read the file whole only if it is small: under the size the guide of
+     the user gives, or 20 KB if it gives none. Otherwise find the
+     passages with your tools (`grep -n`...) and read only them.
+  3. Change the file with your tools, then send it back whole:
+
+         curl -sS -X PUT --data-binary @FILE \
+           -H "Authorization: Bearer $VARIABLE" -H "If-Match: ETAG" \
+           --url-query "message=MESSAGE" URL/api/page/SOURCE/UID
+
+     Use `--data-binary`, never `-d`, which removes the line ends. A 412
+     answer means that the page changed meanwhile: download it again and
+     redo your changes.
+
+  Never write the token itself in a command, only its variable.
 - Change the metadata of many pages at once with a metadata script (its
   syntax: the tool `metadata_guide`, or `GET /api/metadata-guide`). List
   the pages having a field with their values (`has_fields`, `show`) to
