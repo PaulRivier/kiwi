@@ -114,40 +114,55 @@ and are committed when the file is in a git repository (author
 Kiwi serves the MCP (Model Context Protocol) of the agents on `POST
 /mcp`, with the same API token. Its tools are `search`, `facets`,
 `list_pages`, `links`, `read_page`, `folders`, `edit_page`, `write_page`,
-`create_page`, `edit_metadata` and `metadata_guide`: each one calls the API, with the
-rights of the account. The agent gets the guide of `/api/guide` when it
-connects. Nothing runs on the side of the agent.
+`create_page`, `edit_metadata` and `metadata_guide`: each one calls the
+API, with the rights of the account. The agent gets the guide of
+`/api/guide` when it connects.
 
-Claude Code (and the Code tab of Claude Desktop, which reads the same
-settings):
+An agent connects to it in one of two ways: directly, or through the
+bridge, which adds two tools to change a page as a local file. In both
+cases, the agent never sees the token, nor the URL of the kiwi.
+
+### Direct connection (HTTP)
+
+The simplest: nothing runs on the side of the agent. The agent has the
+tools of Kiwi, and changes a page by replacing passages of its text
+(`edit_page`) or by sending it whole (`write_page`). Claude Code (and the
+Code tab of Claude Desktop, which reads the same settings):
 
     claude mcp add --scope user --transport http kiwi http://127.0.0.1:3456/mcp \
       --header "Authorization: Bearer TOKEN"
 
-An agent that only runs local programs (MCP on stdio, such as the Chat
-tab of Claude Desktop with *claude_desktop_config.json*) goes through
-`scripts/kiwi-mcp-bridge.py`, a bridge in Python (standard library
-only):
+### Through the bridge (stdio)
 
-    { "mcpServers": { "kiwi": { "command": "python3",
-        "args": ["/path/to/kiwi-mcp-bridge.py", "http://127.0.0.1:3456/mcp"],
-        "env": { "KIWI_API_TOKEN": "TOKEN" } } } }
+`scripts/kiwi-mcp-bridge.py` is a bridge in Python (standard library
+only), run by the agent as a local program: it passes the messages of
+the agent to `/mcp`, with the token taken from `KIWI_API_TOKEN`. It
+serves two cases.
 
-The bridge adds two tools, for an agent that has its own tools to edit
-files (Claude Code): `download_page` writes the text of a page to
-*DIR/SOURCE/UID.md* and answers its path and size, not the text;
-`upload_page` sends the file back (refused if the page changed
-meanwhile) and deletes it. The agent then changes a long page with its
-own tools, without reading it all, and the token stays in the bridge.
-*DIR* is given by `--dir DIR` after the URL, by default
-*/tmp/kiwi-pages-USER* (created with mode 0700); add it to the
-`additionalDirectories` of Claude Code. Give one folder to each kiwi.
-The bridge tells the agent to read a downloaded page whole only under
-20 KB: give another size in your agent guide if you want. With Claude
-Code:
+- An agent that has its own tools to edit files (Claude Code): the
+  bridge adds two tools. `download_page` writes the text of a page to
+  *DIR/SOURCE/UID.md* and answers its path and size, not the text;
+  `upload_page` sends the file back (refused if the page changed
+  meanwhile: the agent downloads it again and redoes its changes) and
+  deletes it. The agent then changes a page with its own tools, without
+  reading it all when it is long: the bridge tells it to prefer these
+  tools to change a page, and to read a downloaded page whole only under
+  20 KB (give another size in your agent guide if you want).
 
-    claude mcp add --scope user kiwi --env KIWI_API_TOKEN=TOKEN -- \
-      python3 /path/to/kiwi-mcp-bridge.py http://127.0.0.1:3456/mcp
+      claude mcp add --scope user kiwi --env KIWI_API_TOKEN=TOKEN -- \
+        python3 /path/to/kiwi-mcp-bridge.py http://127.0.0.1:3456/mcp
+
+  *DIR* is given by `--dir DIR` after the URL, by default
+  */tmp/kiwi-pages-USER* (created with mode 0700). Add it to the
+  `additionalDirectories` of Claude Code, so that it does not ask a
+  permission for each file. Give one folder to each kiwi.
+
+- An agent that only runs local programs (MCP on stdio), such as the
+  Chat tab of Claude Desktop with *claude_desktop_config.json*:
+
+      { "mcpServers": { "kiwi": { "command": "python3",
+          "args": ["/path/to/kiwi-mcp-bridge.py", "http://127.0.0.1:3456/mcp"],
+          "env": { "KIWI_API_TOKEN": "TOKEN" } } } }
 
 The connectors of claude.ai (and of the Chat tab of Claude Desktop) call
 the servers from the cloud of Anthropic: they can not reach a kiwi that
