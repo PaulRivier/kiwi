@@ -1,6 +1,7 @@
 module Kiwi.ConfigFileSpec (configSpec) where
 
 import           Data.List (isInfixOf)
+import qualified System.FilePath as FP
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import           Test.Hspec
@@ -8,6 +9,7 @@ import           Test.Hspec
 import qualified Kiwi.ConfigFile as Conf
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
+import           TestUtils (withContentDir)
 
 configSpec :: Spec
 configSpec = do
@@ -80,3 +82,19 @@ configSpec = do
     fmap Conf.bind (Conf.parseConfig $ ini []) `shouldBe` Right Nothing
     fmap Conf.bind (Conf.parseConfig $ ini ["bind:"]) `shouldBe` Right Nothing
     fmap Conf.bind (Conf.parseConfig $ ini ["bind: ::1 "]) `shouldBe` Right (Just "::1")
+
+  it "finds the agent guide file from the folder of the config file, and checks it" $
+    withContentDir $ \cd -> do
+      let kd = FP.takeDirectory cd
+          cfp = kd FP.</> "kiwi.ini"
+          conf ls = either error id $ Conf.parseConfig $ ini ls
+      Conf.agentGuideFile cfp (conf []) `shouldBe` Nothing
+      Conf.agentGuideFile cfp (conf ["agent-guide:"]) `shouldBe` Nothing
+      Conf.agentGuideFile cfp (conf ["agent-guide: guide.md "]) `shouldBe` Just (kd FP.</> "guide.md")
+      Conf.agentGuideFile cfp (conf ["agent-guide: /etc/guide.md"]) `shouldBe` Just "/etc/guide.md"
+      Conf.checkAgentGuide cfp (conf []) >>= (`shouldBe` Nothing)
+      missing <- Conf.checkAgentGuide cfp (conf ["agent-guide: guide.md"])
+      missing `shouldSatisfy` maybe False ("guide.md (config file " `isInfixOf`)
+      missing `shouldSatisfy` maybe False ("does not exist" `isInfixOf`)
+      writeFile (kd FP.</> "guide.md") "Be kind\n"
+      Conf.checkAgentGuide cfp (conf ["agent-guide: guide.md"]) >>= (`shouldBe` Nothing)

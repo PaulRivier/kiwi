@@ -1,4 +1,4 @@
-# Kiwi: guide for the agents
+# Kiwi: the API for the agents
 
 Kiwi is a wiki made of CommonMark files. You read and write its pages
 through its API, with the rights of your account: you only see the pages
@@ -27,9 +27,6 @@ your account can read, and only change those it can write.
 - Link to another page of the same source with its uid:
   `[text](page:UID)` or `[text](page:UID#section-anchor)`. Link to a file of
   the source with `[name](file:UID)`. Never use raw HTML.
-- Annotations: a paragraph starting with `!!` is a request left in the
-  page, pending. Once you have done what it asks, change its `!!` into
-  `!-` and keep its text: the user sees what was asked, and removes it.
 
 ## Working with the wiki
 
@@ -48,17 +45,24 @@ your account can read, and only change those it can write.
   value... and list the pages once the selection is small. Each step
   costs little.
 - Read little: ask for the outline of a long page, then read only the
-  section you need. Line numbers (outline, passages, annotations, parts)
-  count from the first line of the content, the header apart. List the pages with only the fields you need
-  (`show`).
-- To handle the pending annotations, find their pages (`has_fields:
-  [annotations]`), and read the lines that the outline of each page
-  gives.
+  section you need. Line numbers (outline, passages, parts) count from
+  the first line of the content, the header apart. List the pages with
+  only the fields you need (`show`).
 - Reuse the vocabulary of the wiki (tags, custom fields, their values):
   look at the facets before choosing the tags of a page.
 - Change a page by replacing exact passages of its text, not by sending the
   whole page again: the rest of the page stays as it is, even if someone
   else changes it meanwhile.
+- If you have a shell and the API token of your account, you can work on
+  a long page as on a local file, without reading it all: download its
+  text (`GET /api/page/SOURCE/UID` with the header
+  `Authorization: Bearer TOKEN`) to a file, and keep its `ETag`; find the
+  passages with your tools (`grep -n`...), read and change only them; then
+  send the whole file back (`PUT /api/page/SOURCE/UID`, header
+  `If-Match: ETAG`). The text never goes through your context, and the
+  parts you did not touch stay as they are. A 409 answer means that the
+  page changed meanwhile: download it again. Keep the token out of the
+  commands you show (an environment variable).
 - Change the metadata of many pages at once with a metadata script (its
   syntax: the tool `metadata_guide`, or `GET /api/metadata-guide`). List
   the pages having a field with their values (`has_fields`, `show`) to
@@ -69,3 +73,6 @@ your account can read, and only change those it can write.
 - Give a short `message` when you write: it goes to the history of the
   page.
 - Tell the user what you wrote, with the `SOURCE/UID` of the pages.
+- The guide of the user, if any, follows: its instructions and
+  conventions (where to put what, requests left in the pages...) come
+  before the general advice of this documentation.

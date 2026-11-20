@@ -122,8 +122,8 @@ runReload cfp = do
     Left (e :: IOException) -> exitError $ "unable to signal process " ++ show pid ++ ": " ++ show e
 
 
--- | The config of a kiwi, if it can be read and its content directory
--- exists. Errors are logged.
+-- | The config of a kiwi, if it can be read, its content directory exists
+-- and the file of its agent guide, if any, can be read. Errors are logged.
 loadServerConfig :: L.LogLevel -> FP.FilePath -> IO (Maybe (FP.FilePath, Conf.KiwiConfig))
 loadServerConfig logLevel cfp = do
   cfgTextM <- U.getFileContent cfp
@@ -144,11 +144,13 @@ loadServerConfig logLevel cfp = do
           -- relative to the folder of the config file, as in the server
           let cd = FP.combine (FP.takeDirectory cfp) (Conf.contentDir conf)
           cdExists <- D.doesDirectoryExist cd
-          if cdExists then return $ Just (cfp, conf)
-          else do
-            L.mkLogger logLevel (Conf.name conf) L.Error $ T.pack $
-              "content directory " ++ cd ++ " (config file " ++ cfp ++ ") does not exist"
-            return Nothing
+          guideError <- Conf.checkAgentGuide cfp conf
+          let failWith e = do
+                L.mkLogger logLevel (Conf.name conf) L.Error $ T.pack e
+                return Nothing
+          if not cdExists then
+            failWith $ "content directory " ++ cd ++ " (config file " ++ cfp ++ ") does not exist"
+          else maybe (return $ Just (cfp, conf)) failWith guideError
   where
     -- the kiwi name is unknown until the config file is read
     logError = L.mkLogger logLevel "?" L.Error . T.pack

@@ -5,7 +5,7 @@ module Kiwi.DefaultPages
   ( defaultHomePage
   , commonmarkDocPage
   , readmePage
-  , agentGuidePage
+  , agentApiDocPage
   , metadataScriptPage
   ) where
 
@@ -26,10 +26,10 @@ readmePage :: BS.ByteString
 readmePage = $(embedFileRelative "README.md")
 
 
--- | Guide of the agents using the API (see "Kiwi.Api"), the same for every
--- kiwi
-agentGuidePage :: BS.ByteString
-agentGuidePage = $(embedFileRelative "static/agent-guide.md")
+-- | Documentation of the API for the agents (see "Kiwi.Api"), the same for
+-- every kiwi; the guide of the user follows it
+agentApiDocPage :: BS.ByteString
+agentApiDocPage = $(embedFileRelative "static/agent-api-doc.md")
 
 
 -- | Syntax of the metadata scripts, for the admins (metadata editor) and the

@@ -14,6 +14,7 @@ import qualified Network.HTTP.Types as Net
 import qualified Network.HTTP.Types.URI as URI
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Test as WT
+import qualified System.Directory as D
 import qualified System.FilePath as FP
 import           Test.Hspec
 
@@ -44,7 +45,7 @@ apiSpec = do
               (t, _) : _ -> t
               [] -> error "no token"
         WT.runSession (test (get token)) app
-      onKiwi test = withKiwiConfig ["agent-guide: s/q"]
+      onKiwi test = withKiwiConfig ["agent-guide: agent-guide.md"]
                       [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])] pages $
                       \cd ss app -> do
         accs <- readIORef (accounts ss)
@@ -162,17 +163,6 @@ apiSpec = do
       none <- get' "/api/links?tag=nope"
       liftIO $ body none `shouldBe` "no page\n"
 
-  it "finds the pending annotations of the pages, and gives their lines" $
-    withKiwiAccounts' [ ("a.md", "title: A\nuid: a\n\nIntro\n\n!! fix this\nplease\n\n```\n!! code\n```\n\n\
-                                 \!- done\n\n# T\n!! again\n")
-                      , ("b.md", "title: B\nuid: b\n\n!- done\n") ] $ \get' -> do
-      annotated <- get' "/api/pages?has=annotations&show=annotations"
-      liftIO $ T.lines (body annotated) `shouldBe`
-        [ "1 page, the most recently modified first", "s/a", "  annotations: 3, 13" ]
-      -- in the outline too: the lines of the content, without the header
-      outline <- get' "/api/page/s/a?part=outline"
-      liftIO $ T.lines (body outline) `shouldSatisfy` elem "annotations (lines): 3, 13"
-
   it "gives the text of a page without its uid, its hash as ETag, and parts of it" $
     onKiwi $ \cd tokenOf -> do
       r <- get (tokenOf "bob") "/api/page/s/p"
@@ -215,10 +205,21 @@ apiSpec = do
     refused <- get (tokenOf "bob") "/api/folders/s"
     liftIO $ status refused `shouldBe` 403
 
-  it "gives the guide of kiwi, then the one of the user" $ onKiwi $ \_ tokenOf -> do
-    r <- get (tokenOf "bob") "/api/guide"
-    liftIO $ body r `shouldSatisfy` T.isPrefixOf "# Kiwi: guide for the agents"
-    liftIO $ body r `shouldSatisfy` T.isSuffixOf "# Guide of the user: Other\n\nQ [p](page:p)\n"
+  it "gives the documentation of the API, then the guide of the user, read at each request" $
+    onKiwi $ \cd tokenOf -> do
+      let guideFile = FP.takeDirectory cd FP.</> "agent-guide.md"
+      liftIO $ writeFile guideFile "Be kind\n"
+      r <- get (tokenOf "bob") "/api/guide"
+      liftIO $ body r `shouldSatisfy` T.isPrefixOf "# Kiwi: the API for the agents"
+      liftIO $ body r `shouldSatisfy` T.isSuffixOf "\n\n# Guide of the user\n\nBe kind\n"
+      liftIO $ writeFile guideFile "Be brief\n"
+      changed <- get (tokenOf "bob") "/api/guide"
+      liftIO $ body changed `shouldSatisfy` T.isSuffixOf "\n\n# Guide of the user\n\nBe brief\n"
+      -- a file that can no longer be read: the documentation alone
+      liftIO $ D.removeFile guideFile
+      gone <- get (tokenOf "bob") "/api/guide"
+      liftIO $ status gone `shouldBe` 200
+      liftIO $ body gone `shouldSatisfy` (not . T.isInfixOf "# Guide of the user")
 
   it "refuses the token of a removed account, or of a changed password" $ do
     let ann = Account "ann" "salt-1" "hash" ["admin"]

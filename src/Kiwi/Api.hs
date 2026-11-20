@@ -21,6 +21,7 @@ module Kiwi.Api
   , serveMcp
   ) where
 
+import           Control.Exception (IOException, try)
 import           Control.Monad.Reader (local)
 import           Data.IORef (readIORef)
 import           Data.List (nub, sortOn)
@@ -31,6 +32,7 @@ import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Aeson as A
 import qualified Data.Aeson.Types as AesonT
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
@@ -150,8 +152,8 @@ withShow known run = do
 -- | The pages that the user can read matching the metadata of the parameters
 -- (as on /browse: "tag" (all of them), "lang", "m.FIELD", "has", "access"
 -- for the admins; "source" and "archive=yes" for the context),
--- "since=YYYY-MM-DD", "page=SOURCE/UID" (one of them) and "has=annotations"
--- (pages with pending annotations), the parameters given excepted, with the
+-- "since=YYYY-MM-DD" and "page=SOURCE/UID" (one of them), the parameters
+-- given excepted, with the
 -- restricted database; 400 for a wrong parameter
 withSelection :: [T.Text] -> (K.PagesDB -> [K.Page] -> ActM ()) -> ActM ()
 withSelection others run = do
@@ -160,8 +162,7 @@ withSelection others run = do
   params <- queryParams
   admin <- Auth.isAdmin
   let filters = [ (k, v) | (k, v) <- Url.withoutContextParams params
-                         , k `notElem` ("since" : "page" : others), (k, v) /= ("has", "annotations") ]
-      annotated = ("has", "annotations") `elem` params
+                         , k `notElem` ("since" : "page" : others) ]
       pageParams = [ v | ("page", v) <- params ]
   sinceM <- queryParamMaybe "since"
   case (Browse.decodeReq (K.customMetaConfig db) filters, traverse readDay sinceM, traverse pageRef pageParams) of
@@ -177,7 +178,6 @@ withSelection others run = do
                      else DI.documentsList $ DI.narrow idx $ Browse.reqToQuery req'
           keep p = maybe True (\d -> Time.utctDay (K.pageMTime p) >= d) since
                    && (null uids || K.pageUID p `elem` uids)
-                   && (not annotated || not (null $ K.pageAnnotations p))
       run db $ filter keep selected
   where
     readDay :: T.Text -> Maybe Time.Day
@@ -340,24 +340,26 @@ apiFolders source = do
     else answer $ AT.foldersText source
                     [ FP.makeRelative top (K.pageAbsoluteFSPath p) | p <- pages ]
 
--- | GET /api/guide: the guide of kiwi for the agents, then the one of the
--- user (the content of the page of agent-guide in kiwi.ini), when the user
--- can read it
+-- | GET /api/guide: the documentation of the API for the agents, then the
+-- guide of the user (the file of agent-guide in kiwi.ini, read again at each
+-- request), if any; when this file can not be read, the documentation alone
+-- (the error is logged)
 apiGuide :: ActM ()
 apiGuide = do
   guideM <- asksK K.agentGuide
-  db <- getDB
-  loginM <- asksK (K.login . K.requestState)
-  let kiwiGuide = TE.decodeUtf8Lenient DP.agentGuidePage
-      userGuide = do
-        uid <- guideM
-        p <- findPage db uid
-        _ <- Auth.pageAccessLevel loginM p
-        return p
+  logger' <- asksK K.logger
+  userGuide <- Scotty.liftIO $ case guideM of
+    Nothing -> return Nothing
+    Just p -> try (BS.readFile p) >>= \r -> case r of
+      Right bytes -> return $ Just (TE.decodeUtf8Lenient bytes)
+      Left e -> do
+        logger' L.Error $ T.pack $ concat
+          [ "unable to read the agent guide file ", p, ": ", show (e :: IOException) ]
+        return Nothing
+  let apiDoc = TE.decodeUtf8Lenient DP.agentApiDocPage
   answer $ case userGuide of
-    Nothing -> kiwiGuide
-    Just p -> T.concat [ kiwiGuide, "\n\n# Guide of the user: ", K.pageTitle p, "\n\n"
-                       , K.pageBody p ]
+    Nothing -> apiDoc
+    Just g -> T.concat [ apiDoc, "\n\n# Guide of the user\n\n", g ]
 
 
 -- | GET /api/search?q=QUERY: full-text search for an agent (see

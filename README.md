@@ -354,17 +354,6 @@ files that no page links, archived pages included (Kiwi does not serve
 them), each one with a button that copies a link to it
 (`[cake.jpg](file:K3M9QW2TZ1)`).
 
-A paragraph that starts with `!!` is an *annotation*: a request left in
-the page, for an agent or anyone, shown in a frame. Once done, its mark
-becomes `!-` (shown faded), and its text stays until someone removes it.
-The agents find the pages with pending annotations through the API
-(`has=annotations`), and their lines in the outline of each page.
-
-    !! Add the cooking time.
-
-    !- Add the cooking time.
-
-
 ### images and files
 
 Images and other files go anywhere in the folder of the source, next to
@@ -710,12 +699,11 @@ agents get); the writes always need a token.
 The lists of pages (`/api/pages`, `/api/facets`, `/api/links`) choose
 their pages with the filters of the browse page (`source`, `tag`, `lang`,
 `m.FIELD=VALUE`, `has=FIELD`, `archive=yes`; several `tag` are all
-required), `since=YYYY-MM-DD`, `page=SOURCE/UID` (repeated: these pages)
-and `has=annotations` (the pages with pending annotations, see below).
+required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
 
 * `GET /api/pages` : the pages, the most recently modified first, at most
   `limit` (100 by default): one `SOURCE/UID` by line, and under it the
-  fields of `show` (`show=title,tags,summary,lang,modified,annotations`
+  fields of `show` (`show=title,tags,summary,lang,modified`
   and custom fields by their name), written as in a header.
 * `GET /api/search?q=QUERY` : full-text search for the agents. The pages
   that contain any of the words, those with the most of them first, each
@@ -735,8 +723,7 @@ and `has=annotations` (the pages with pending annotations, see below).
   can not be read).
 * `GET /api/page/SOURCE/UID` : the text of the page, without its uid, and
   the hash of its file as `ETag`. `part=outline` gives its outline (tags,
-  summary, lines of its pending annotations, backlinks, sections with
-  their lines), `part=section&title=T`
+  summary, backlinks, sections with their lines), `part=section&title=T`
   one section, `part=lines&from=N&to=M` some lines, and `numbered=yes`
   numbers the lines. Everywhere in the API, the lines are those of the
   content, from its first line: the header is not numbered.
@@ -744,8 +731,16 @@ and `has=annotations` (the pages with pending annotations, see below).
 * `GET /api/folders/SOURCE` (admins) : the folders of the source, with
   their number of pages. The admins also get the path of the file of a
   page in its outline, and of a page they create.
-* `GET /api/guide` : the guide of kiwi for the agents, followed by yours:
-  the page given by `agent-guide: SOURCE/UID` in *kiwi.ini*.
+* `GET /api/guide` : the documentation of the API for the agents,
+  followed by your guide: the file given by `agent-guide: FILE` in
+  *kiwi.ini* (relative to the folder of *kiwi.ini*, or absolute; read
+  again at each request; the server does not start if it can not be
+  read). It is also given to the MCP agents when they connect. Kiwi has
+  no syntax of its own for the requests left to the agents in the pages:
+  agree on a convention in your guide, for instance a field
+  `status: claude:todo` in the header of the pages to handle (declared as
+  a custom metadata), and quotes starting with `AI:` for the requests;
+  your guide can also tell the agents to read pages of the wiki.
 
 The writes need the write right on the page, as in the browser editor,
 and are committed when the file is in a git repository (author

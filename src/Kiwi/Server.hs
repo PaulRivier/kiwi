@@ -242,7 +242,8 @@ updateDB ss = do
 
 initServerState :: FP.FilePath -> Conf.KiwiConfig -> L.Logger -> IO ServerState
 initServerState cfp conf logger' = do
-  kiwiDir' <- D.makeAbsolute (FP.takeDirectory cfp)
+  cfp' <- D.makeAbsolute cfp
+  let kiwiDir' = FP.takeDirectory cfp'
   let contentDir' = FP.combine kiwiDir' (Conf.contentDir conf)
   let accountsFile = FP.combine kiwiDir' "_accounts"
   accountsE <- try $ loadAccounts accountsFile
@@ -285,7 +286,7 @@ initServerState cfp conf logger' = do
     , tocSetting   = Conf.toc conf
     , secureCookie = Conf.secureCookie conf
     , gitCommit    = Conf.gitCommit conf
-    , agentGuide   = Conf.agentGuide conf
+    , agentGuide   = Conf.agentGuideFile cfp' conf
     , logger       = logger'
   }
   where

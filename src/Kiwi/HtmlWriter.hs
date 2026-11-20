@@ -28,7 +28,6 @@ import           Lucid
 import           Lucid.Base (commuteHtmlT2, makeAttributes)
 import qualified Text.Pandoc.Definition as PD
 
-import           Kiwi.Annotation (annotationInlines)
 import           Kiwi.Types (PageUID)
 import           Kiwi.Utils (inlinesText)
 
@@ -124,10 +123,6 @@ blockWith ex blk = case blk of
   PD.Para [PD.Image attr desc target] -> figure_ ex $ do
     imageToHtml attr "" target
     unless (null desc) $ figcaption_ (inlinesToHtml desc)
-  -- an annotation (see "Kiwi.Annotation"), without its mark
-  PD.Para ils | Just (pending, ils') <- annotationInlines ils ->
-    p_ (class_ (if pending then "kiwi-annotation kiwi-annotation-pending"
-                else "kiwi-annotation kiwi-annotation-done") : ex) (inlinesToHtml ils')
   PD.Para ils -> p_ ex (inlinesToHtml ils)
   PD.LineBlock lns ->
     div_ (class_ "line-block" : ex) $

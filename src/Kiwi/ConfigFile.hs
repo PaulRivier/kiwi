@@ -4,14 +4,18 @@ module Kiwi.ConfigFile
   ( KiwiConfig(..)
   , parseConfig
   , defaultConfigFileContent
+  , agentGuideFile
+  , checkAgentGuide
   ) where
 
+import           Control.Exception (IOException, try)
 import           Control.Monad (mfilter)
 import qualified Data.ByteString as BS
 import           Data.Ini.Config
 import           Data.FileEmbed (embedFileRelative)
 import           Data.Foldable (toList)
 import qualified Data.Text as T
+import qualified System.Directory as D
 import qualified System.FilePath as FP
 
 import qualified Kiwi.Meta as Meta
@@ -32,7 +36,8 @@ data KiwiConfig = KiwiConfig
   , toc :: K.TocSetting
   , secureCookie :: Bool
   , gitCommit :: Bool  -- ^ commit the pages saved in a git repository
-  , agentGuide :: Maybe K.PageUID  -- ^ page of the guide for the agents
+  , agentGuide :: Maybe FP.FilePath  -- ^ file of the guide of the user for
+                                     -- the agents, as written (see 'agentGuideFile')
   }
   
 
@@ -64,7 +69,8 @@ configParser = do
     secureCookie' <- fieldFlagDef "secure-cookie" False
     -- empty: the default
     gitCommit' <- fieldDefOf "git-commit" (flagOr True "git-commit") True
-    agentGuide' <- fieldDefOf "agent-guide" pageRef Nothing
+    -- without it (or empty), no guide of the user
+    agentGuide' <- fieldMbOf "agent-guide" string
     return KiwiConfig
       { name = name'
       , contentDir = contentDir'
@@ -78,7 +84,7 @@ configParser = do
       , toc = toc'
       , secureCookie = secureCookie'
       , gitCommit = gitCommit'
-      , agentGuide = agentGuide'
+      , agentGuide = mfilter (not . null) (trim <$> agentGuide')
       }
 
 
@@ -123,13 +129,31 @@ flagOr def key t = case T.toLower (T.strip t) of
   _       -> Left $ "invalid " ++ key ++ " value " ++ show (T.strip t)
                     ++ ", allowed values: yes, no"
 
--- | A page as SOURCE/UID, nothing when empty
-pageRef :: T.Text -> Either String (Maybe K.PageUID)
-pageRef t = case T.breakOn "/" (T.strip t) of
-  ("", "") -> Right Nothing
-  (s, u) | not (T.null s), Just uid <- T.stripPrefix "/" u, Meta.isValidUid uid
-           -> Right $ Just (s, uid)
-  _ -> Left $ "invalid page " ++ show (T.strip t) ++ ", expected SOURCE/UID"
+-- -- | A page as SOURCE/UID, nothing when empty
+-- pageRef :: T.Text -> Either String (Maybe K.PageUID)
+-- pageRef t = case T.breakOn "/" (T.strip t) of
+--   ("", "") -> Right Nothing
+--   (s, u) | not (T.null s), Just uid <- T.stripPrefix "/" u, Meta.isValidUid uid
+--            -> Right $ Just (s, uid)
+--   _ -> Left $ "invalid page " ++ show (T.strip t) ++ ", expected SOURCE/UID"
+
+-- | The file of the guide of the user for the agents, if any: its path in
+-- the config, relative to the folder of the config file (given), or absolute
+agentGuideFile :: FP.FilePath -> KiwiConfig -> Maybe FP.FilePath
+agentGuideFile configFile conf = FP.combine (FP.takeDirectory configFile) <$> agentGuide conf
+
+-- | An error when the file of the guide of the user (see 'agentGuideFile')
+-- does not exist or can not be read
+checkAgentGuide :: FP.FilePath -> KiwiConfig -> IO (Maybe String)
+checkAgentGuide configFile conf = case agentGuideFile configFile conf of
+  Nothing -> return Nothing
+  Just p -> do
+    exists <- D.doesFileExist p
+    if not exists then return $ Just (failure p "does not exist")
+    else either (\e -> Just $ failure p ("can not be read: " ++ show (e :: IOException)))
+                (const Nothing) <$> try (BS.length <$> BS.readFile p)
+  where
+    failure p why = concat [ "agent guide file ", p, " (config file ", configFile, ") ", why ]
 
 trim :: String -> String
 trim = T.unpack . T.strip . T.pack

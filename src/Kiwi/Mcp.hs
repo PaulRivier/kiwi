@@ -245,12 +245,11 @@ tools =
   , Tool "list_pages"
       "List the pages matching metadata, the most recently modified first: SOURCE/UID alone, \
       \and under each page the fields of show (title, tags, summary, lang, modified, \
-      \annotations, custom fields), written as in a header. Narrow the selection with facets \
+      \custom fields), written as in a header. Narrow the selection with facets \
       \or search first. show [title, tags] gives an inventory; has_fields and show with a \
-      \custom field prepare a metadata script; has_fields [annotations] finds the pages with \
-      \pending annotations."
+      \custom field prepare a metadata script."
       (selectionProps ++
-       [ ("show", stringsProp "Fields given under each page: title, tags, summary, lang, modified (day), annotations (number of pending ones), custom fields.")
+       [ ("show", stringsProp "Fields given under each page: title, tags, summary, lang, modified (day), custom fields.")
        , ("limit", prop "integer" "Maximum number of pages (100 by default).") ])
       []
       (\o -> Right $ apiGet "/api/pages" (selectionParams o ++ showParam o ++ optional o ["limit"]))
@@ -264,7 +263,7 @@ tools =
       asIs
   , Tool "read_page"
       "Read a page (SOURCE/UID): its header, then its content in CommonMark. For a long page, \
-      \read its outline first (part: outline: tags, summary, pending annotations, backlinks, \
+      \read its outline first (part: outline: tags, summary, backlinks, \
       \sections with their lines), then only the section or the lines you need. Line numbers \
       \count from the first line of the content: the header is not numbered (read it whole, \
       \or with list_pages and show). The hash identifies the version of the file."
@@ -391,7 +390,7 @@ selectionProps =
   , ("fields", A.object [ "type" .= ("object" :: T.Text)
                         , "additionalProperties" .= A.object ["type" .= ("string" :: T.Text)]
                         , "description" .= ("Custom fields the pages must have, with this value: {\"author\": \"Smith\"}." :: T.Text) ])
-  , ("has_fields", stringsProp "Custom fields the pages must have, whatever their value; annotations: the pages with pending annotations.")
+  , ("has_fields", stringsProp "Custom fields the pages must have, whatever their value.")
   , ("pages", stringsProp "Only these pages, as SOURCE/UID.")
   , ("since", prop "string" "Only the pages modified since this day, YYYY-MM-DD.") ]
 

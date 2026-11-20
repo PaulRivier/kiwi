@@ -101,9 +101,10 @@ mcpSpec = do
   -- POST /mcp, on a whole kiwi: the tools call its API in memory
   let pages = [ ("p.md", "title: Page\nuid: p\naccess: family:w\n\nHello world\n")
               , ("g.md", "title: Guide\nuid: g\naccess: family\n\nBe kind\n")
-              , ("n.md", "title: Note\nuid: n\naccess: family\n\n!! to do\n") ]
-      onKiwi test = withKiwiConfig ["agent-guide: s/g"] [("bob", "secret", ["family"])] pages $
+              , ("n.md", "title: Note\nuid: n\naccess: family\nauthor: me\n\nto do\n") ]
+      onKiwi test = withKiwiConfig ["agent-guide: agent-guide.md"] [("bob", "secret", ["family"])] pages $
                       \cd ss app -> do
+        writeFile (FP.takeDirectory cd FP.</> "agent-guide.md") "Be kind\n"
         accs <- readIORef (accounts ss)
         made <- mapM Auth.newApiToken accs
         _ <- Auth.dumpTokens (M.fromList $ map snd made) (Auth.tokensFile $ kiwiDir ss)
@@ -137,13 +138,13 @@ mcpSpec = do
     q <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"search\",\"arguments\":{\"query\":\"hello world\"}}}"
     liftIO $ fmap (T.isPrefixOf "1 page for hello world") (answer q >>= toolText) `shouldBe` Just True
-    -- the pages with pending annotations
+    -- the pages having a field
     ann <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\
-                         \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":[\"annotations\"]}}}"
+                         \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":[\"author\"]}}}"
     liftIO $ (answer ann >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n"
     -- a list sent as a string holding its JSON, as some clients do
     annStr <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\
-                            \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":\"[\\\"annotations\\\"]\"}}}"
+                            \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":\"[\\\"author\\\"]\"}}}"
     liftIO $ (answer annStr >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n"
     e <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"edit_page\",\"arguments\":{\"page\":\"s/p\",\

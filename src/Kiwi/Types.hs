@@ -93,8 +93,8 @@ data ServerState =
               , secureCookie  :: Bool
               , gitCommit     :: Bool  -- ^ commit the pages saved in a
                                        -- git repository
-              , agentGuide    :: Maybe PageUID  -- ^ page of the guide of the
-                                                -- user for the agents (API)
+              , agentGuide    :: Maybe FP.FilePath  -- ^ file of the guide of
+                                                    -- the user for the agents (API)
               , logger        :: Logger
               }
 
@@ -250,9 +250,6 @@ data Page =
        , pageArchive :: !Bool  -- ^ only in the archives navigation
        , pageCustomMeta :: ![CustomMetaData]
        , pagePreviousUids :: ![T.Text]  -- ^ uids replaced by kiwi (previous-uids)
-       -- | lines of the content (from 1) where its pending annotations start
-       -- (see "Kiwi.Annotation")
-       , pageAnnotations :: ![Int]
        }
   deriving (Show)
 

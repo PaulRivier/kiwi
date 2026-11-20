@@ -55,13 +55,12 @@ sourcePath contentDir' p =
 -- | The fields of a page that the lists can show, besides its custom
 -- fields (see 'pagesText')
 pageFields :: [T.Text]
-pageFields = ["title", "tags", "summary", "lang", "modified", "annotations"]
+pageFields = ["title", "tags", "summary", "lang", "modified"]
 
 -- | List of pages, one by line (SOURCE/UID), each one followed by the given
 -- fields that it has, one by line, written as in a header ("  tags: a > b,
--- c"; "modified": the day of the last change; "annotations": the lines of
--- its pending annotations, in its content; a custom field by its name). The first line gives
--- the number of pages found and of pages shown.
+-- c"; "modified": the day of the last change; a custom field by its name).
+-- The first line gives the number of pages found and of pages shown.
 pagesText :: [T.Text] -> Int -> [Page] -> T.Text
 pagesText fields total pages = T.unlines $ header : concatMap pageLines pages
   where
@@ -77,7 +76,6 @@ pagesText fields total pages = T.unlines $ header : concatMap pageLines pages
       "summary" -> pageSummary p
       "lang" -> Just (showCustomValue $ KeyLang $ pageLang p)
       "modified" -> Just (dayText $ pageMTime p)
-      "annotations" -> if null (pageAnnotations p) then Nothing else Just (annotationsText p)
       _ -> list [ showCustomValue k | CustomMetaData f' ks <- pageCustomMeta p, f' == f, k <- ks ]
     list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
 
@@ -128,10 +126,6 @@ sections (PD.Pandoc _ blocks) total =
         Just (lvl, inlinesText ils, line)
       _ -> Nothing
 
--- | Lines of the pending annotations of a page, in its content
-annotationsText :: Page -> T.Text
-annotationsText p = T.intercalate ", " (map (T.pack . show) $ pageAnnotations p)
-
 -- | Links of pages of a source: (uid of the page, uid of the page it links,
 -- whether this one exists for the user), one by line, "(missing)" after a
 -- link to a page that does not exist or that the user can not read
@@ -142,8 +136,8 @@ linksText source links = T.unlines $
   : [ T.concat [from, " -> ", to, if exists then "" else " (missing)"] | (from, to, exists) <- links ]
 
 -- | Outline of a page: its reference and title, tags, summary, path (for
--- admins), number of lines of its content, the lines of its pending
--- annotations, the pages linking it, then its sections, with their lines
+-- admins), number of lines of its content, the pages linking it, then its
+-- sections, with their lines
 -- (lines of the content, without the header). The hash of the file is not
 -- in it (the ETag gives it).
 outlineText :: Maybe FP.FilePath -> Page -> Int -> [Page] -> [Section] -> T.Text
@@ -153,7 +147,6 @@ outlineText pathsM p total backlinks secs = T.unlines $
   ++ [ "summary: " <> s | Just s <- [pageSummary p] ]
   ++ [ "path: " <> sourcePath cd p | Just cd <- [pathsM] ]
   ++ [ T.concat ["lines: ", T.pack (show total)] ]
-  ++ [ "annotations (lines): " <> annotationsText p | not (null $ pageAnnotations p) ]
   ++ [ "backlinks: " <> if null backlinks then "(none)"
                         else T.intercalate "; " [ pageRef b <> " " <> pageTitle b | b <- backlinks ]
      , if null secs then "sections: (none)" else "sections (lines):" ]

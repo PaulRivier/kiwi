@@ -13,12 +13,8 @@ htmlWriterSpec :: Spec
 htmlWriterSpec = do
   let html = TL.toStrict . renderText . writeHtml5 (const $ Just Nothing) . pandocDoc . load
 
-  it "frames the annotations, pending (!!) or done (!-), without their mark" $
-    html "t: t\n\n!! fix *this*\n\n!-done\n\nnot !! one\n"
-      `shouldBe` T.concat
-        [ "<p class=\"kiwi-annotation kiwi-annotation-pending\">fix <em>this</em></p>"
-        , "<p class=\"kiwi-annotation kiwi-annotation-done\">done</p>"
-        , "<p>not !! one</p>" ]
+  it "renders a paragraph starting with !! as any other (no annotation in kiwi)" $
+    html "t: t\n\n!! fix *this*\n" `shouldBe` "<p>!! fix <em>this</em></p>"
 
   it "marks the links to missing pages as broken, without their target attributes" $ do
     let exists uid = uid == ("src", "Here")
