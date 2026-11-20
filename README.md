@@ -808,6 +808,22 @@ only):
         "args": ["/path/to/kiwi-mcp-bridge.py", "http://127.0.0.1:3456/mcp"],
         "env": { "KIWI_API_TOKEN": "TOKEN" } } } }
 
+The bridge adds two tools, for an agent that has its own tools to edit
+files (Claude Code): `download_page` writes the text of a page to
+*DIR/SOURCE/UID.md* and answers its path and size, not the text;
+`upload_page` sends the file back (refused if the page changed
+meanwhile) and deletes it. The agent then changes a long page with its
+own tools, without reading it all, and the token stays in the bridge.
+*DIR* is given by `--dir DIR` after the URL, by default
+*/tmp/kiwi-pages-USER* (created with mode 0700); add it to the
+`additionalDirectories` of Claude Code. Give one folder to each kiwi.
+The bridge tells the agent to read a downloaded page whole only under
+20 KB: give another size in your agent guide if you want. With Claude
+Code:
+
+    claude mcp add --scope user kiwi --env KIWI_API_TOKEN=TOKEN -- \
+      python3 /path/to/kiwi-mcp-bridge.py http://127.0.0.1:3456/mcp
+
 The connectors of claude.ai (and of the Chat tab of Claude Desktop) call
 the servers from the cloud of Anthropic: they can not reach a kiwi that
 is not public, and are not supported.
