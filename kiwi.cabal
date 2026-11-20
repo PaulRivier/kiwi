@@ -15,6 +15,7 @@ license-file:   LICENSE
 build-type:     Simple
 extra-doc-files:
     README.md
+    doc/AGENTS.md
     ChangeLog.md
 -- files embedded at compile time (file-embed)
 extra-source-files:
