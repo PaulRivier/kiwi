@@ -254,6 +254,7 @@ writePage cmc m content =
 writeHeader :: [CustomMetaConfig] -> MetaData -> T.Text
 writeHeader cmc m = T.unlines $ concat
   [ line "title" (metaTitle m)
+  , line "summary" (metaSummary m)
   , line "uid" (metaUid m)
   , line "previous-uids" (T.intercalate ", " . map (escape ",") <$> metaPreviousUids m)
   , line "tags" (T.intercalate ", " . map writeTag . nodup . map writeTag' <$>
@@ -268,7 +269,6 @@ writeHeader cmc m = T.unlines $ concat
   , orOther "archive" ((\b -> if b then "yes" else "no") <$> metaArchive m)
   , concatMap custom cmc
   , [ field k v | (k, vs) <- M.toList (metaOther m), k `notElem` knownKeys cmc, v <- vs ]
-  , line "summary" (metaSummary m)
   ]
   where
     field k v = if T.null v then k <> ":" else k <> ": " <> v
