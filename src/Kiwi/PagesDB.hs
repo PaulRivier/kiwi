@@ -82,13 +82,17 @@ updatePagesDB logger' git contentDir' db = do
     -- hidden folders (".git"…) and those starting with '_'
     sourceDirs <- filterM D.doesDirectoryExist $ map (FP.combine contentDir') sources
     fsPathsRaw <- concat <$> mapM (\d -> traverseDir d readName) sourceDirs
-    let (fsPaths, ignoredPaths) = partition (isValidMdFilename . FP.takeFileName)
-                                            fsPathsRaw
+    -- the conflict copies of syncthing are not pages: they would take the
+    -- uid of their page, or get a new one
+    let conflictCopy = Files.isConflictCopy . T.pack . FP.takeFileName
+        isPage p = isValidMdFilename (FP.takeFileName p) && not (conflictCopy p)
+        (fsPaths, ignoredPaths) = partition isPage fsPathsRaw
     -- the other files (images…) are not pages
     let isPageExt p = FP.takeExtension p `elem` [".md", ".markdown"]
-    forM_ (filter isPageExt ignoredPaths) $ \p -> logger' L.Debug $ T.pack $ concat
-      [ "file ignored, ", p, " : a page file name starts with a letter or a digit"
-      , ", and ends with .md or .markdown" ]
+    forM_ (filter isPageExt ignoredPaths) $ \p -> logger' L.Debug $ T.pack $ concat $
+      if conflictCopy p then [ "file ignored, ", p, " : conflict copy of syncthing" ]
+      else [ "file ignored, ", p, " : a page file name starts with a letter or a digit"
+           , ", and ends with .md or .markdown" ]
     let (servable, excluded) =
           partition (Files.servablePath . map T.pack . FP.splitDirectories . snd . sourcePath)
                     (filter (not . isPageExt) ignoredPaths)

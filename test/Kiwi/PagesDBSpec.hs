@@ -214,6 +214,19 @@ pagesDBSpec = do
       dbIds db' `shouldReturn` sort ["a", new]
       warnings msgs' `shouldBe` []
 
+  it "does not load the conflict copies of syncthing" $
+    withContentDir $ \cd -> do
+      let copy = pageFile cd "a.sync-conflict-20260101-120000-ABCDEFG.md"
+          text = "uid: a\ntitle: A copy\n\nkiwiword"
+      writeFileAt (pageFile cd "a.md") 0 "uid: a\ntitle: A\n\nkiwiword"
+      writeFileAt copy 0 text
+      (db, msgs) <- loadDB cd
+      dbIds db `shouldReturn` ["a"]
+      dbPagePath db "a" `shouldBe` Just (pageFile cd "a.md")
+      warnings msgs `shouldBe` []
+      readFile copy `shouldReturn` text
+      sourceFiles db `shouldBe` M.empty
+
   it "keeps the uid of a loaded page, a new file of this uid gets another one" $
     withContentDir $ \cd -> do
       writeFileAt (pageFile cd "b.md") 0 "uid: x\n\nkiwiword bword"

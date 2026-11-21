@@ -22,6 +22,12 @@ filesSpec = do
     filter (not . servablePath) (map (map T.pack) ok) `shouldBe` []
     filter servablePath (map (map T.pack) refused) `shouldBe` []
 
+  it "tells the conflict copies of syncthing" $ do
+    isConflictCopy "p.sync-conflict-20260101-120000-ABCDEFG.md" `shouldBe` True
+    isConflictCopy "a.SYNC-CONFLICT-20260101-120000-ABCDEFG.png" `shouldBe` True
+    isConflictCopy "p.md" `shouldBe` False
+    isConflictCopy "sync-conflict.md" `shouldBe` False
+
   it "reads the uid of a file name" $ do
     fileUid "pomme__XJD54PM77T.jpg" `shouldBe` Just "XJD54PM77T"
     fileUid "pomme__XJD54PM77T (copie).jpg" `shouldBe` Just "XJD54PM77T"

@@ -6,6 +6,7 @@
 -- without one).
 module Kiwi.Files
   ( servablePath
+  , isConflictCopy
   , isFileUid
   , fileUid
   , withFileUid
@@ -42,7 +43,7 @@ servablePath segments = not (null segments) && all servable segments
       Just (c, _) -> c `notElem` ['.', '_', '#', '~'] && T.last s `notElem` ['#', '~'] &&
                      T.all (`notElem` ['/', '\0']) s &&
                      let l = T.toLower s
-                     in not (pageName l) && not (".sync-conflict-" `T.isInfixOf` l) &&
+                     in not (pageName l) && not (isConflictCopy l) &&
                         extension l `notElem` temporaryExtensions &&
                         l `notElem` ["thumbs.db", "desktop.ini"]
     pageName n = any (ends n) [".md", ".markdown"]
@@ -53,6 +54,12 @@ servablePath segments = not (null segments) && all servable segments
     extension n = case T.breakOnEnd "." n of
       ("", _) -> ""
       (_, e)  -> e
+
+-- | Whether a file name is a conflict copy of syncthing: it holds
+-- ".sync-conflict-", in any case ("page.sync-conflict-20260101-120000-ABCDEFG.md").
+-- Neither a page nor a served file.
+isConflictCopy :: T.Text -> Bool
+isConflictCopy n = ".sync-conflict-" `T.isInfixOf` T.toLower n
 
 -- | Extensions (lower case, without the dot) of the files being written or
 -- downloaded, and of the backup copies: kiwi does not rename them

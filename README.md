@@ -191,9 +191,11 @@ or several: each folder of *content* is a source.
 Add your Markdown documents anywhere in the folder of a source to get
 started. Kiwi only reads as pages the files whose name starts with a
 letter or a digit and ends with `.md` or `.markdown`: other page files
-(`-draft.md`) are ignored, with a message in debug mode (`kiwi serve
---log-level debug`), as well as the hidden files and folders (`.name`,
-such as `.git`) and those whose name starts with `_` (`_drafts`). Other
+(`-draft.md`) and the conflict copies of syncthing (a name holding
+`.sync-conflict-`) are ignored, with a message in debug mode (`kiwi
+serve --log-level debug`), as well as the hidden files and folders
+(`.name`, such as `.git`) and those whose name starts with `_`
+(`_drafts`). Other
 files (images…) are not pages: see [images and
 files](#images-and-files). Pages must be UTF-8
 files, with Unix line endings (LF) and without byte order mark: other
