@@ -169,7 +169,6 @@ apiRoute :: WebM ()
 apiRoute = do
   get "/api/pages" $ withToken apiPages
   get "/api/facets" $ withToken apiFacets
-  get "/api/links" $ withToken apiLinks
   get "/api/page/:source/:uid" $ do
     source <- pathParam "source"
     uid <- pathParam "uid"
@@ -178,9 +177,6 @@ apiRoute = do
     source <- pathParam "source"
     uid <- pathParam "uid"
     withToken $ apiPageMeta source uid
-  get "/api/folders/:source" $ do
-    source <- pathParam "source"
-    withToken $ apiFolders source
   get "/api/guide" $ withToken apiGuide
   get "/api/search" $ withToken apiSearch
   put "/api/page/:source/:uid" $ do

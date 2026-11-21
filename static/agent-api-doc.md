@@ -15,10 +15,8 @@ only those it can write.
   close one.
 - Read little: the outline of a long page, then a section.
 - Change a page with edit_page: exact replacements, as many as needed in
-  one call. When the change is not a few exact replacements (the same
-  replacement everywhere, a pattern, a script on one or several pages)
-  and you have a shell with KIWI_API_TOKEN set, work on the page as a
-  local file (tool guide, topic local-files).
+  one call, each old text short but unique (a line number from read_page
+  numbered helps to find them). write_page only for a deep rewrite.
 - Many headers at once: a metadata script, checked with check_metadata,
   then applied with edit_metadata (syntax: tool guide, topic
   metadata-scripts). Reuse the existing tags and values (facets).

@@ -151,18 +151,28 @@ apiSpec = do
       badShow <- get (tokenOf "bob") "/api/facets?show=title"
       liftIO $ status badShow `shouldBe` 400
 
-  it "gives the links of the pages selected, by source" $
+  it "gives the links and backlinks of the pages as fields of the list" $
     withKiwiAccounts' [ ("a.md", "title: A\nuid: a\n\n[b](page:b) [b2](page:b#x) [z](page:z) [s](page:s)\n")
                       , ("b.md", "title: B\nuid: b\ntags: t\n\n[a](page:a)\n")
                       , ("c.md", "title: C\nuid: c\n\nC\n")
                       , ("s.md", "title: S\nuid: s\naccess: nobody\n\nS\n") ] $ \get' -> do
-      r <- get' "/api/links"
-      liftIO $ T.lines (body r) `shouldBe`
-        [ "source s: 4 links", "a -> b", "a -> s (missing)", "a -> z (missing)", "b -> a" ]
-      tagged <- get' "/api/links?tag=t"
-      liftIO $ T.lines (body tagged) `shouldBe` [ "source s: 1 link", "b -> a" ]
-      none <- get' "/api/links?tag=nope"
-      liftIO $ body none `shouldBe` "no page\n"
+      r <- get' "/api/pages?page=s/a&page=s/b&page=s/c&show=links,backlinks"
+      liftIO $ L.sort (drop 1 $ T.lines (body r)) `shouldBe` L.sort
+        [ "s/a", "  links: b, s (missing), z (missing)", "  backlinks: b"
+        , "s/b", "  links: a", "  backlinks: a"
+        , "s/c" ]
+
+  it "gives the outline of a page too long to be given whole, and its lines on demand" $
+    withKiwiAccounts' [ ("big.md", "title: Big\nuid: big\n\n# Start\n\n"
+                                    <> concat (replicate 1000 "A line of fifty characters, to make it long.\n")) ] $ \get' -> do
+      r <- get' "/api/page/s/big"
+      liftIO $ T.lines (body r) `shouldSatisfy` \ls -> case ls of
+        note : ref : _ -> "this page has " `T.isPrefixOf` note && "from 1 to 1002" `T.isInfixOf` note
+                          && ref == "s/big  Big"
+        _ -> False
+      whole <- get' "/api/page/s/big?part=lines&from=1&to=1002"
+      liftIO $ length (T.lines $ body whole) `shouldBe` 1002
+      liftIO $ lookup "ETag" (WT.simpleHeaders r) `shouldSatisfy` maybe False ((== 18) . BS.length)
 
   it "gives the text of a page without its uid, its hash as ETag, and parts of it" $
     onKiwi $ \cd tokenOf -> do
@@ -200,11 +210,13 @@ apiSpec = do
       secret <- get (tokenOf "bob") "/api/page/s/secret"
       liftIO $ status secret `shouldBe` 404
 
-  it "lists the folders of a source for the admins only" $ onKiwi $ \_ tokenOf -> do
-    r <- get (tokenOf "ann") "/api/folders/s"
-    liftIO $ T.lines (body r) `shouldBe` ["source s: folders (pages)", "  . (2)", "  sub (1)"]
-    refused <- get (tokenOf "bob") "/api/folders/s"
-    liftIO $ status refused `shouldBe` 403
+  it "gives the folders of a source as a facet, for the admins only" $ onKiwi $ \_ tokenOf -> do
+    r <- get (tokenOf "ann") "/api/facets?show=folder"
+    liftIO $ T.lines (body r) `shouldBe` ["source s: 3 pages", "folder (pages): . (2), sub (1)"]
+    refused <- get (tokenOf "bob") "/api/facets?show=folder"
+    liftIO $ status refused `shouldBe` 400
+    all' <- get (tokenOf "bob") "/api/facets"
+    liftIO $ body all' `shouldSatisfy` (not . T.isInfixOf "folder")
 
   it "gives the documentation of the API, then the guide of the user, read at each request" $
     onKiwi $ \cd tokenOf -> do
@@ -224,18 +236,10 @@ apiSpec = do
       liftIO $ status gone `shouldBe` 200
       liftIO $ body gone `shouldSatisfy` (not . T.isInfixOf "# Guide of the user")
 
-  it "gives the other topics of the guide: metadata scripts, local files with the address of the kiwi" $
+  it "gives the other topic of the guide: the metadata scripts" $
     onKiwi $ \_ tokenOf -> do
       scripts <- get (tokenOf "bob") "/api/guide?topic=metadata-scripts"
       liftIO $ body scripts `shouldSatisfy` T.isPrefixOf "# Metadata scripts"
-      let withHost path = WT.srequest $ WT.SRequest
-            (WT.setPath Wai.defaultRequest
-               { Wai.requestHeaders = [ ("Authorization", "Bearer " <> TE.encodeUtf8 (tokenOf "bob"))
-                                      , ("Host", "wiki.local:3456") ] }
-               path) ""
-      local <- withHost "/api/guide?topic=local-files"
-      liftIO $ body local `shouldSatisfy` T.isInfixOf "curl http://wiki.local:3456/api/page/SOURCE/UID "
-      liftIO $ body local `shouldSatisfy` (not . T.isInfixOf "KIWI_URL")
       unknown <- get (tokenOf "bob") "/api/guide?topic=nope"
       liftIO $ status unknown `shouldBe` 400
 
@@ -320,6 +324,16 @@ apiSpec = do
         liftIO $ take 1 partial `shouldBe` ["2 pages for snow burns (english), best first"]
         liftIO $ partial `shouldSatisfy` any (\l -> "s/snow  " `T.isPrefixOf` l &&
                                                     "  1/2 (snow) in title" `T.isSuffixOf` l)
+        -- the words found in no page
+        missing <- search "burns volcano"
+        liftIO $ take 1 missing `shouldBe` ["1 page for burns volcano (english); not found: volcano"]
+        -- the filters of the lists
+        tagged <- WT.srequest $ WT.SRequest
+                    (WT.setPath Wai.defaultRequest
+                       { Wai.requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 token)] }
+                       "/api/search?q=first&tag=health") ""
+        liftIO $ filter ("s/" `T.isPrefixOf`) (T.lines $ TL.toStrict $ TLE.decodeUtf8 $ WT.simpleBody tagged)
+          `shouldSatisfy` \ps -> map (T.take 6) ps == ["s/aid "]
 
   it "replaces exact passages, each one found once, and gives their new lines" $ do
     Edit.applyEdits [("b\n", "B1\nB2\n"), ("d", "D")] "a\nb\nc\nd\n"

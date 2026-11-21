@@ -134,11 +134,12 @@ passageBefore = 8
 passageAfter = 24
 
 -- | Text of the results: a first line with the number of pages found, the
--- query and its lang, then each page (see 'AT.pagesText'), the terms it
+-- query and its lang (and the words found in no page), then each page (see
+-- 'AT.pagesText'), the terms it
 -- contains (shown by the words of the query that give them) and where, its
 -- summary and its passages
-searchText :: T.Text -> Lang -> [(T.Text, T.Text)] -> Int -> [(Hit, [Passage])] -> T.Text
-searchText query lang terms total results = T.unlines $ header : concatMap hitLines results
+searchText :: T.Text -> Lang -> [(T.Text, T.Text)] -> [T.Text] -> Int -> [(Hit, [Passage])] -> T.Text
+searchText query lang terms missing total results = T.unlines $ header : concatMap hitLines results
   where
     n = length (nub $ map fst terms)
     wordOf t = fromMaybe t (lookup t terms)
@@ -148,8 +149,9 @@ searchText query lang terms total results = T.unlines $ header : concatMap hitLi
       , " (", T.toLower (T.pack $ show lang), ")" ]
       ++ [ ", best first" | total > 1 ]
       ++ [ T.concat [ ", ", T.pack (show shown)
-                    , " shown (limit): use more precise words or sources, or raise limit" ]
+                    , " shown (limit): use more precise words or filters, or raise limit" ]
          | shown < total ]
+      ++ [ "; not found: " <> T.intercalate ", " missing | not (null missing) ]
     hitLines (h, ps) =
       let p = hitPage h
       in T.intercalate "  "

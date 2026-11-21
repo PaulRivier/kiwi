@@ -9,13 +9,15 @@
   shown as the title (tooltip) of the links to the page, after the title
   of the link if it has one.
 - **API for the agents**: `/api/search` (any of the words, the pages with
-  the most of them first), `/api/pages` (`SOURCE/UID`, and the fields of
-  `show`), `/api/facets` (tags and fields of the pages selected, with
-  their number of pages, to explore the wiki step by step), `/api/links`
-  (the links between pages), `/api/page/SOURCE/UID` (lines counted from
-  the first line of the content) (with its outline, sections
-  and lines), `/api/page/SOURCE/UID/meta`, `/api/folders/SOURCE` and
-  `/api/guide` (topics `wiki`, `metadata-scripts`, `local-files`), in compact text, with API tokens (`kiwi access --token`,
+  the most of them first, the filters of the lists, the words found in no
+  page), `/api/pages` (`SOURCE/UID`, and the fields of
+  `show`, links and backlinks among them), `/api/facets` (tags, fields
+  and, for the admins, folders of the pages selected, with their number
+  of pages, to explore the wiki step by step), `/api/page/SOURCE/UID`
+  (lines counted from the first line of the content; its outline,
+  sections and lines; the outline instead of a page of more than 40000
+  characters), `/api/page/SOURCE/UID/meta` and `/api/guide` (topics
+  `wiki`, `metadata-scripts`), in compact text, with API tokens (`kiwi access --token`,
   `--revoke-tokens`; an admin logged in on the web can also read the `GET`
   routes in the browser). New `agent-guide` setting: a file of
   instructions given to the agents after the documentation of the API. Writes: `PATCH` (exact
@@ -39,10 +41,9 @@
   your agent guide) are cut at 4096 characters, as Claude Code does, at
   the end of a line, with a warning in the log at the start when they are
   longer. `scripts/kiwi-mcp-bridge.py` is a stdio bridge for the agents that
-  need one (Chat tab of Claude Desktop). An agent with a shell (Claude
-  Code) and the token in the environment variable `KIWI_API_TOKEN` can
-  change a page as a local file with curl, for the changes that exact
-  replacements do not express (see *doc/AGENTS.md*).
+  need one (Chat tab of Claude Desktop). The agents change the pages with
+  `edit_page` and `write_page`; working on a page as a local file with curl
+  is left to your agent guide (see *doc/AGENTS.md*).
 
 ## v0.4.4.0 - 2026-11-16
 

@@ -21,48 +21,49 @@ An admin logged in on the web can also open the `GET` routes in the
 browser, without token (for instance `/api/facets`, to see what the
 agents get); the writes always need a token.
 
-The lists of pages (`/api/pages`, `/api/facets`, `/api/links`) choose
+The lists of pages (`/api/pages`, `/api/facets`, `/api/search`) choose
 their pages with the filters of the browse page (`source`, `tag`, `lang`,
 `m.FIELD=VALUE`, `has=FIELD`, `archive=yes`; several `tag` are all
 required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
 
 * `GET /api/pages` : the pages, the most recently modified first, at most
   `limit` (100 by default): one `SOURCE/UID` by line, and under it the
-  fields of `show` (`show=title,tags,summary,lang,modified`
-  and custom fields by their name), written as in a header.
+  fields of `show` (`show=title,tags,summary,lang,modified,links,backlinks`
+  and custom fields by their name), written as in a header. `links`: the
+  uids of the pages it links, with `(missing)` after a page that does
+  not exist or can not be read (a broken link); `backlinks`: the uids of
+  the pages that link it.
 * `GET /api/search?q=QUERY` : full-text search for the agents. The pages
   that contain any of the words, those with the most of them first, each
   one with the words it contains, where (title, tags, content), its
   summary and up to three passages (lines with their section, or
-  headings). `"exact phrase"` and `-excluded` words are allowed; `source`,
-  `archive=yes` and `limit` (10 by default) too. The search page of the
-  web interface is not changed.
-* `GET /api/facets` : the tags, langs and custom fields (with their
-  description) of the pages selected by the filters of `/api/pages` (all
-  the pages without them), by source, each value with its number of
-  pages (`show=tags,lang,FIELD`: only these). The agents explore the wiki
+  headings); the first line names the words that no page contains.
+  `"exact phrase"` and `-excluded` words are allowed, the filters of the
+  lists too, and `limit` (10 by default). The search page of the web
+  interface is not changed.
+* `GET /api/facets` : the tags, langs, folders (admins only) and custom
+  fields (with their description) of the pages selected by the filters of
+  `/api/pages` (all the pages without them), by source, each value with
+  its number of pages (`show=tags,lang,folder,FIELD`: only these). The agents explore the wiki
   with it as a person does on the browse page: a tag, then another one…,
   and list the pages once there are few of them.
-* `GET /api/links` : the links between pages, by source, one by line
-  (`UID -> UID`, with `(missing)` when the linked page does not exist or
-  can not be read).
 * `GET /api/page/SOURCE/UID` : the text of the page, without its uid, and
-  the hash of its file as `ETag`. `part=outline` gives its outline (tags,
+  the hash of its file as `ETag` (16 hexadecimal digits); a page of more
+  than 40000 characters gives its outline instead, with a line that says
+  how to read it. `part=outline` gives its outline (tags,
   summary, backlinks, sections with their lines), `part=section&title=T`
   one section, `part=lines&from=N&to=M` some lines, and `numbered=yes`
   numbers the lines. Everywhere in the API, the lines are those of the
   content, from its first line: the header is not numbered.
 * `GET /api/page/SOURCE/UID/meta` : the header of the page.
-* `GET /api/folders/SOURCE` (admins) : the folders of the source, with
-  their number of pages. The admins also get the path of the file of a
-  page in its outline, and of a page they create.
+* The admins also get the path of the file of a page in its outline, and
+  of a page they create.
 * `GET /api/guide` : the documentation of the API for the agents,
   followed by your guide: the file given by `agent-guide: FILE` in
   *kiwi.ini* (relative to the folder of *kiwi.ini*, or absolute; read
   again at each request; the server does not start if it can not be
   read). `topic=metadata-scripts` gives the syntax of the metadata
-  scripts, `topic=local-files` how to change a page as a local file (see
-  below). It is also given to the MCP agents when they connect, cut at
+  scripts. It is also given to the MCP agents when they connect, cut at
   4096 characters (Claude Code cuts the instructions of a server there):
   keep your guide short, about 2000 characters at most; when it is too
   long, the log says so at the start, and the agents read the rest with
@@ -119,8 +120,8 @@ and are committed when the file is in a git repository (author
 
 Kiwi serves the MCP (Model Context Protocol) of the agents on `POST
 /mcp`, with the same API token. Its tools are `search`, `facets`,
-`list_pages`, `links`, `read_page`, `folders`, `edit_page`, `write_page`,
-`create_page`, `edit_metadata`, `check_metadata` and `guide`: each one
+`list_pages`, `read_page`, `edit_page`, `write_page`, `create_page`,
+`edit_metadata`, `check_metadata` and `guide`: each one
 calls the API, with the rights of the account. Each tool has a title and
 the hints of what it does: `readOnlyHint` for the tools that only read
 (Claude Code runs them in parallel), `destructiveHint` for those that
@@ -135,32 +136,31 @@ settings):
     claude mcp add --scope user --transport http kiwi http://127.0.0.1:3456/mcp \
       --header "Authorization: Bearer TOKEN"
 
-### Pages as local files
+### Pages as local files, if you want them
 
-An agent that has a shell (Claude Code) changes a page with `edit_page`
-for exact replacements, and as a local file, with its own tools, for the
-other changes: the same replacement everywhere, a pattern, a script on
-one or several pages. It downloads the text of the page with curl,
-changes the file, and sends it back (`PUT` with `If-Match`). The tool
-`guide` (topic `local-files`) gives it the exact commands, with the
-address by which it reaches the kiwi. It only needs the token in the
-environment variable `KIWI_API_TOKEN`: put it in the environment of
-Claude Code (the shell profile, or `"env": {"KIWI_API_TOKEN": "TOKEN"}`
-in *.claude/settings.local.json*). Never write the token itself in your
-agent guide. It needs curl 7.87 or later.
+The agents change the pages with `edit_page` (exact replacements, as many
+as needed in one call) and `write_page`: the evaluation bench showed
+nothing that needs more, even a replacement everywhere in a page. An
+agent that has a shell can still change a page as a local file through
+the API, for instance for a script on many pages; Kiwi does not propose
+it. To allow it, put in your agent guide the recipe and the path of a
+file (mode 0600) that holds the line `Authorization: Bearer TOKEN`:
 
-So that Claude Code does not ask for each command, allow the curl
-commands of the recipe, which start with the address of the kiwi, in
-`permissions.allow` (*.claude/settings.local.json*, or
-*~/.claude/settings.json* for every project):
+    curl http://localhost:3456/api/page/SOURCE/UID -sS -o FILE -w '%header{etag}\n' -H @/path/of/the/header/file
+    curl http://localhost:3456/api/page/SOURCE/UID -sS -X PUT --data-binary @FILE -H @/path/of/the/header/file -H "If-Match: ETAG" --url-query "message=MESSAGE"
 
-    "Bash(curl http://localhost:3456/api/*)"
+- Each command alone, in the current folder (no `cd`, `&&`, `;`, `|`), and
+  the header from the file, not from a variable: Claude Code never allows
+  in advance a command that holds a variable (`$TOKEN`), nor a compound
+  command whose parts are not all allowed. Then this rule, in
+  `permissions.allow`, allows them without asking:
 
-Rather than `Bash(curl:*)`, which allows curl towards any site. The rule
-only checks the start of the command: Claude Code documents that such
-rules can be bypassed (another URL after the first one, a variable…). A
-token in the environment can be read by any command of the agent: give
-the account of the token only the rights it needs.
+      "Bash(curl http://localhost:3456/api/*)"
+
+  The rule only checks the start of the command: Claude Code documents
+  that such rules can be bypassed.
+- `--data-binary`, never `-d` (it removes the line ends); a 412 answer:
+  the page changed meanwhile, download it again. curl 7.87 or later.
 
 ### Bridge for the stdio agents
 

@@ -54,13 +54,13 @@ apiGet path params = ApiRequest "GET" path params [] ""
 type Backend = ApiRequest -> IO (Int, [(T.Text, T.Text)], T.Text)
 
 -- | The API as an application called in memory, with the token (the
--- Authorization header), the Host header (the address of the kiwi for the
--- client) and the address of the client of a request to /mcp
+-- Authorization header) and the address of the client of a request to
+-- /mcp
 appBackend :: Wai.Application -> Wai.Request -> Backend
 appBackend app mcpReq ar = do
   let req = (localRequest (TE.encodeUtf8 $ apiMethod ar) (TE.encodeUtf8 $ apiPath ar)
                           [ (TE.encodeUtf8 k, Just $ TE.encodeUtf8 v) | (k, v) <- apiParams ar ]
-                          (filter ((`elem` ["Authorization", "Host"]) . fst) (Wai.requestHeaders mcpReq) ++
+                          (filter ((== "Authorization") . fst) (Wai.requestHeaders mcpReq) ++
                            [ (CI.mk (TE.encodeUtf8 k), TE.encodeUtf8 v) | (k, v) <- apiHeaders ar ]))
               { Wai.remoteHost = Wai.remoteHost mcpReq }
   (st, headers, body) <- callApp app req (BL.fromStrict $ TE.encodeUtf8 $ apiBody ar)
@@ -257,51 +257,48 @@ tools =
       \best first (the more words, the better), so add synonyms freely. There is no OR nor \
       \AND operator (OR is searched as a word). Each result gives the page (SOURCE/UID), its \
       \title, tags, how many of the words it contains and where, its summary, and up to three \
-      \passages with their line and section. Words are matched by their stem. \
-      \\"exact phrase\" and -excluded words are allowed."
-      [ ("query", prop "string" "The words to search, e.g. burns \"first aid\" -baby")
-      , sourcesProp, archiveProp
-      , ("limit", prop "integer" "Maximum number of pages (10 by default).") ]
+      \passages with their line and section; the first line names the words found in no page. \
+      \Words are matched by their stem. \"exact phrase\" and -excluded words are allowed. \
+      \The filters of list_pages (tags, fields...) narrow the search."
+      ([ ("query", prop "string" "The words to search, e.g. burns \"first aid\" -baby") ]
+       ++ selectionProps ++
+       [ ("limit", prop "integer" "Maximum number of pages (10 by default).") ])
       ["query"]
       (\o -> case text o "query" of
                Nothing -> Left "missing argument: query"
-               Just q -> Right $ apiGet "/api/search" (("q", q) : contextParams o ++ optional o ["limit"]))
+               Just q -> Right $ apiGet "/api/search" (("q", q) : selectionParams o ++ optional o ["limit"]))
       asIs
   , Tool "facets" "Explore the metadata" ReadOnly
       "Explore the wiki by its metadata, as a person narrowing a selection step by step, \
       \at a low cost: for the pages matching the filters (all the pages without filter), by \
-      \source, their tags (with their parents, as written in the headers), langs and custom \
-      \fields with their values, each with its number of pages. To see what the wiki holds on \
+      \source, their tags (with their parents, as written in the headers), langs, folders \
+      \(admins only: where a new page can go) and custom fields with their values, each with \
+      \its number of pages. To see what the wiki holds on \
       \a subject, start without filter, add a tag or a field value at each call, then list the \
       \pages with list_pages once the selection is small. For a precise information, use \
       \search instead. Before writing a page, look at the facets to reuse the existing tags \
       \and values."
       (selectionProps ++
-       [("show", stringsProp "Only these facets: tags, lang, or custom fields; all without it.")])
+       [("show", stringsProp "Only these facets: tags, lang, folder (admins), or custom fields; all without it.")])
       [] (\o -> Right $ apiGet "/api/facets" (selectionParams o ++ showParam o))
       asIs
   , Tool "list_pages" "List pages" ReadOnly
       "List the pages matching metadata, the most recently modified first: SOURCE/UID alone, \
       \and under each page the fields of show (title, tags, summary, lang, modified, \
-      \custom fields), written as in a header. Narrow the selection with facets \
+      \links, backlinks, custom fields), written as in a header. links: the uids of the \
+      \pages it links, \"(missing)\" after a page that does not exist (a broken link); \
+      \backlinks: the uids of the pages that link it. Narrow the selection with facets \
       \or search first. show [title, tags] gives an inventory; has_fields and show with a \
       \custom field prepare a metadata script."
       (selectionProps ++
-       [ ("show", stringsProp "Fields given under each page: title, tags, summary, lang, modified (day), custom fields.")
+       [ ("show", stringsProp "Fields given under each page: title, tags, summary, lang, modified (day), links, backlinks, custom fields.")
        , ("limit", prop "integer" "Maximum number of pages (100 by default).") ])
       []
       (\o -> Right $ apiGet "/api/pages" (selectionParams o ++ showParam o ++ optional o ["limit"]))
       asIs
-  , Tool "links" "Links between pages" ReadOnly
-      "The links between the pages matching the filters (all the pages without filter), by \
-      \source: one link by line, UID -> UID, with (missing) when the linked page does not \
-      \exist or can not be read. The pages that no page links are those absent on the right. \
-      \The pages linking one page are in its outline (read_page, part outline)."
-      selectionProps [] (Right . apiGet "/api/links" . selectionParams)
-      asIs
   , Tool "read_page" "Read a page" ReadOnly
-      "Read a page (SOURCE/UID): its header, then its content in CommonMark. For a long page, \
-      \read its outline first (part: outline: tags, summary, backlinks, \
+      "Read a page (SOURCE/UID): its header, then its content in CommonMark (a page of more \
+      \than 40000 characters gives its outline instead). For a long page, read its outline first (part: outline: tags, summary, backlinks, \
       \sections with their lines), then only the section or the lines you need. Line numbers \
       \count from the first line of the content: the header is not numbered (read it whole, \
       \or with list_pages and show). The hash identifies the version of the file."
@@ -326,14 +323,6 @@ tools =
                      , maybe "" (\r -> "lines: " <> r <> "\n") range
                      , if isJust' etag || isJust' range then "---\n" else ""
                      , body ])
-  , Tool "folders" "Folders of a source" ReadOnly
-      "The folders of a source with their number of pages (admins only), to choose where a \
-      \new page goes."
-      [("source", prop "string" "The source.")]
-      ["source"]
-      (\o -> maybe (Left "missing argument: source") (\s -> Right $ apiGet ("/api/folders/" <> s) [])
-                   (text o "source"))
-      asIs
   , Tool "edit_page" "Edit a page" Destructive
       "Change a page by replacing exact passages of its text (as read_page gives it, without \
       \line numbers): each old text must be found exactly once in the page, copied exactly, \
@@ -379,7 +368,7 @@ tools =
       "Create a page in a source, from its text: header (title, tags, summary...), a blank \
       \line, then its content in CommonMark. Kiwi gives it its uid (in the answer, as \
       \SOURCE/UID). Search before creating: do not duplicate an existing page. The file is \
-      \named after the title; admins may give its path."
+      \named after the title; admins may give its path (the folders: facets, show folder)."
       [ ("source", prop "string" "The source of the page.")
       , ("text", prop "string" "The text of the page: header, blank line, content.")
       , ("path", prop "string" "Path of the file from the top of the source, without extension (admins only).")
@@ -420,10 +409,9 @@ tools =
   , Tool "guide" "Guide of the wiki" ReadOnly
       "Documentation of the wiki for the agents, by topic: wiki (the guide of the wiki and \
       \the guide of the user, whole, when the instructions were cut), metadata-scripts (the \
-      \syntax of the scripts of edit_metadata, with examples), local-files (how to change a \
-      \page as a local file, with a shell)."
+      \syntax of the scripts of edit_metadata, with examples)."
       [ ("topic", A.object [ "type" .= ("string" :: T.Text)
-                           , "enum" .= (["wiki", "metadata-scripts", "local-files"] :: [T.Text])
+                           , "enum" .= (["wiki", "metadata-scripts"] :: [T.Text])
                            , "description" .= ("The topic; wiki without it." :: T.Text) ]) ]
       []
       (\o -> Right $ apiGet "/api/guide" (optional o ["topic"]))

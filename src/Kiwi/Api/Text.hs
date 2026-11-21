@@ -6,7 +6,6 @@ module Kiwi.Api.Text
   ( pageRef
   , pageFields
   , pagesText
-  , linksText
   , facetsText
   , Section (..)
   , sections
@@ -15,7 +14,7 @@ module Kiwi.Api.Text
   , unnumbered
   , headerLength
   , linesRange
-  , foldersText
+  , folderCounts
   , tagText
   , dayText
   ) where
@@ -55,15 +54,16 @@ sourcePath contentDir' p =
 -- | The fields of a page that the lists can show, besides its custom
 -- fields (see 'pagesText')
 pageFields :: [T.Text]
-pageFields = ["title", "tags", "summary", "lang", "modified"]
+pageFields = ["title", "tags", "summary", "lang", "modified", "links", "backlinks"]
 
 -- | List of pages, one by line (SOURCE/UID), each one followed by the given
 -- fields that it has, one by line, written as in a header ("  tags: a > b,
--- c"; "modified": the day of the last change; a custom field by its name).
+-- c"; "modified": the day of the last change; "links" and "backlinks", given
+-- by the function, see 'Kiwi.Api.apiPages'; a custom field by its name).
 -- The first line gives the number of pages found and of pages shown, and
 -- how to see the others when some are cut.
-pagesText :: [T.Text] -> Int -> [Page] -> T.Text
-pagesText fields total pages = T.unlines $ header : concatMap pageLines pages
+pagesText :: (Page -> T.Text -> Maybe T.Text) -> [T.Text] -> Int -> [Page] -> T.Text
+pagesText linkField fields total pages = T.unlines $ header : concatMap pageLines pages
   where
     shown = length pages
     header | total == shown = count total
@@ -78,22 +78,26 @@ pagesText fields total pages = T.unlines $ header : concatMap pageLines pages
       "summary" -> pageSummary p
       "lang" -> Just (showCustomValue $ KeyLang $ pageLang p)
       "modified" -> Just (dayText $ pageMTime p)
+      "links" -> linkField p f
+      "backlinks" -> linkField p f
       _ -> list [ showCustomValue k | CustomMetaData f' ks <- pageCustomMeta p, f' == f, k <- ks ]
     list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
 
 -- | Facets of some pages of a source: their tags (each one with its parents,
--- as written in the headers, and its number of pages), their langs, and
--- their custom fields (with their type and description) with their values,
--- each with its number of pages; the tags and langs only when given
+-- as written in the headers, and its number of pages), their langs, their
+-- folders (for the admins), and their custom fields (with their type and
+-- description) with their values, each with its number of pages; the tags,
+-- langs and folders only when given
 facetsText :: T.Text -> Int -> Maybe [(TagId, Int)] -> Maybe [(T.Text, Int)] ->
-              [(T.Text, T.Text, [(T.Text, Int)])] -> T.Text
-facetsText source total tagsM langsM customs = T.unlines $
+              Maybe [(T.Text, Int)] -> [(T.Text, T.Text, [(T.Text, Int)])] -> T.Text
+facetsText source total tagsM langsM foldersM customs = T.unlines $
   [ T.concat ["source ", source, ": ", T.pack (show total), if total == 1 then " page" else " pages"] ]
   ++ (case tagsM of
         Nothing -> []
         Just [] -> ["tags (pages):", "  (none)"]
         Just tags -> "tags (pages):" : [ T.concat ["  ", tagText t, " (", T.pack (show n), ")"] | (t, n) <- tags ])
   ++ [ "lang: " <> counts langs | Just langs <- [langsM] ]
+  ++ [ "folder (pages): " <> counts folders | Just folders <- [foldersM] ]
   ++ [ T.concat [name, " (", typ, "): ", counts values] | (name, typ, values) <- customs ]
   where
     counts vs = T.intercalate ", " [ T.concat [v, " (", T.pack (show n), ")"] | (v, n) <- vs ]
@@ -128,14 +132,15 @@ sections (PD.Pandoc _ blocks) total =
         Just (lvl, inlinesText ils, line)
       _ -> Nothing
 
--- | Links of pages of a source: (uid of the page, uid of the page it links,
--- whether this one exists for the user), one by line, "(missing)" after a
--- link to a page that does not exist or that the user can not read
-linksText :: T.Text -> [(T.Text, T.Text, Bool)] -> T.Text
-linksText source links = T.unlines $
-  T.concat [ "source ", source, ": ", T.pack (show $ length links)
-           , if length links == 1 then " link" else " links" ]
-  : [ T.concat [from, " -> ", to, if exists then "" else " (missing)"] | (from, to, exists) <- links ]
+-- Unused since the links are fields of the lists (show=links, backlinks)
+-- -- | Links of pages of a source: (uid of the page, uid of the page it links,
+-- -- whether this one exists for the user), one by line, "(missing)" after a
+-- -- link to a page that does not exist or that the user can not read
+-- linksText :: T.Text -> [(T.Text, T.Text, Bool)] -> T.Text
+-- linksText source links = T.unlines $
+--   T.concat [ "source ", source, ": ", T.pack (show $ length links)
+--            , if length links == 1 then " link" else " links" ]
+--   : [ T.concat [from, " -> ", to, if exists then "" else " (missing)"] | (from, to, exists) <- links ]
 
 -- | Outline of a page: its reference and title, tags, summary, path (for
 -- admins), number of lines of its content, the pages linking it, then its
@@ -178,13 +183,12 @@ linesRange from to t =
   let from' = max 1 from
   in (from', take (to - from' + 1) $ drop (from' - 1) $ T.lines t)
 
--- | Folders of a source (paths from its top, "." for the top), sorted, each
--- one with the number of its pages (sub-folders not included), from the
--- paths of its pages: a folder without page, at any depth, is not listed
-foldersText :: T.Text -> [FP.FilePath] -> T.Text
-foldersText source paths = T.unlines $
-  ("source " <> source <> ": folders (pages)") :
-  [ T.concat ["  ", T.pack d, " (", T.pack (show n), ")"] | (d, n) <- M.toList counts ]
+-- | Folders of pages (paths from the top of their source, "." for the
+-- top), sorted, each one with the number of its pages (sub-folders not
+-- included), from the paths of the pages: the parent folders of a folder
+-- are given too, with 0 when they have no page of their own
+folderCounts :: [FP.FilePath] -> [(T.Text, Int)]
+folderCounts paths = [ (T.pack d, n) | (d, n) <- M.toList counts ]
   where
     counts = M.fromListWith (+) $
                [ (FP.takeDirectory p, 1 :: Int) | p <- paths ] ++

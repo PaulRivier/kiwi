@@ -55,7 +55,7 @@ mcpSpec = do
     (Just a, _) <- run "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"
     let names = do A.Array ts <- result a >>= field "tools"
                    return [ n | t <- foldr (:) [] ts, Just (A.String n) <- [field "name" t] ]
-    names `shouldBe` Just [ "search", "facets", "list_pages", "links", "read_page", "folders"
+    names `shouldBe` Just [ "search", "facets", "list_pages", "read_page"
                           , "edit_page", "write_page", "create_page", "edit_metadata"
                           , "check_metadata", "guide" ]
     -- a title and the hints of what each tool does
@@ -84,8 +84,8 @@ mcpSpec = do
                         \\"name\":\"edit_metadata\",\"arguments\":{\"script\":\"pages *\",\"check\":true}}}"
     applies `shouldBe` [ApiRequest "POST" "/api/metadata" [] [] "pages *"]
     (_, guides) <- run "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\
-                       \\"name\":\"guide\",\"arguments\":{\"topic\":\"local-files\"}}}"
-    guides `shouldBe` [ApiRequest "GET" "/api/guide" [("topic", "local-files")] [] ""]
+                       \\"name\":\"guide\",\"arguments\":{\"topic\":\"metadata-scripts\"}}}"
+    guides `shouldBe` [ApiRequest "GET" "/api/guide" [("topic", "metadata-scripts")] [] ""]
 
   it "calls the API, and gives its text with the hash of a page" $ do
     (as, calls) <- run "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\

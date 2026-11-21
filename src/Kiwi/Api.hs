@@ -7,10 +7,8 @@ module Kiwi.Api
   ( withToken
   , apiPages
   , apiFacets
-  , apiLinks
   , apiPage
   , apiPageMeta
-  , apiFolders
   , apiGuide
   , guideText
   , apiSearch
@@ -131,12 +129,27 @@ pathsFor = do
 -- | GET /api/pages: the pages selected by the parameters (see
 -- 'withSelection'), the most recently modified first, at most "limit" of
 -- them (100 by default): SOURCE/UID alone, with the fields of "show" under
--- each one (see 'AT.pagesText')
+-- each one (see 'AT.pagesText'). The fields "links" (the uids of the pages
+-- it links, with "(missing)" for a page that does not exist or can not be
+-- read) and "backlinks" (the uids of the readable pages that link it) are
+-- in the same source as the page.
 apiPages :: ActM ()
 apiPages = withSelection ["limit", "show"] $ \db pages ->
   withShow (AT.pageFields ++ map K.cmcName (K.customMetaConfig db)) $ \shown ->
     intParam "limit" 100 $ \limit ->
-      answer $ AT.pagesText shown (length pages) (take limit $ sortOn (Down . K.pageMTime) pages)
+      answer $ AT.pagesText (linkField db) shown (length pages)
+                            (take limit $ sortOn (Down . K.pageMTime) pages)
+  where
+    linkField db p f =
+      let idx = K.pagesIndex db
+          exists uid = maybe False (const True) $ DI.findDoc idx uid
+          list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
+      in case f of
+           "links" -> list [ snd l <> if exists l then "" else " (missing)"
+                           | l <- U.nodup (K.pageLinks p) ]
+           "backlinks" -> list $ sortOn textOrder
+                            [ snd (K.pageUID b) | b <- DI.query idx (U.qOnly K.FieldLink (K.pageUID p)) ]
+           _ -> Nothing
 
 -- | The fields of the "show" parameters (repeated, or separated by commas),
 -- all of them among the given ones (400 otherwise); none without them
@@ -188,13 +201,16 @@ withSelection others run = do
 
 -- | GET /api/facets: for each source of the pages selected by the
 -- parameters of /api/pages (see 'withSelection'; all the pages that the user
--- can read without them), the tags, langs and custom fields of these pages,
--- with the number of pages of each value, or only those of "show" (tags,
--- lang, custom fields): the agent narrows its selection step by step, as a
--- person on /browse
+-- can read without them), the tags, langs, folders (for the admins: where
+-- to create a page) and custom fields of these pages, with the number of
+-- pages of each value, or only those of "show" (tags, lang, folder, custom
+-- fields): the agent narrows its selection step by step, as a person on
+-- /browse
 apiFacets :: ActM ()
-apiFacets = withSelection ["show"] $ \db pages ->
- withShow (["tags", "lang"] ++ map K.cmcName (K.customMetaConfig db)) $ \shown -> do
+apiFacets = withSelection ["show"] $ \db pages -> do
+ admin <- Auth.isAdmin
+ cd <- asksK K.contentDir
+ withShow (["tags", "lang"] ++ [ "folder" | admin ] ++ map K.cmcName (K.customMetaConfig db)) $ \shown -> do
   let wants f = null shown || f `elem` shown
       idx = DI.narrowOnSet (K.pagesIndex db) (S.fromList $ map K.pageUID pages)
       sources = [ s | K.KeyText s <- DI.getFieldKeys idx K.FieldSource ]
@@ -205,6 +221,9 @@ apiFacets = withSelection ["show"] $ \db pages ->
                      [ (t, count K.FieldTag k) | k@(K.KeyText t) <- DI.getFieldKeys sub K.FieldTag ]
             langs = [ (Browse.showKeyLabel k, count K.FieldLang k)
                     | k <- DI.getFieldKeys sub K.FieldLang ]
+            folders = AT.folderCounts
+                        [ FP.makeRelative (cd FP.</> T.unpack s) (K.pageAbsoluteFSPath p)
+                        | p <- DI.documentsList sub ]
             customs = [ (K.cmcName c, typeName (K.cmcType c) <> maybe "" ("; " <>) (K.cmcDescription c),
                          [ (Browse.showKeyLabel k, count f k)
                          | k <- sortOn keyOrder (DI.getFieldKeys sub f) ])
@@ -213,7 +232,8 @@ apiFacets = withSelection ["show"] $ \db pages ->
                       , let f = K.FieldCustom (K.cmcName c)
                       , not (null $ DI.getFieldKeys sub f) ]
         in AT.facetsText s (DI.cardinal sub) (if wants "tags" then Just tags else Nothing)
-                         (if wants "lang" then Just langs else Nothing) customs
+                         (if wants "lang" then Just langs else Nothing)
+                         (if admin && wants "folder" then Just folders else Nothing) customs
   if null pages
     then answer "no page\n"
     else answer $ T.intercalate "\n" $ map facets $ sortOn textOrder sources
@@ -224,20 +244,21 @@ apiFacets = withSelection ["show"] $ \db pages ->
       K.CmtDate -> "date"
       K.CmtBool -> "bool"
 
--- | GET /api/links: the links between pages, for the pages selected by the
--- parameters of /api/pages (see 'withSelection'): by source, one link by
--- line, from the uid of the page to the uid of the page it links (see
--- 'AT.linksText')
-apiLinks :: ActM ()
-apiLinks = withSelection [] $ \db pages -> do
-  let bySource = M.fromListWith (++) [ (fst (K.pageUID p), [p]) | p <- pages ]
-      exists uid = maybe False (const True) $ DI.findDoc (K.pagesIndex db) uid
-  if null pages
-    then answer "no page\n"
-    else answer $ T.intercalate "\n"
-           [ AT.linksText s [ (snd (K.pageUID p), snd l, exists l)
-                            | p <- sortOn (snd . K.pageUID) ps, l <- U.nodup (K.pageLinks p) ]
-           | (s, ps) <- sortOn (textOrder . fst) (M.toList bySource) ]
+-- Replaced by the fields links and backlinks of /api/pages
+-- -- | GET /api/links: the links between pages, for the pages selected by the
+-- -- parameters of /api/pages (see 'withSelection'): by source, one link by
+-- -- line, from the uid of the page to the uid of the page it links (see
+-- -- 'AT.linksText')
+-- apiLinks :: ActM ()
+-- apiLinks = withSelection [] $ \db pages -> do
+--   let bySource = M.fromListWith (++) [ (fst (K.pageUID p), [p]) | p <- pages ]
+--       exists uid = maybe False (const True) $ DI.findDoc (K.pagesIndex db) uid
+--   if null pages
+--     then answer "no page\n"
+--     else answer $ T.intercalate "\n"
+--            [ AT.linksText s [ (snd (K.pageUID p), snd l, exists l)
+--                             | p <- sortOn (snd . K.pageUID) ps, l <- U.nodup (K.pageLinks p) ]
+--            | (s, ps) <- sortOn (textOrder . fst) (M.toList bySource) ]
 
 -- | The page of the request, readable by the user, archived or not, with
 -- the text of its file (as shown to an editor with the right of the user:
@@ -264,7 +285,9 @@ withApiPage source uid run = do
 -- section of title T; "part=lines&from=N&to=M" these lines.
 -- "numbered=yes" gives the lines after their number (not for the outline).
 -- The lines are those of the content, from its first line: the header is
--- not numbered, nor in the parts.
+-- not numbered, nor in the parts. A page longer than 'maxWholePage'
+-- characters is not given whole without part: its outline instead, after a
+-- line that says how to read it.
 apiPage :: T.Text -> T.Text -> ActM ()
 apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
   partM <- queryParamMaybe "part"
@@ -279,20 +302,25 @@ apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
             setHeader "Content-Type" "text/markdown; charset=utf-8"
             setHeader "Kiwi-Lines" $ TL.pack $ show from ++ "-" ++ show (from + length ls - 1)
             answer $ T.unlines ls
+      outline note = do
+        db <- getRestrictedDB
+        paths <- pathsFor
+        let backlinks = sortOn (textOrder . K.pageTitle) $
+                          DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
+        secs <- pageSections p content
+        answer $ note <> AT.outlineText paths p total backlinks secs
   case partM :: Maybe T.Text of
     Nothing
+      | T.length text > maxWholePage -> outline $ T.concat
+          [ "this page has ", T.pack (show $ T.length text), " characters, more than "
+          , T.pack (show maxWholePage), ": its outline below. Read a section (part section), "
+          , "or lines (part lines, from 1 to ", T.pack (show total), " for the whole content).\n" ]
       | numbered -> answer $ T.unlines (map (AT.unnumbered <>) headerLines)
                              <> AT.numberedLines 1 contentLines
       | otherwise -> do
           setHeader "Content-Type" "text/markdown; charset=utf-8"
           answer text
-    Just "outline" -> do
-      db <- getRestrictedDB
-      paths <- pathsFor
-      let backlinks = sortOn (textOrder . K.pageTitle) $
-                        DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
-      secs <- pageSections p content
-      answer $ AT.outlineText paths p total backlinks secs
+    Just "outline" -> outline ""
     Just "section" -> do
       titleM <- queryParamMaybe "title"
       case titleM of
@@ -311,6 +339,11 @@ apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
     Just other -> failWith Net.status400 $ "invalid part: " <> other
                     <> " (expected outline, section or lines)"
 
+-- | Largest page given whole by GET /api/page without part, in characters
+-- (about 10000 tokens, where Claude Code warns about the size of an answer)
+maxWholePage :: Int
+maxWholePage = 40000
+
 -- | Sections of the content of a page (see 'AT.sections'), parsed again
 pageSections :: K.Page -> T.Text -> ActM [AT.Section]
 pageSections p content = do
@@ -325,20 +358,21 @@ apiPageMeta :: T.Text -> T.Text -> ActM ()
 apiPageMeta source uid = withApiPage source uid $ \_ (text, _, offset) ->
   answer $ T.unlines $ take (offset - 1) $ T.lines text
 
--- | GET /api/folders/SOURCE, for the admins: the folders of the source that
--- have pages, archives included (see 'AT.foldersText')
-apiFolders :: T.Text -> ActM ()
-apiFolders source = do
-  admin <- Auth.isAdmin
-  if not admin then failWith Net.status403 "the folders are only listed for the admins"
-  else do
-    db <- getDB
-    cd <- asksK K.contentDir
-    let top = cd FP.</> T.unpack source
-        pages = DI.documentsList $ DI.narrow (K.pagesIndex db) (U.qOnly K.FieldSource source)
-    if null pages then failWith Net.status404 $ "no page in source " <> source
-    else answer $ AT.foldersText source
-                    [ FP.makeRelative top (K.pageAbsoluteFSPath p) | p <- pages ]
+-- Replaced by the facet folder of /api/facets, for the admins
+-- -- | GET /api/folders/SOURCE, for the admins: the folders of the source that
+-- -- have pages, archives included (see 'AT.foldersText')
+-- apiFolders :: T.Text -> ActM ()
+-- apiFolders source = do
+--   admin <- Auth.isAdmin
+--   if not admin then failWith Net.status403 "the folders are only listed for the admins"
+--   else do
+--     db <- getDB
+--     cd <- asksK K.contentDir
+--     let top = cd FP.</> T.unpack source
+--         pages = DI.documentsList $ DI.narrow (K.pagesIndex db) (U.qOnly K.FieldSource source)
+--     if null pages then failWith Net.status404 $ "no page in source " <> source
+--     else answer $ AT.foldersText source
+--                     [ FP.makeRelative top (K.pageAbsoluteFSPath p) | p <- pages ]
 
 -- | GET /api/guide: the documentation for the agents, by "topic":
 --
@@ -347,10 +381,7 @@ apiFolders source = do
 --   request), if any; when this file can not be read, the documentation
 --   alone (the error is logged); see 'guideText';
 -- * "metadata-scripts": the syntax of the metadata scripts (the same text
---   as on the metadata editor);
--- * "local-files": how an agent that has a shell changes a page as a local
---   file, with the address of the kiwi as the client calls it (its Host
---   header; https when the session cookie is secure).
+--   as on the metadata editor).
 apiGuide :: ActM ()
 apiGuide = do
   topicM <- queryParamMaybe "topic"
@@ -358,17 +389,8 @@ apiGuide = do
     Nothing -> wiki
     Just "wiki" -> wiki
     Just "metadata-scripts" -> answer $ TE.decodeUtf8Lenient DP.metadataScriptPage
-    Just "local-files" -> do
-      hostM <- Scotty.header "Host"
-      secure <- asksK K.secureCookie
-      port <- asksK K.kiwiPort
-      let url = case hostM of
-            Just h | not (TL.null h) ->
-              (if secure then "https://" else "http://") <> TL.toStrict h
-            _ -> "http://localhost:" <> T.pack (show port)
-      answer $ T.replace "KIWI_URL" url $ TE.decodeUtf8Lenient DP.agentLocalFilesPage
     Just other -> failWith Net.status400 $ "unknown topic: " <> other
-                    <> " (expected wiki, metadata-scripts or local-files)"
+                    <> " (expected wiki or metadata-scripts)"
   where
     wiki = do
       guideM <- asksK K.agentGuide
@@ -390,21 +412,21 @@ guideText apiDoc = maybe apiDoc (\g -> T.concat [apiDoc, "\n\n# Guide of the use
 
 
 -- | GET /api/search?q=QUERY: full-text search for an agent (see
--- "Kiwi.Api.Search"), in the pages of the context ("source", "archive=yes"),
--- at most "limit" pages (10 by default). The lang of the query is the one of
--- the sources, unless it starts with a lang code ("fr:"), as on the search
--- page.
+-- "Kiwi.Api.Search"), in the pages selected by the parameters of /api/pages
+-- (see 'withSelection': context, tags, fields…), at most "limit" pages (10
+-- by default); the first line names the words that no page selected
+-- contains. The lang of the query is the one of the sources, unless it
+-- starts with a lang code ("fr:"), as on the search page.
 apiSearch :: ActM ()
-apiSearch = do
+apiSearch = withSelection ["q", "limit"] $ \db selected -> do
   qM <- queryParamMaybe "q"
-  db <- getRestrictedDB
   allDB <- getDB
   ctx <- asksK (K.context . K.requestState)
   let sources = K.contextSources ctx
       allSources = [ s | K.KeyText s <- DI.getFieldKeys (K.pagesIndex allDB) K.FieldSource ]
       ctxLang = searchLang (fromMaybe K.defaultLangSetting $ K.metaLang $ K.defaultMeta allDB)
                            (K.sourcesConfig allDB) allSources sources
-      visible uid = S.null sources || S.member (fst uid) sources
+      inSelection = S.fromList (map K.pageUID selected)
   intParam "limit" 10 $ \limit -> case qM of
     Nothing -> failWith Net.status400 "missing parameter: q"
     Just raw -> do
@@ -419,10 +441,15 @@ apiSearch = do
           -- by score (with few pages, the IDF of a term in half of them or
           -- more is 0 or less, so the score alone could put a page with
           -- fewer terms first)
+          candidates = [ c | c@(uid, _, _) <- explainPages (K.searchEngine db) (map fst terms)
+                           , S.member uid inSelection ]
+          -- the words of the query whose terms no page selected contains
+          foundTerms = S.fromList (concat [ found | (_, _, found) <- candidates ])
+          missing = [ w | w <- nub (map snd terms)
+                        , not (any (`S.member` foundTerms) [ t | (t, w') <- terms, w' == w ]) ]
           hits = sortOn (\h -> (Down (length $ AS.hitTerms h), Down (AS.hitScore h)))
                  [ AS.Hit p score found (termFields p found)
-                 | (uid, score, found) <- explainPages (K.searchEngine db) (map fst terms)
-                 , visible uid, not (S.member uid excluded)
+                 | (uid, score, found) <- candidates, not (S.member uid excluded)
                  , Just p <- [findPage db uid]
                  , all (AS.hasPhrase p) (AS.queryPhrases q) ]
           total = length hits
@@ -430,7 +457,7 @@ apiSearch = do
         then failWith Net.status400 "the query has no word to search"
         else do
           results <- mapM (withPassages (map fst terms)) (take limit hits)
-          answer $ AS.searchText (T.strip raw) lang terms total results
+          answer $ AS.searchText (T.strip raw) lang terms missing total results
   where
     -- the passages of a page, from its content as loaded, with the lines of
     -- its content

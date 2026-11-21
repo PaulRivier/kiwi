@@ -41,10 +41,11 @@ import           Kiwi.Pandoc (checkPageText)
 import           Kiwi.Types
 
 
--- | Hash of the content of a file (SHA-256, hexadecimal), to detect that it
--- changed between its edition and its save
+-- | Hash of the content of a file (the first 16 hexadecimal digits of its
+-- SHA-256: short for the agents, enough to detect that it
+-- changed between its edition and its save)
 fileHash :: BS.ByteString -> T.Text
-fileHash bytes = T.pack $ show (H.hash bytes :: H.Digest H.SHA256)
+fileHash bytes = T.take 16 $ T.pack $ show (H.hash bytes :: H.Digest H.SHA256)
 
 -- | Text of a page file to edit with this right, and the number of lines
 -- before its content: the line n of the content is the line (n + offset) of
