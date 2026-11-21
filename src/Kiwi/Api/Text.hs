@@ -54,11 +54,14 @@ sourcePath contentDir' p =
 -- | The fields of a page that the lists can show, besides its custom
 -- fields (see 'pagesText')
 pageFields :: [T.Text]
-pageFields = ["title", "tags", "summary", "lang", "modified", "links", "backlinks"]
+pageFields = [ "title", "tags", "summary", "lang", "modified", "content_size", "content_lines"
+             , "links", "backlinks" ]
 
 -- | List of pages, one by line (SOURCE/UID), each one followed by the given
 -- fields that it has, one by line, written as in a header ("  tags: a > b,
--- c"; "modified": the day of the last change; "links" and "backlinks", given
+-- c"; "modified": the day of the last change; "content_size" and
+-- "content_lines": the characters and lines of its content, without the
+-- header; "links" and "backlinks", given
 -- by the function, see 'Kiwi.Api.apiPages'; a custom field by its name).
 -- The first line gives the number of pages found and of pages shown, and
 -- how to see the others when some are cut.
@@ -78,6 +81,8 @@ pagesText linkField fields total pages = T.unlines $ header : concatMap pageLine
       "summary" -> pageSummary p
       "lang" -> Just (showCustomValue $ KeyLang $ pageLang p)
       "modified" -> Just (dayText $ pageMTime p)
+      "content_size" -> Just (T.pack $ show $ pageContentSize p)
+      "content_lines" -> Just (T.pack $ show $ pageContentLines p)
       "links" -> linkField p f
       "backlinks" -> linkField p f
       _ -> list [ showCustomValue k | CustomMetaData f' ks <- pageCustomMeta p, f' == f, k <- ks ]
@@ -143,17 +148,18 @@ sections (PD.Pandoc _ blocks) total =
 --   : [ T.concat [from, " -> ", to, if exists then "" else " (missing)"] | (from, to, exists) <- links ]
 
 -- | Outline of a page: its reference and title, tags, summary, path (for
--- admins), number of lines of its content, the pages linking it, then its
+-- admins), characters and lines of its content, the pages linking it, then its
 -- sections, with their lines
 -- (lines of the content, without the header). The hash of the file is not
 -- in it (the ETag gives it).
-outlineText :: Maybe FP.FilePath -> Page -> Int -> [Page] -> [Section] -> T.Text
-outlineText pathsM p total backlinks secs = T.unlines $
+outlineText :: Maybe FP.FilePath -> Page -> [Page] -> [Section] -> T.Text
+outlineText pathsM p backlinks secs = T.unlines $
   [ T.intercalate "  " [pageRef p, pageTitle p]
   , "tags: " <> T.intercalate ", " (map tagText $ pageTags p) ]
   ++ [ "summary: " <> s | Just s <- [pageSummary p] ]
   ++ [ "path: " <> sourcePath cd p | Just cd <- [pathsM] ]
-  ++ [ T.concat ["lines: ", T.pack (show total)] ]
+  ++ [ "content_size: " <> T.pack (show $ pageContentSize p)
+     , "content_lines: " <> T.pack (show $ pageContentLines p) ]
   ++ [ "backlinks: " <> if null backlinks then "(none)"
                         else T.intercalate "; " [ pageRef b <> " " <> pageTitle b | b <- backlinks ]
      , if null secs then "sections: (none)" else "sections (lines):" ]

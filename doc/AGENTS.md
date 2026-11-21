@@ -28,14 +28,19 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
 
 * `GET /api/pages` : the pages, the most recently modified first, at most
   `limit` (100 by default): one `SOURCE/UID` by line, and under it the
-  fields of `show` (`show=title,tags,summary,lang,modified,links,backlinks`
-  and custom fields by their name), written as in a header. `links`: the
+  fields of `show`
+  (`show=title,tags,summary,lang,modified,content_size,content_lines,links,backlinks`
+  and custom fields by their name), written as in a header.
+  `content_size` and `content_lines`: the characters and lines of its
+  content, without the header (the tool `list_pages` gives them when no
+  `show` is given). `links`: the
   uids of the pages it links, with `(missing)` after a page that does
   not exist or can not be read (a broken link); `backlinks`: the uids of
   the pages that link it.
 * `GET /api/search?q=QUERY` : full-text search for the agents. The pages
   that contain any of the words, those with the most of them first, each
-  one with the words it contains, where (title, tags, content), its
+  one with its size (`content_size`, `content_lines`), the words it
+  contains, where (title, tags, content), its
   summary and up to three passages (lines with their section, or
   headings); the first line names the words that no page contains.
   `"exact phrase"` and `-excluded` words are allowed, the filters of the
@@ -49,9 +54,10 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   and list the pages once there are few of them.
 * `GET /api/page/SOURCE/UID` : the text of the page, without its uid, and
   the hash of its file as `ETag` (16 hexadecimal digits); a page of more
-  than 40000 characters gives its outline instead, with a line that says
-  how to read it. `part=outline` gives its outline (tags,
-  summary, backlinks, sections with their lines), `part=section&title=T`
+  than 40000 characters gives its outline instead, with a line that gives
+  its size and says how to read it. `part=whole` gives the whole page,
+  whatever its size, `part=outline` its outline (tags,
+  summary, size, backlinks, sections with their lines), `part=section&title=T`
   one section, `part=lines&from=N&to=M` some lines, and `numbered=yes`
   numbers the lines. Everywhere in the API, the lines are those of the
   content, from its first line: the header is not numbered.
@@ -85,7 +91,7 @@ and are committed when the file is in a git repository (author
   the page as read in `If-Match` (412 when the page changed since, 428
   without it).
 * `POST /api/pages/SOURCE` : creates a page from the text of the body.
-  Kiwi gives it a uid, and names its file after its title (` (2)` is added
+  Kiwi gives it a uid (and answers with its size), and names its file after its title (` (2)` is added
   when the name is taken); the admins can give its path (`path=folder/name`,
   without extension). The account must have the write right on the new
   page, by the access of the source (an admin can set it in the header).

@@ -102,6 +102,10 @@ apiSpec = do
       liftIO $ T.lines (body shownP) `shouldBe`
         [ "1 page, the most recently modified first", "s/p", "  title: Page", "  tags: a > b, c"
         , "  summary: About p" ]
+      -- the size of its content, without the header
+      sized <- get (tokenOf "bob") "/api/pages?page=s/p&show=content_size,content_lines"
+      liftIO $ T.lines (body sized) `shouldBe`
+        [ "1 page, the most recently modified first", "s/p", "  content_size: 54", "  content_lines: 11" ]
       badShow <- get (tokenOf "bob") "/api/pages?show=nope"
       liftIO $ status badShow `shouldBe` 400
       badPage <- get (tokenOf "bob") "/api/pages?page=nope"
@@ -168,10 +172,14 @@ apiSpec = do
       r <- get' "/api/page/s/big"
       liftIO $ T.lines (body r) `shouldSatisfy` \ls -> case ls of
         note : ref : _ -> "this page has " `T.isPrefixOf` note && "from 1 to 1002" `T.isInfixOf` note
+                          && "(part whole)" `T.isInfixOf` note
                           && ref == "s/big  Big"
         _ -> False
       whole <- get' "/api/page/s/big?part=lines&from=1&to=1002"
       liftIO $ length (T.lines $ body whole) `shouldBe` 1002
+      forced <- get' "/api/page/s/big?part=whole"
+      liftIO $ take 3 (T.lines $ body forced) `shouldBe` ["title: Big", "", "# Start"]
+      liftIO $ length (T.lines $ body forced) `shouldBe` 1004
       liftIO $ lookup "ETag" (WT.simpleHeaders r) `shouldSatisfy` maybe False ((== 18) . BS.length)
 
   it "gives the text of a page without its uid, its hash as ETag, and parts of it" $
@@ -185,7 +193,8 @@ apiSpec = do
                                  \Hello\n\n## Two\n\nWorld\n\n# Three\n\nEnd [q](page:q)\n"
       outline <- get (tokenOf "bob") "/api/page/s/p?part=outline"
       liftIO $ T.lines (body outline) `shouldSatisfy` \ls ->
-        L.isSubsequenceOf [ "s/p  Page", "tags: a > b, c", "summary: About p", "lines: 11"
+        L.isSubsequenceOf [ "s/p  Page", "tags: a > b, c", "summary: About p"
+                          , "content_size: 54", "content_lines: 11"
                           , "backlinks: s/q Other", "sections (lines):"
                           , "  1-8  # One", "  5-8  ## Two", "  9-11  # Three" ] ls
       -- the lines are those of the content: the same for the admin, who sees
@@ -279,7 +288,8 @@ apiSpec = do
     searchKiwi [ ("a.md", "title: A\nuid: a\n\nA link.\n"), ("b.md", "title: B\nuid: b\n\nNothing.\n") ] $
       \search -> do
         r <- search "link"
-        liftIO $ r `shouldSatisfy` any (\l -> "s/a  " `T.isPrefixOf` l && "  1/1 in content" `T.isSuffixOf` l)
+        liftIO $ r `shouldSatisfy` any (\l -> "s/a  " `T.isPrefixOf` l && "  1/1 in content" `T.isSuffixOf` l
+                                             && "  content_size 8, content_lines 1  " `T.isInfixOf` l)
 
   it "searches the pages with any of the terms, the best first, with passages" $ do
     let docs = [ ("aid.md", "title: First aid\nuid: aid\ntags: health\n\n# Wounds\n\n\
@@ -432,6 +442,7 @@ apiSpec = do
         u `shouldSatisfy` T.isPrefixOf "uid: "
         u `shouldNotBe` "uid: mine"
         T.lines (body first') `shouldSatisfy` elem ("created s/" <> T.drop 5 u)
+        T.lines (body first') `shouldSatisfy` L.isSubsequenceOf ["content_size: 9", "content_lines: 1"]
       other -> expectationFailure $ show other
     -- bob gets the page when it gives him the write right
     byBob <- send "POST" (tokenOf "ann") [] "/api/pages/s?path=notes/first"

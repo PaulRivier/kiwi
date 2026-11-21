@@ -11,12 +11,13 @@
 - **API for the agents**: `/api/search` (any of the words, the pages with
   the most of them first, the filters of the lists, the words found in no
   page), `/api/pages` (`SOURCE/UID`, and the fields of
-  `show`, links and backlinks among them), `/api/facets` (tags, fields
+  `show`, links, backlinks and the size of the content among them), `/api/facets` (tags, fields
   and, for the admins, folders of the pages selected, with their number
   of pages, to explore the wiki step by step), `/api/page/SOURCE/UID`
   (lines counted from the first line of the content; its outline,
   sections and lines; the outline instead of a page of more than 40000
-  characters), `/api/page/SOURCE/UID/meta` and `/api/guide` (topics
+  characters, unless `part=whole`; the search results and the lists give
+  the size of the pages, `content_size` and `content_lines`), `/api/page/SOURCE/UID/meta` and `/api/guide` (topics
   `wiki`, `metadata-scripts`), in compact text, with API tokens (`kiwi access --token`,
   `--revoke-tokens`; an admin logged in on the web can also read the `GET`
   routes in the browser). New `agent-guide` setting: a file of

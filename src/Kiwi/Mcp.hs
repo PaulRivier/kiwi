@@ -256,7 +256,8 @@ tools =
       \reading pages. The words are alternatives: the pages containing any of them are found, \
       \best first (the more words, the better), so add synonyms freely. There is no OR nor \
       \AND operator (OR is searched as a word). Each result gives the page (SOURCE/UID), its \
-      \title, tags, how many of the words it contains and where, its summary, and up to three \
+      \title, tags, size (content_size, content_lines: characters and lines of its content), \
+      \how many of the words it contains and where, its summary, and up to three \
       \passages with their line and section; the first line names the words found in no page. \
       \Words are matched by their stem. \"exact phrase\" and -excluded words are allowed. \
       \The filters of list_pages (tags, fields...) narrow the search."
@@ -285,26 +286,29 @@ tools =
   , Tool "list_pages" "List pages" ReadOnly
       "List the pages matching metadata, the most recently modified first: SOURCE/UID alone, \
       \and under each page the fields of show (title, tags, summary, lang, modified, \
-      \links, backlinks, custom fields), written as in a header. links: the uids of the \
+      \content_size, content_lines, links, backlinks, custom fields), written as in a \
+      \header; content_size and content_lines without show. content_size and \
+      \content_lines: the characters and lines of its content. links: the uids of the \
       \pages it links, \"(missing)\" after a page that does not exist (a broken link); \
       \backlinks: the uids of the pages that link it. Narrow the selection with facets \
       \or search first. show [title, tags] gives an inventory; has_fields and show with a \
       \custom field prepare a metadata script."
       (selectionProps ++
-       [ ("show", stringsProp "Fields given under each page: title, tags, summary, lang, modified (day), links, backlinks, custom fields.")
+       [ ("show", stringsProp "Fields given under each page: title, tags, summary, lang, modified (day), content_size, content_lines, links, backlinks, custom fields.")
        , ("limit", prop "integer" "Maximum number of pages (100 by default).") ])
       []
-      (\o -> Right $ apiGet "/api/pages" (selectionParams o ++ showParam o ++ optional o ["limit"]))
+      (\o -> Right $ apiGet "/api/pages" (selectionParams o ++ listShow o ++ optional o ["limit"]))
       asIs
   , Tool "read_page" "Read a page" ReadOnly
       "Read a page (SOURCE/UID): its header, then its content in CommonMark (a page of more \
-      \than 40000 characters gives its outline instead). For a long page, read its outline first (part: outline: tags, summary, backlinks, \
+      \than 40000 characters gives its outline instead, unless part whole). search and \
+      \list_pages give its content_size and content_lines. For a long page, read its outline first (part: outline: tags, summary, backlinks, \
       \sections with their lines), then only the section or the lines you need. Line numbers \
       \count from the first line of the content: the header is not numbered (read it whole, \
       \or with list_pages and show). The hash identifies the version of the file."
       [ ("page", prop "string" "The page, as SOURCE/UID.")
       , ("part", A.object [ "type" .= ("string" :: T.Text)
-                          , "enum" .= (["outline", "section", "lines"] :: [T.Text])
+                          , "enum" .= (["whole", "outline", "section", "lines"] :: [T.Text])
                           , "description" .= ("What to read; the whole page without it." :: T.Text) ])
       , ("title", prop "string" "With part section: the title of the section.")
       , ("from", prop "integer" "With part lines: the first line.")
@@ -443,6 +447,13 @@ selectionParams o =
   ++ [ ("has", f) | f <- texts o "has_fields" ]
   ++ [ ("page", p) | p <- texts o "pages" ]
   ++ optional o ["since"]
+
+-- | The "show" parameter of list_pages: the size of the pages without the
+-- "show" argument
+listShow :: A.Object -> [(T.Text, T.Text)]
+listShow o = case showParam o of
+  [] -> [("show", "content_size,content_lines")]
+  ps -> ps
 
 -- | The "show" parameter of the "show" argument
 showParam :: A.Object -> [(T.Text, T.Text)]

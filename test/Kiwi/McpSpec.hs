@@ -170,11 +170,11 @@ mcpSpec = do
     -- the pages having a field
     ann <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\
                          \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":[\"author\"]}}}"
-    liftIO $ (answer ann >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n"
+    liftIO $ (answer ann >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n  content_size: 6\n  content_lines: 1\n"
     -- a list sent as a string holding its JSON, as some clients do
     annStr <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\
                             \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":\"[\\\"author\\\"]\"}}}"
-    liftIO $ (answer annStr >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n"
+    liftIO $ (answer annStr >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n  content_size: 6\n  content_lines: 1\n"
     e <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"edit_page\",\"arguments\":{\"page\":\"s/p\",\
                        \\"edits\":[{\"old\":\"Hello\",\"new\":\"Hi\"}]}}}"

@@ -13,7 +13,8 @@ only those it can write.
   give synonyms); facets to explore a subject step by step, then
   list_pages. Search before writing: enrich a page rather than create a
   close one.
-- Read little: the outline of a long page, then a section.
+- Read little: before reading a page, look at its content_size (given by
+  search and list_pages); a long page, its outline, then a section.
 - Change a page with edit_page: exact replacements, as many as needed in
   one call, each old text short but unique (a line number from read_page
   numbered helps to find them). write_page only for a deep rewrite.

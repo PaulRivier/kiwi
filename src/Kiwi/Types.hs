@@ -237,6 +237,8 @@ data Page =
        , pageMTime :: !Time.UTCTime -- ^ time of file modification from filesystem
        -- , pageText :: !T.Text   -- ^ text of the file, metadata included
        , pageBody :: !T.Text   -- ^ markdown content of the file, without its header
+       , pageContentSize :: !Int  -- ^ characters of 'pageBody' (content_size of the API)
+       , pageContentLines :: !Int  -- ^ lines of 'pageBody' (content_lines of the API)
        -- | the files of its source that it links ("file:"): their uid (see
        -- "Kiwi.Files"), or the target as written when it is not a uid
        , pageFiles :: ![T.Text]

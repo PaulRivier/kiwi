@@ -283,11 +283,12 @@ withApiPage source uid run = do
 -- markdown, with the hash of its file as ETag. "part=outline" gives its
 -- outline (see 'AT.outlineText'); "part=section&title=T" the lines of its
 -- section of title T; "part=lines&from=N&to=M" these lines.
+-- "part=whole" the whole text, whatever its size.
 -- "numbered=yes" gives the lines after their number (not for the outline).
 -- The lines are those of the content, from its first line: the header is
 -- not numbered, nor in the parts. A page longer than 'maxWholePage'
 -- characters is not given whole without part: its outline instead, after a
--- line that says how to read it.
+-- line that gives its size and says how to read it.
 apiPage :: T.Text -> T.Text -> ActM ()
 apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
   partM <- queryParamMaybe "part"
@@ -308,18 +309,21 @@ apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
         let backlinks = sortOn (textOrder . K.pageTitle) $
                           DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
         secs <- pageSections p content
-        answer $ note <> AT.outlineText paths p total backlinks secs
+        answer $ note <> AT.outlineText paths p backlinks secs
+      whole
+        | numbered = answer $ T.unlines (map (AT.unnumbered <>) headerLines)
+                              <> AT.numberedLines 1 contentLines
+        | otherwise = do
+            setHeader "Content-Type" "text/markdown; charset=utf-8"
+            answer text
   case partM :: Maybe T.Text of
     Nothing
       | T.length text > maxWholePage -> outline $ T.concat
           [ "this page has ", T.pack (show $ T.length text), " characters, more than "
           , T.pack (show maxWholePage), ": its outline below. Read a section (part section), "
-          , "or lines (part lines, from 1 to ", T.pack (show total), " for the whole content).\n" ]
-      | numbered -> answer $ T.unlines (map (AT.unnumbered <>) headerLines)
-                             <> AT.numberedLines 1 contentLines
-      | otherwise -> do
-          setHeader "Content-Type" "text/markdown; charset=utf-8"
-          answer text
+          , "lines (part lines, from 1 to ", T.pack (show total), "), or the whole page (part whole).\n" ]
+      | otherwise -> whole
+    Just "whole" -> whole
     Just "outline" -> outline ""
     Just "section" -> do
       titleM <- queryParamMaybe "title"
@@ -337,7 +341,7 @@ apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
       intParam "from" 1 $ \from -> intParam "to" total $ \to ->
         uncurry send $ AT.linesRange from to content
     Just other -> failWith Net.status400 $ "invalid part: " <> other
-                    <> " (expected outline, section or lines)"
+                    <> " (expected whole, outline, section or lines)"
 
 -- | Largest page given whole by GET /api/page without part, in characters
 -- (about 10000 tokens, where Claude Code warns about the size of an answer)
@@ -591,7 +595,11 @@ apiCreatePage source = withBodyText $ \text -> do
     Right (uid, path) -> do
       fileE <- Scotty.liftIO $ Write.readPageFile (contentPath ss uid path)
       let hash = either (const "") (Edit.fileHash . fst) fileE
-      saved Net.status201 "created" uid hash [ "path: " <> T.pack path | admin ]
+          content = drop (AT.headerLength text) (T.lines text)
+      saved Net.status201 "created" uid hash $
+        [ "path: " <> T.pack path | admin ] ++
+        [ "content_size: " <> T.pack (show $ T.length $ T.unlines content)
+        , "content_lines: " <> T.pack (show $ length content) ]
   where
     contentPath ss (s, _) path = K.contentDir ss FP.</> T.unpack s FP.</> path
 

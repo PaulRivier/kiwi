@@ -157,6 +157,8 @@ searchText query lang terms missing total results = T.unlines $ header : concatM
       in T.intercalate "  "
            [ AT.pageRef p, AT.dayText (pageMTime p), pageTitle p
            , "[" <> T.intercalate ", " (map AT.tagText $ pageTags p) <> "]"
+           , T.concat [ "content_size ", T.pack (show $ pageContentSize p)
+                      , ", content_lines ", T.pack (show $ pageContentLines p) ]
            , T.concat [ T.pack (show $ length $ hitTerms h), "/", T.pack (show n)
                       , if length (hitTerms h) < n
                         then " (" <> T.intercalate ", " (map wordOf $ hitTerms h) <> ")" else ""
