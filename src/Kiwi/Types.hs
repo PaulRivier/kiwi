@@ -185,8 +185,11 @@ data PagesDB =
           , searchEngine :: PageSearchEngine
           -- | the keywords of each page, the best first (see
           -- "Kiwi.Keywords"): computed again at each load, as they depend on
-          -- the other pages
-          , pageKeywords :: M.Map PageUID [Keyword] }
+          -- the other pages, in a thread of their own, so that the server
+          -- answers without waiting for them; the box is filled once they are
+          -- ready, and read with 'Kiwi.Keywords.readKeywords' (which waits for
+          -- them); none for a database that was not loaded
+          , pageKeywords :: Maybe (MVar (M.Map PageUID [Keyword])) }
 
 
 data MetaField = FieldSource

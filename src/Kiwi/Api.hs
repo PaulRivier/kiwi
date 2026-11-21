@@ -48,7 +48,7 @@ import qualified Kiwi.Auth as Auth
 import qualified Kiwi.Browse as Browse
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
-import           Kiwi.Keywords (keywordsText)
+import           Kiwi.Keywords (keywordsText, readKeywords)
 import qualified Kiwi.Log as L
 import qualified Kiwi.Mcp as Mcp
 import qualified Kiwi.MetaScript as MS
@@ -137,14 +137,22 @@ pathsFor = do
 apiPages :: ActM ()
 apiPages = withSelection ["limit", "show"] $ \db pages ->
   withShow (AT.pageFields ++ map K.cmcName (K.customMetaConfig db)) $ \shown ->
-    intParam "limit" 100 $ \limit ->
-      answer $ AT.pagesText (extraField db) shown (length pages)
+    intParam "limit" 100 $ \limit -> do
+      kws <- shownKeywords db shown
+      answer $ AT.pagesText (extraField db kws) shown (length pages)
                             (take limit $ sortOn (Down . K.pageMTime) pages)
 
+-- | The keywords of the pages when they are shown (waiting for them if they
+-- are not computed yet, see 'K.pageKeywords'), none otherwise
+shownKeywords :: K.PagesDB -> [T.Text] -> ActM (M.Map K.PageUID [K.Keyword])
+shownKeywords db shown
+  | "keywords" `elem` shown = Scotty.liftIO (readKeywords db)
+  | otherwise = return M.empty
+
 -- | The fields of a page that the index gives (see 'apiPages'): "links",
--- "backlinks" and "keywords" (see "Kiwi.Keywords")
-extraField :: K.PagesDB -> K.Page -> T.Text -> Maybe T.Text
-extraField db p f =
+-- "backlinks" and "keywords" (see "Kiwi.Keywords", 'shownKeywords')
+extraField :: K.PagesDB -> M.Map K.PageUID [K.Keyword] -> K.Page -> T.Text -> Maybe T.Text
+extraField db kws p f =
       let idx = K.pagesIndex db
           exists uid = maybe False (const True) $ DI.findDoc idx uid
           list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
@@ -153,7 +161,7 @@ extraField db p f =
                            | l <- U.nodup (K.pageLinks p) ]
            "backlinks" -> list $ sortOn textOrder
                             [ snd (K.pageUID b) | b <- DI.query idx (U.qOnly K.FieldLink (K.pageUID p)) ]
-           "keywords" -> keywordsText db p
+           "keywords" -> keywordsText kws p
            _ -> Nothing
 
 -- | The fields of the "show" parameters (repeated, or separated by commas),
@@ -467,7 +475,8 @@ apiSearch = withSelection ["q", "limit", "show"] $ \db selected -> withShow ["ke
         then failWith Net.status400 "the query has no word to search"
         else do
           results <- mapM (withPassages (map fst terms)) (take limit hits)
-          let fields p = [ (f, v) | f <- shown, Just v <- [extraField db p f] ]
+          kws <- shownKeywords db shown
+          let fields p = [ (f, v) | f <- shown, Just v <- [extraField db kws p f] ]
           answer $ AS.searchText (T.strip raw) lang terms missing fields total results
   where
     -- the passages of a page, from its content as loaded, with the lines of

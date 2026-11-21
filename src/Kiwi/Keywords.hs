@@ -4,12 +4,14 @@
 -- them. Design in @CLAUDE/projects/mots-cles-pages-2026-11-21.md@.
 module Kiwi.Keywords
   ( pagesKeywords
+  , readKeywords
   , keywordsText
   , bestTerms        -- exported for tests
   , maxKeywords      -- exported for tests
   ) where
 
 import           Control.Applicative ((<|>))
+import           Control.Concurrent.MVar (readMVar)
 import           Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe)
@@ -99,9 +101,15 @@ pageWords p terms = M.map best counts
       (w, _) : _ -> w
       [] -> ""  -- not reached: each term has a word
 
+-- | The keywords of the pages of a database: waits for them when they are
+-- not computed yet (see 'pageKeywords'); none for a database that was not
+-- loaded
+readKeywords :: PagesDB -> IO (M.Map PageUID [Keyword])
+readKeywords db = maybe (return M.empty) readMVar (pageKeywords db)
+
 -- | The keywords of a page as a field of the lists ("a, b, c"), none
 -- without them
-keywordsText :: PagesDB -> Page -> Maybe T.Text
-keywordsText db p = case M.findWithDefault [] (pageUID p) (pageKeywords db) of
+keywordsText :: M.Map PageUID [Keyword] -> Page -> Maybe T.Text
+keywordsText kws p = case M.findWithDefault [] (pageUID p) kws of
   [] -> Nothing
   ks -> Just (T.intercalate ", " (map kwWord ks))
