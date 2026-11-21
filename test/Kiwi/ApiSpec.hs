@@ -120,7 +120,8 @@ apiSpec = do
         other -> expectationFailure (show other)
       limited <- get (tokenOf "ann") "/api/pages?limit=1"
       liftIO $ take 1 (T.lines $ body limited)
-        `shouldBe` ["3 pages, the most recently modified first, 1 shown (limit)"]
+        `shouldBe` ["3 pages, the most recently modified first, 1 shown (limit): \
+                    \narrow with tags, fields or since, or raise limit"]
       bad <- get (tokenOf "ann") "/api/pages?limit=x"
       liftIO $ status bad `shouldBe` 400
 
@@ -210,7 +211,9 @@ apiSpec = do
       let guideFile = FP.takeDirectory cd FP.</> "agent-guide.md"
       liftIO $ writeFile guideFile "Be kind\n"
       r <- get (tokenOf "bob") "/api/guide"
-      liftIO $ body r `shouldSatisfy` T.isPrefixOf "# Kiwi: the API for the agents"
+      liftIO $ body r `shouldSatisfy` T.isPrefixOf "# Kiwi: the wiki of the user"
+      wiki <- get (tokenOf "bob") "/api/guide?topic=wiki"
+      liftIO $ body wiki `shouldBe` body r
       liftIO $ body r `shouldSatisfy` T.isSuffixOf "\n\n# Guide of the user\n\nBe kind\n"
       liftIO $ writeFile guideFile "Be brief\n"
       changed <- get (tokenOf "bob") "/api/guide"
@@ -220,6 +223,21 @@ apiSpec = do
       gone <- get (tokenOf "bob") "/api/guide"
       liftIO $ status gone `shouldBe` 200
       liftIO $ body gone `shouldSatisfy` (not . T.isInfixOf "# Guide of the user")
+
+  it "gives the other topics of the guide: metadata scripts, local files with the address of the kiwi" $
+    onKiwi $ \_ tokenOf -> do
+      scripts <- get (tokenOf "bob") "/api/guide?topic=metadata-scripts"
+      liftIO $ body scripts `shouldSatisfy` T.isPrefixOf "# Metadata scripts"
+      let withHost path = WT.srequest $ WT.SRequest
+            (WT.setPath Wai.defaultRequest
+               { Wai.requestHeaders = [ ("Authorization", "Bearer " <> TE.encodeUtf8 (tokenOf "bob"))
+                                      , ("Host", "wiki.local:3456") ] }
+               path) ""
+      local <- withHost "/api/guide?topic=local-files"
+      liftIO $ body local `shouldSatisfy` T.isInfixOf "curl http://wiki.local:3456/api/page/SOURCE/UID "
+      liftIO $ body local `shouldSatisfy` (not . T.isInfixOf "KIWI_URL")
+      unknown <- get (tokenOf "bob") "/api/guide?topic=nope"
+      liftIO $ status unknown `shouldBe` 400
 
   it "refuses the token of a removed account, or of a changed password" $ do
     let ann = Account "ann" "salt-1" "hash" ["admin"]
@@ -312,6 +330,10 @@ apiSpec = do
     Edit.applyEdits [("x", "y")] "a\n" `shouldSatisfy` either ("not in the page" `L.isInfixOf`) (const False)
     Edit.applyEdits [("a", "y")] "a\na\n"
       `shouldSatisfy` either ("2 times (lines 1, 2)" `L.isInfixOf`) (const False)
+    -- the lines of the content, after the header, and at most 10 of them
+    Edit.applyEdits [("x", "y")] ("title: x\n\n" <> T.replicate 12 "x\n")
+      `shouldSatisfy` either ("13 times (lines header, 1, 2, 3, 4, 5, 6, 7, 8, 9, and 3 more)" `L.isInfixOf`)
+                             (const False)
     Edit.applyEdits [("", "y")] "a\n" `shouldSatisfy` either (const True) (const False)
 
   it "names the file of a new page after its title" $ do
@@ -497,5 +519,5 @@ apiSpec = do
         r <- get (tokenOf "bob") "/api/pages?tag=mat%C3%A9riel"
         liftIO $ take 1 (T.lines $ body r) `shouldBe` ["2 pages, the most recently modified first"]
         -- the syntax, for the agents
-        guide <- get (tokenOf "bob") "/api/metadata-guide"
+        guide <- get (tokenOf "bob") "/api/guide?topic=metadata-scripts"
         liftIO $ body guide `shouldSatisfy` T.isInfixOf "# Metadata scripts"

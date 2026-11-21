@@ -195,7 +195,6 @@ apiRoute = do
     source <- pathParam "source"
     withToken $ apiCreatePage source
   post "/api/metadata" $ withToken apiMetadata
-  get "/api/metadata-guide" $ withToken apiMetadataGuide
 
 -- | The API alone, as an application, for the tools of the MCP (see
 -- 'serveMcp')

@@ -60,7 +60,13 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   followed by your guide: the file given by `agent-guide: FILE` in
   *kiwi.ini* (relative to the folder of *kiwi.ini*, or absolute; read
   again at each request; the server does not start if it can not be
-  read). It is also given to the MCP agents when they connect. Kiwi has
+  read). `topic=metadata-scripts` gives the syntax of the metadata
+  scripts, `topic=local-files` how to change a page as a local file (see
+  below). It is also given to the MCP agents when they connect, cut at
+  4096 characters (Claude Code cuts the instructions of a server there):
+  keep your guide short, about 2000 characters at most; when it is too
+  long, the log says so at the start, and the agents read the rest with
+  the tool `guide`. Kiwi has
   no syntax of its own for the requests left to the agents in the pages:
   agree on a convention in your guide, for instance a field
   `status: claude:todo` in the header of the pages to handle (declared as
@@ -104,7 +110,7 @@ and are committed when the file is in a git repository (author
       meta tags remove todo
       meta lang unset
 
-  The syntax is in `GET /api/metadata-guide`, and below the form of the
+  The syntax is in `GET /api/guide?topic=metadata-scripts`, and below the form of the
   metadata editor (`/metadata-editor`, link at the top of the *Metadata*
   page), where the admins run the same scripts: for instance a script
   written by an agent, checked then applied.
@@ -114,9 +120,14 @@ and are committed when the file is in a git repository (author
 Kiwi serves the MCP (Model Context Protocol) of the agents on `POST
 /mcp`, with the same API token. Its tools are `search`, `facets`,
 `list_pages`, `links`, `read_page`, `folders`, `edit_page`, `write_page`,
-`create_page`, `edit_metadata` and `metadata_guide`: each one calls the
-API, with the rights of the account. The agent gets the guide of
-`/api/guide` when it connects. Nothing runs on the side of the agent.
+`create_page`, `edit_metadata`, `check_metadata` and `guide`: each one
+calls the API, with the rights of the account. Each tool has a title and
+the hints of what it does: `readOnlyHint` for the tools that only read
+(Claude Code runs them in parallel), `destructiveHint` for those that
+change what exists. `check_metadata` only checks a metadata script, so
+that you can allow it without allowing `edit_metadata`. The agent gets
+the guide of `/api/guide` when it connects, cut at 4096 characters (see
+above). Nothing runs on the side of the agent.
 
 Claude Code (and the Code tab of Claude Desktop, which reads the same
 settings):
@@ -126,26 +137,30 @@ settings):
 
 ### Pages as local files
 
-An agent that has a shell (Claude Code) can change a page as a local
-file, with its own tools, instead of sending passages through the MCP
-tools: it downloads the text of the page with curl, finds and changes
-the passages it needs without reading the whole page when it is long,
-and sends the file back (`PUT` with `If-Match`). The documentation of the
-API (`/api/guide`) gives it the exact commands, when your agent guide
-gives it two things:
+An agent that has a shell (Claude Code) changes a page with `edit_page`
+for exact replacements, and as a local file, with its own tools, for the
+other changes: the same replacement everywhere, a pattern, a script on
+one or several pages. It downloads the text of the page with curl,
+changes the file, and sends it back (`PUT` with `If-Match`). The tool
+`guide` (topic `local-files`) gives it the exact commands, with the
+address by which it reaches the kiwi. It only needs the token in the
+environment variable `KIWI_API_TOKEN`: put it in the environment of
+Claude Code (the shell profile, or `"env": {"KIWI_API_TOKEN": "TOKEN"}`
+in *.claude/settings.local.json*). Never write the token itself in your
+agent guide. It needs curl 7.87 or later.
 
-- the URL of the kiwi, for instance `The kiwi is at
-  http://127.0.0.1:3456.`;
-- the name of the environment variable that holds the token, for
-  instance `Your API token is in the environment variable
-  KIWI_API_TOKEN.` Never write the token itself in the guide.
+So that Claude Code does not ask for each command, allow the curl
+commands of the recipe, which start with the address of the kiwi, in
+`permissions.allow` (*.claude/settings.local.json*, or
+*~/.claude/settings.json* for every project):
 
-Put the token in the environment of Claude Code: the shell profile, or
-`"env": {"KIWI_API_TOKEN": "TOKEN"}` in *.claude/settings.local.json*.
-Allow curl in its permissions (`Bash(curl:*)`, or a narrower rule), so
-that it does not ask for each command. The agent reads a
-downloaded page whole only under 20 KB: give another size in your agent
-guide if you want. It needs curl 7.87 or later.
+    "Bash(curl http://localhost:3456/api/*)"
+
+Rather than `Bash(curl:*)`, which allows curl towards any site. The rule
+only checks the start of the command: Claude Code documents that such
+rules can be bypassed (another URL after the first one, a variable…). A
+token in the environment can be read by any command of the agent: give
+the account of the token only the rights it needs.
 
 ### Bridge for the stdio agents
 

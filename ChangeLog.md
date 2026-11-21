@@ -15,7 +15,7 @@
   (the links between pages), `/api/page/SOURCE/UID` (lines counted from
   the first line of the content) (with its outline, sections
   and lines), `/api/page/SOURCE/UID/meta`, `/api/folders/SOURCE` and
-  `/api/guide`, in compact text, with API tokens (`kiwi access --token`,
+  `/api/guide` (topics `wiki`, `metadata-scripts`, `local-files`), in compact text, with API tokens (`kiwi access --token`,
   `--revoke-tokens`; an admin logged in on the web can also read the `GET`
   routes in the browser). New `agent-guide` setting: a file of
   instructions given to the agents after the documentation of the API. Writes: `PATCH` (exact
@@ -24,17 +24,25 @@
   pages of `pages SOURCE/*,SOURCE/UID,…` lines, move, delete, rename, set,
   add, remove or unset tags and fields; `check=yes` to try without
   writing, also on the pages that the account can only read; `message=`
-  adds a message to the commit of a write; syntax in `/api/metadata-guide`), committed with the account as
+  adds a message to the commit of a write; syntax in
+  `/api/guide?topic=metadata-scripts`), committed with the account as
   author; the admins run them from the metadata editor
   (`/metadata-editor`, linked from the metadata page).
 - Custom metadata can have a `description` in `kiwi.ini`, shown on the
   metadata page and given to the agents with the facets.
 - **MCP**: the server serves the MCP of the AI agents on `POST /mcp`
-  (Claude Code…), with the API token; its tools call the API.
-  `scripts/kiwi-mcp-bridge.py` is a stdio bridge for the agents that need
-  one (Chat tab of Claude Desktop). An agent with a shell (Claude Code)
-  can change a page as a local file with curl, when your agent guide
-  gives the URL and the variable of the token (see *doc/AGENTS.md*).
+  (Claude Code…), with the API token; its tools call the API, each one with
+  a title and the hints of what it does (`readOnlyHint`,
+  `destructiveHint`); `check_metadata` checks a metadata script, which
+  `edit_metadata` applies; the tool `guide` gives the documentation by
+  topic. The instructions given at the connection (the documentation, then
+  your agent guide) are cut at 4096 characters, as Claude Code does, at
+  the end of a line, with a warning in the log at the start when they are
+  longer. `scripts/kiwi-mcp-bridge.py` is a stdio bridge for the agents that
+  need one (Chat tab of Claude Desktop). An agent with a shell (Claude
+  Code) and the token in the environment variable `KIWI_API_TOKEN` can
+  change a page as a local file with curl, for the changes that exact
+  replacements do not express (see *doc/AGENTS.md*).
 
 ## v0.4.4.0 - 2026-11-16
 

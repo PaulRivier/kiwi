@@ -60,13 +60,15 @@ pageFields = ["title", "tags", "summary", "lang", "modified"]
 -- | List of pages, one by line (SOURCE/UID), each one followed by the given
 -- fields that it has, one by line, written as in a header ("  tags: a > b,
 -- c"; "modified": the day of the last change; a custom field by its name).
--- The first line gives the number of pages found and of pages shown.
+-- The first line gives the number of pages found and of pages shown, and
+-- how to see the others when some are cut.
 pagesText :: [T.Text] -> Int -> [Page] -> T.Text
 pagesText fields total pages = T.unlines $ header : concatMap pageLines pages
   where
     shown = length pages
     header | total == shown = count total
-           | otherwise = T.concat [count total, ", ", T.pack (show shown), " shown (limit)"]
+           | otherwise = T.concat [ count total, ", ", T.pack (show shown)
+                                  , " shown (limit): narrow with tags, fields or since, or raise limit" ]
     count n = T.concat [T.pack (show n), if n == 1 then " page" else " pages"
                        , ", the most recently modified first"]
     pageLines p = pageRef p : [ T.concat ["  ", f, ": ", v] | f <- fields, Just v <- [field p f] ]

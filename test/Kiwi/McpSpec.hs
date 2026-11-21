@@ -15,7 +15,7 @@ import qualified System.FilePath as FP
 import           Test.Hspec
 
 import qualified Kiwi.Auth as Auth
-import           Kiwi.Mcp (ApiRequest (..), handleMessage)
+import           Kiwi.Mcp (ApiRequest (..), handleMessage, instructionsLimit, instructionsText)
 import           Kiwi.Types
 import           TestUtils
 
@@ -56,7 +56,36 @@ mcpSpec = do
     let names = do A.Array ts <- result a >>= field "tools"
                    return [ n | t <- foldr (:) [] ts, Just (A.String n) <- [field "name" t] ]
     names `shouldBe` Just [ "search", "facets", "list_pages", "links", "read_page", "folders"
-                          , "edit_page", "write_page", "create_page", "edit_metadata", "metadata_guide" ]
+                          , "edit_page", "write_page", "create_page", "edit_metadata"
+                          , "check_metadata", "guide" ]
+    -- a title and the hints of what each tool does
+    let hintsOf n = do
+          A.Array ts <- result a >>= field "tools"
+          t : _ <- Just [ t | t <- foldr (:) [] ts, field "name" t == Just (A.String n) ]
+          an <- field "annotations" t
+          return (field "title" t, field "readOnlyHint" an, field "destructiveHint" an)
+    hintsOf "search" `shouldBe` Just (Just (A.String "Search the wiki"), Just (A.Bool True), Nothing)
+    hintsOf "create_page" `shouldBe` Just (Just (A.String "Create a page"), Just (A.Bool False), Just (A.Bool False))
+    hintsOf "edit_page" `shouldBe` Just (Just (A.String "Edit a page"), Just (A.Bool False), Just (A.Bool True))
+    hintsOf "check_metadata" `shouldBe` Just (Just (A.String "Check a metadata script"), Just (A.Bool True), Nothing)
+
+  it "cuts the instructions at the end of a line, to fit the clients" $ do
+    instructionsText "short" `shouldBe` "short"
+    let long = T.unlines (replicate 500 "0123456789")
+        cut = instructionsText long
+    T.length cut `shouldSatisfy` (<= instructionsLimit)
+    cut `shouldSatisfy` T.isSuffixOf "0123456789\n\n(cut: the tool guide gives the rest)\n"
+
+  it "checks a metadata script with check_metadata, and applies it with edit_metadata" $ do
+    (_, checks) <- run "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\
+                       \\"name\":\"check_metadata\",\"arguments\":{\"script\":\"pages *\"}}}"
+    checks `shouldBe` [ApiRequest "POST" "/api/metadata" [("check", "yes")] [] "pages *"]
+    (_, applies) <- run "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\
+                        \\"name\":\"edit_metadata\",\"arguments\":{\"script\":\"pages *\",\"check\":true}}}"
+    applies `shouldBe` [ApiRequest "POST" "/api/metadata" [] [] "pages *"]
+    (_, guides) <- run "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\
+                       \\"name\":\"guide\",\"arguments\":{\"topic\":\"local-files\"}}}"
+    guides `shouldBe` [ApiRequest "GET" "/api/guide" [("topic", "local-files")] [] ""]
 
   it "calls the API, and gives its text with the hash of a page" $ do
     (as, calls) <- run "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\

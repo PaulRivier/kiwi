@@ -12,12 +12,12 @@ module Kiwi.Api
   , apiPageMeta
   , apiFolders
   , apiGuide
+  , guideText
   , apiSearch
   , apiPutPage
   , apiPatchPage
   , apiCreatePage
   , apiMetadata
-  , apiMetadataGuide
   , serveMcp
   ) where
 
@@ -340,26 +340,53 @@ apiFolders source = do
     else answer $ AT.foldersText source
                     [ FP.makeRelative top (K.pageAbsoluteFSPath p) | p <- pages ]
 
--- | GET /api/guide: the documentation of the API for the agents, then the
--- guide of the user (the file of agent-guide in kiwi.ini, read again at each
--- request), if any; when this file can not be read, the documentation alone
--- (the error is logged)
+-- | GET /api/guide: the documentation for the agents, by "topic":
+--
+-- * "wiki" (without topic): the documentation of the API, then the guide of
+--   the user (the file of agent-guide in kiwi.ini, read again at each
+--   request), if any; when this file can not be read, the documentation
+--   alone (the error is logged); see 'guideText';
+-- * "metadata-scripts": the syntax of the metadata scripts (the same text
+--   as on the metadata editor);
+-- * "local-files": how an agent that has a shell changes a page as a local
+--   file, with the address of the kiwi as the client calls it (its Host
+--   header; https when the session cookie is secure).
 apiGuide :: ActM ()
 apiGuide = do
-  guideM <- asksK K.agentGuide
-  logger' <- asksK K.logger
-  userGuide <- Scotty.liftIO $ case guideM of
-    Nothing -> return Nothing
-    Just p -> try (BS.readFile p) >>= \r -> case r of
-      Right bytes -> return $ Just (TE.decodeUtf8Lenient bytes)
-      Left e -> do
-        logger' L.Error $ T.pack $ concat
-          [ "unable to read the agent guide file ", p, ": ", show (e :: IOException) ]
-        return Nothing
-  let apiDoc = TE.decodeUtf8Lenient DP.agentApiDocPage
-  answer $ case userGuide of
-    Nothing -> apiDoc
-    Just g -> T.concat [ apiDoc, "\n\n# Guide of the user\n\n", g ]
+  topicM <- queryParamMaybe "topic"
+  case topicM :: Maybe T.Text of
+    Nothing -> wiki
+    Just "wiki" -> wiki
+    Just "metadata-scripts" -> answer $ TE.decodeUtf8Lenient DP.metadataScriptPage
+    Just "local-files" -> do
+      hostM <- Scotty.header "Host"
+      secure <- asksK K.secureCookie
+      port <- asksK K.kiwiPort
+      let url = case hostM of
+            Just h | not (TL.null h) ->
+              (if secure then "https://" else "http://") <> TL.toStrict h
+            _ -> "http://localhost:" <> T.pack (show port)
+      answer $ T.replace "KIWI_URL" url $ TE.decodeUtf8Lenient DP.agentLocalFilesPage
+    Just other -> failWith Net.status400 $ "unknown topic: " <> other
+                    <> " (expected wiki, metadata-scripts or local-files)"
+  where
+    wiki = do
+      guideM <- asksK K.agentGuide
+      logger' <- asksK K.logger
+      userGuide <- Scotty.liftIO $ case guideM of
+        Nothing -> return Nothing
+        Just p -> try (BS.readFile p) >>= \r -> case r of
+          Right bytes -> return $ Just (TE.decodeUtf8Lenient bytes)
+          Left e -> do
+            logger' L.Error $ T.pack $ concat
+              [ "unable to read the agent guide file ", p, ": ", show (e :: IOException) ]
+            return Nothing
+      answer $ guideText (TE.decodeUtf8Lenient DP.agentApiDocPage) userGuide
+
+-- | The guide of the agents: the documentation of the API, then the guide
+-- of the user, if any, under its own title
+guideText :: T.Text -> Maybe T.Text -> T.Text
+guideText apiDoc = maybe apiDoc (\g -> T.concat [apiDoc, "\n\n# Guide of the user\n\n", g])
 
 
 -- | GET /api/search?q=QUERY: full-text search for an agent (see
@@ -562,10 +589,11 @@ apiMetadata = withBodyText $ \script -> do
         Left f -> writeFailed f
         Right done -> answer $ T.unlines $ Write.metaScriptResult check done
 
--- | GET /api/metadata-guide: the syntax of the metadata scripts (the same
--- text as on the metadata editor)
-apiMetadataGuide :: ActM ()
-apiMetadataGuide = answer $ TE.decodeUtf8Lenient DP.metadataScriptPage
+-- Replaced by GET /api/guide?topic=metadata-scripts
+-- -- | GET /api/metadata-guide: the syntax of the metadata scripts (the same
+-- -- text as on the metadata editor)
+-- apiMetadataGuide :: ActM ()
+-- apiMetadataGuide = answer $ TE.decodeUtf8Lenient DP.metadataScriptPage
 
 
 -- | POST /mcp: a message of the Model Context Protocol (see "Kiwi.Mcp"),

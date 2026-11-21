@@ -6,12 +6,15 @@
 --
 -- The protocol: JSON-RPC 2.0, one message by POST, the answer in JSON
 -- (neither SSE nor session). Requests answered: initialize (with the guide
--- of the API as instructions), ping, tools/list, tools/call; the
--- notifications are ignored.
+-- of the API as instructions, cut to fit the clients, see
+-- 'instructionsText'), ping, tools/list, tools/call; the notifications are
+-- ignored.
 module Kiwi.Mcp
   ( handleMessage
   , appBackend
   , protocolVersions
+  , instructionsLimit
+  , instructionsText  -- exported for tests
   , Backend        -- exported for tests
   , ApiRequest (..)  -- exported for tests
   ) where
@@ -51,13 +54,13 @@ apiGet path params = ApiRequest "GET" path params [] ""
 type Backend = ApiRequest -> IO (Int, [(T.Text, T.Text)], T.Text)
 
 -- | The API as an application called in memory, with the token (the
--- Authorization header) and the address of the client of a request to
--- /mcp
+-- Authorization header), the Host header (the address of the kiwi for the
+-- client) and the address of the client of a request to /mcp
 appBackend :: Wai.Application -> Wai.Request -> Backend
 appBackend app mcpReq ar = do
   let req = (localRequest (TE.encodeUtf8 $ apiMethod ar) (TE.encodeUtf8 $ apiPath ar)
                           [ (TE.encodeUtf8 k, Just $ TE.encodeUtf8 v) | (k, v) <- apiParams ar ]
-                          (filter ((== "Authorization") . fst) (Wai.requestHeaders mcpReq) ++
+                          (filter ((`elem` ["Authorization", "Host"]) . fst) (Wai.requestHeaders mcpReq) ++
                            [ (CI.mk (TE.encodeUtf8 k), TE.encodeUtf8 v) | (k, v) <- apiHeaders ar ]))
               { Wai.remoteHost = Wai.remoteHost mcpReq }
   (st, headers, body) <- callApp app req (BL.fromStrict $ TE.encodeUtf8 $ apiBody ar)
@@ -109,7 +112,7 @@ request backend method params = case method of
       , "capabilities" .= A.object ["tools" .= A.object []]
       , "serverInfo" .= A.object [ "name" .= ("kiwi" :: T.Text)
                                  , "version" .= showVersion version ] ]
-      ++ [ "instructions" .= guide | st == 200 ]
+      ++ [ "instructions" .= instructionsText guide | st == 200 ]
   "ping" -> return $ Right $ A.object []
   "tools/list" -> return $ Right $ A.object ["tools" .= map toolJson tools]
   "tools/call" -> case AT.parseMaybe callParser params of
@@ -129,16 +132,43 @@ request backend method params = case method of
     callParser = A.withObject "params" $ \o ->
       (,) <$> o .: "name" <*> (fromMaybe KM.empty <$> o .:? "arguments")
 
+-- | Largest instructions given to the clients, in characters: Claude Code
+-- cuts the instructions of a server after 4096 characters
+instructionsLimit :: Int
+instructionsLimit = 4096
+
+-- | The instructions of the server, from the guide: the guide whole when it
+-- holds in 'instructionsLimit' characters, else its first lines, cut at the
+-- end of a line, followed by a note (the tool guide gives it whole)
+instructionsText :: T.Text -> T.Text
+instructionsText g
+  | T.length g <= instructionsLimit = g
+  | otherwise =
+      let start = T.take (instructionsLimit - T.length cutNote) g
+          kept = case T.breakOnEnd "\n" start of
+                   ("", _) -> start
+                   (upToLine, _) -> upToLine
+      in kept <> cutNote
+  where
+    cutNote = "\n(cut: the tool guide gives the rest)\n"
+
 toolResult :: Bool -> T.Text -> A.Value
 toolResult isError txt = A.object
   [ "content" .= [A.object ["type" .= ("text" :: T.Text), "text" .= txt]]
   , "isError" .= isError ]
 
 
--- | A tool: its name, description, input schema (properties and required
--- ones), its request to the API from its arguments, and its output from the
--- answer of the API (headers and text)
+-- | What a tool does to the wiki, given to the clients as annotations
+-- (readOnlyHint, destructiveHint): read only, add only, or change what
+-- exists
+data Risk = ReadOnly | Additive | Destructive
+
+-- | A tool: its name, title, risk, description, input schema (properties
+-- and required ones), its request to the API from its arguments, and its
+-- output from the answer of the API (headers and text)
 data Tool = Tool { toolName :: T.Text
+                 , toolTitle :: T.Text
+                 , toolRisk :: Risk
                  , toolDescription :: T.Text
                  , toolProperties :: [(T.Text, A.Value)]
                  , toolRequired :: [T.Text]
@@ -148,10 +178,18 @@ data Tool = Tool { toolName :: T.Text
 toolJson :: Tool -> A.Value
 toolJson t = A.object
   [ "name" .= toolName t
+  , "title" .= toolTitle t
+  , "annotations" .= A.object (("title" .= toolTitle t) : hints (toolRisk t))
   , "description" .= toolDescription t
   , "inputSchema" .= A.object [ "type" .= ("object" :: T.Text)
                               , "properties" .= A.object [ AK.fromText k .= v | (k, v) <- toolProperties t ]
                               , "required" .= toolRequired t ] ]
+
+  where
+    hints r = case r of
+      ReadOnly -> ["readOnlyHint" .= True]
+      Additive -> ["readOnlyHint" .= False, "destructiveHint" .= False]
+      Destructive -> ["readOnlyHint" .= False, "destructiveHint" .= True]
 
 -- | JSON schemas of the arguments
 prop :: T.Text -> T.Text -> A.Value
@@ -213,7 +251,7 @@ asIs _ body = body
 
 tools :: [Tool]
 tools =
-  [ Tool "search"
+  [ Tool "search" "Search the wiki" ReadOnly
       "Full-text search in the wiki. Use it first to find where an information is, before \
       \reading pages. The words are alternatives: the pages containing any of them are found, \
       \best first (the more words, the better), so add synonyms freely. There is no OR nor \
@@ -229,7 +267,7 @@ tools =
                Nothing -> Left "missing argument: query"
                Just q -> Right $ apiGet "/api/search" (("q", q) : contextParams o ++ optional o ["limit"]))
       asIs
-  , Tool "facets"
+  , Tool "facets" "Explore the metadata" ReadOnly
       "Explore the wiki by its metadata, as a person narrowing a selection step by step, \
       \at a low cost: for the pages matching the filters (all the pages without filter), by \
       \source, their tags (with their parents, as written in the headers), langs and custom \
@@ -242,7 +280,7 @@ tools =
        [("show", stringsProp "Only these facets: tags, lang, or custom fields; all without it.")])
       [] (\o -> Right $ apiGet "/api/facets" (selectionParams o ++ showParam o))
       asIs
-  , Tool "list_pages"
+  , Tool "list_pages" "List pages" ReadOnly
       "List the pages matching metadata, the most recently modified first: SOURCE/UID alone, \
       \and under each page the fields of show (title, tags, summary, lang, modified, \
       \custom fields), written as in a header. Narrow the selection with facets \
@@ -254,14 +292,14 @@ tools =
       []
       (\o -> Right $ apiGet "/api/pages" (selectionParams o ++ showParam o ++ optional o ["limit"]))
       asIs
-  , Tool "links"
+  , Tool "links" "Links between pages" ReadOnly
       "The links between the pages matching the filters (all the pages without filter), by \
       \source: one link by line, UID -> UID, with (missing) when the linked page does not \
       \exist or can not be read. The pages that no page links are those absent on the right. \
       \The pages linking one page are in its outline (read_page, part outline)."
       selectionProps [] (Right . apiGet "/api/links" . selectionParams)
       asIs
-  , Tool "read_page"
+  , Tool "read_page" "Read a page" ReadOnly
       "Read a page (SOURCE/UID): its header, then its content in CommonMark. For a long page, \
       \read its outline first (part: outline: tags, summary, backlinks, \
       \sections with their lines), then only the section or the lines you need. Line numbers \
@@ -288,7 +326,7 @@ tools =
                      , maybe "" (\r -> "lines: " <> r <> "\n") range
                      , if isJust' etag || isJust' range then "---\n" else ""
                      , body ])
-  , Tool "folders"
+  , Tool "folders" "Folders of a source" ReadOnly
       "The folders of a source with their number of pages (admins only), to choose where a \
       \new page goes."
       [("source", prop "string" "The source.")]
@@ -296,7 +334,7 @@ tools =
       (\o -> maybe (Left "missing argument: source") (\s -> Right $ apiGet ("/api/folders/" <> s) [])
                    (text o "source"))
       asIs
-  , Tool "edit_page"
+  , Tool "edit_page" "Edit a page" Destructive
       "Change a page by replacing exact passages of its text (as read_page gives it, without \
       \line numbers): each old text must be found exactly once in the page, copied exactly, \
       \with enough of the text around it to be unique; it is replaced by the new text. To \
@@ -321,7 +359,7 @@ tools =
                      [("Content-Type", "application/json")]
                      (TE.decodeUtf8 $ BL.toStrict $ A.encode $ A.object ["edits" .= edits]))
       asIs
-  , Tool "write_page"
+  , Tool "write_page" "Rewrite a page" Destructive
       "Replace the whole text of a page (header and content). Only for a deep rewrite: \
       \prefer edit_page. Give the hash that read_page gave: the write is refused if the page \
       \changed since."
@@ -337,7 +375,7 @@ tools =
           return $ ApiRequest "PUT" (T.concat ["/api/page/", s, "/", u]) (optional o ["message"])
                      [("If-Match", "\"" <> h <> "\"")] t)
       asIs
-  , Tool "create_page"
+  , Tool "create_page" "Create a page" Additive
       "Create a page in a source, from its text: header (title, tags, summary...), a blank \
       \line, then its content in CommonMark. Kiwi gives it its uid (in the answer, as \
       \SOURCE/UID). Search before creating: do not duplicate an existing page. The file is \
@@ -352,29 +390,43 @@ tools =
           t <- maybe (Left "missing argument: text") Right (text o "text")
           return $ ApiRequest "POST" ("/api/pages/" <> s) (optional o ["path", "message"]) [] t)
       asIs
-  , Tool "edit_metadata"
+  , Tool "edit_metadata" "Apply a metadata script" Destructive
       "Change the metadata (headers) of many pages at once, with a script: one line by \
       \directive or command, all of them applied or none, in one commit. A `pages` line chooses \
       \the pages of the commands after it: `pages SOURCE/*` (a source), `pages SOURCE/UID,SOURCE/UID` \
       \(pages), `pages *` (everything). Commands: `meta FIELD move OLD NEW`, `meta FIELD delete VALUE` \
       \(a tag with its sub-tags), `meta FIELD rename-to NEW`, `meta FIELD set VALUE`, \
       \`meta FIELD add VALUE`, `meta FIELD remove VALUE` (exact values), `meta FIELD unset`. \
-      \Read metadata_guide before the first script. Run with check first to see the pages that \
-      \would change, and ask the user before changing the vocabulary of the wiki. The check \
-      \also runs on the pages that the account can only read, marked \"(read only)\": the \
-      \user can then apply the script with an account that can change them."
+      \The syntax: tool guide, topic metadata-scripts. Check the script with check_metadata \
+      \first, and ask the user before changing the vocabulary of the wiki."
       [ ("script", prop "string" "The lines of the script; # starts a comment.")
-      , ("check", prop "boolean" "true to only check the script and list the pages it would change, writing nothing.")
       , messageProp ]
       ["script"]
       (\o -> do
           sc <- maybe (Left "missing argument: script") Right (text o "script")
-          return $ ApiRequest "POST" "/api/metadata" ([ ("check", "yes") | flag o "check" ] ++ optional o ["message"]) [] sc)
+          return $ ApiRequest "POST" "/api/metadata" (optional o ["message"]) [] sc)
       asIs
-  , Tool "metadata_guide"
-      "The syntax of the metadata scripts of edit_metadata, with examples."
-      [] []
-      (\_ -> Right $ apiGet "/api/metadata-guide" [])
+  , Tool "check_metadata" "Check a metadata script" ReadOnly
+      "Check a metadata script of edit_metadata without writing anything: its errors, or \
+      \the pages that each command would change. It also runs on the pages that the account \
+      \can only read, marked \"(read only)\": the user can then apply the script with an \
+      \account that can change them."
+      [ ("script", prop "string" "The lines of the script; # starts a comment.") ]
+      ["script"]
+      (\o -> do
+          sc <- maybe (Left "missing argument: script") Right (text o "script")
+          return $ ApiRequest "POST" "/api/metadata" [("check", "yes")] [] sc)
+      asIs
+  , Tool "guide" "Guide of the wiki" ReadOnly
+      "Documentation of the wiki for the agents, by topic: wiki (the guide of the wiki and \
+      \the guide of the user, whole, when the instructions were cut), metadata-scripts (the \
+      \syntax of the scripts of edit_metadata, with examples), local-files (how to change a \
+      \page as a local file, with a shell)."
+      [ ("topic", A.object [ "type" .= ("string" :: T.Text)
+                           , "enum" .= (["wiki", "metadata-scripts", "local-files"] :: [T.Text])
+                           , "description" .= ("The topic; wiki without it." :: T.Text) ]) ]
+      []
+      (\o -> Right $ apiGet "/api/guide" (optional o ["topic"]))
       asIs
   ]
   where

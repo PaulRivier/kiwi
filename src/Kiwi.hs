@@ -10,6 +10,7 @@ import qualified Data.List as L
 import qualified Data.Map.Strict as M
 import           Data.Maybe (isJust)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import           Data.Version (showVersion)
 import qualified System.Directory as D
@@ -26,11 +27,13 @@ import           GHC.IO.Encoding (setLocaleEncoding, setFileSystemEncoding)
 
 import Paths_kiwi (version)
 
+import qualified Kiwi.Api as Api
 import qualified Kiwi.Auth as Auth
 import Kiwi.CLI as CLI
 import Kiwi.ConfigFile as Conf
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Log as L
+import qualified Kiwi.Mcp as Mcp
 import Kiwi.Server (kiwiServer)
 import qualified Kiwi.Utils as U
 import Kiwi.Types
@@ -150,10 +153,31 @@ loadServerConfig logLevel cfp = do
                 return Nothing
           if not cdExists then
             failWith $ "content directory " ++ cd ++ " (config file " ++ cfp ++ ") does not exist"
-          else maybe (return $ Just (cfp, conf)) failWith guideError
+          else case guideError of
+            Just e -> failWith e
+            Nothing -> do
+              warnLongGuide (L.mkLogger logLevel (Conf.name conf) L.Warn)
+                            (Conf.agentGuideFile cfp conf)
+              return $ Just (cfp, conf)
   where
     -- the kiwi name is unknown until the config file is read
     logError = L.mkLogger logLevel "?" L.Error . T.pack
+
+
+-- | A warning when the guide for the agents (the documentation of the API
+-- and the guide of the user, see 'Api.guideText') is longer than the
+-- instructions that the MCP clients get (see 'Mcp.instructionsText')
+warnLongGuide :: (T.Text -> IO ()) -> Maybe FP.FilePath -> IO ()
+warnLongGuide warn fileM = do
+  userGuide <- case fileM of
+    Nothing -> return Nothing
+    Just p -> either (\e -> const Nothing (e :: IOException)) (Just . TE.decodeUtf8Lenient)
+                <$> try (BS.readFile p)
+  let n = T.length $ Api.guideText (TE.decodeUtf8Lenient DP.agentApiDocPage) userGuide
+  when (n > Mcp.instructionsLimit) $ warn $ T.pack $ concat
+    [ "the guide for the agents has ", show n, " characters, more than the "
+    , show Mcp.instructionsLimit, " given to the MCP clients: they get it cut (the tool guide "
+    , "gives it whole)", maybe "" (\p -> "; shorten the agent guide file " ++ p) fileM ]
 
 
 initKiwiDir :: FP.FilePath -> IO ()

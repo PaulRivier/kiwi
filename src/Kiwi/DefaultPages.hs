@@ -6,6 +6,7 @@ module Kiwi.DefaultPages
   , commonmarkDocPage
   , readmePage
   , agentApiDocPage
+  , agentLocalFilesPage
   , metadataScriptPage
   ) where
 
@@ -30,6 +31,13 @@ readmePage = $(embedFileRelative "README.md")
 -- every kiwi; the guide of the user follows it
 agentApiDocPage :: BS.ByteString
 agentApiDocPage = $(embedFileRelative "static/agent-api-doc.md")
+
+
+-- | How an agent that has a shell changes a page as a local file (download,
+-- change, send back with If-Match); "KIWI_URL" stands for the address of
+-- the kiwi
+agentLocalFilesPage :: BS.ByteString
+agentLocalFilesPage = $(embedFileRelative "static/agent-local-files.md")
 
 
 -- | Syntax of the metadata scripts, for the admins (metadata editor) and the

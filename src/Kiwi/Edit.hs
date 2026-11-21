@@ -108,7 +108,8 @@ saveFailureText f = T.pack $ case f of
 -- the previous replacements. The result is the new text, and the lines of
 -- each new passage in it (first and last line, from 1; an empty new
 -- passage gives the line where the old one was), or why the edits do not
--- apply.
+-- apply (an old passage found several times: its lines in the content, the
+-- header apart, at most 10).
 applyEdits :: [(T.Text, T.Text)] -> T.Text -> Either String (T.Text, [(Int, Int)])
 applyEdits edits text0 = go (1 :: Int) edits text0 []
   where
@@ -130,10 +131,21 @@ applyEdits edits text0 = go (1 :: Int) edits text0 []
                 -- the lines the new text is on
                 end = start + max 1 (length $ T.lines new) - 1
             in go (n + 1) rest t' ((start, end) : map shift ranges)
-          found -> Left $ concat
-            [ "edit ", show n, ": the old text is in the page ", show (length found)
-            , " times (lines ", L.intercalate ", " [ show (T.count "\n" b + 1) | (b, _) <- found ]
-            , "), give more of the text around it" ]
+          found ->
+            let -- the lines of the content, after the header and its blank
+                -- line (none without a blank line), as everywhere in the API
+                off = maybe 0 (+ 1) (L.findIndex T.null (T.lines t))
+                lineOf (b, _) = let l = T.count "\n" b + 1
+                                in if l <= off then "header" else show (l - off)
+                shown = L.nub (map lineOf found)
+                more = length shown - maxLines
+            in Left $ concat
+                 [ "edit ", show n, ": the old text is in the page ", show (length found)
+                 , " times (lines ", L.intercalate ", " (take maxLines shown)
+                 , if more > 0 then ", and " ++ show more ++ " more" else ""
+                 , "), give more of the text around it" ]
+    -- lines given when an old text is found several times
+    maxLines = 10
 
 -- | The edits (see 'applyEdits') of the text of a page as shown to an
 -- editor with this right (see 'editorText'), saved as the text sent by this

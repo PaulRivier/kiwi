@@ -147,7 +147,9 @@ searchText query lang terms total results = T.unlines $ header : concatMap hitLi
       [ T.pack (show total), if total == 1 then " page" else " pages", " for ", query
       , " (", T.toLower (T.pack $ show lang), ")" ]
       ++ [ ", best first" | total > 1 ]
-      ++ [ T.concat [", ", T.pack (show shown), " shown (limit)"] | shown < total ]
+      ++ [ T.concat [ ", ", T.pack (show shown)
+                    , " shown (limit): use more precise words or sources, or raise limit" ]
+         | shown < total ]
     hitLines (h, ps) =
       let p = hitPage h
       in T.intercalate "  "
