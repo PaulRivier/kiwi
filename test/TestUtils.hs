@@ -43,6 +43,7 @@ mkPage uid tags access archive day =
        , pageContentLines = 0
        , pageFiles = []
        , pagePlainText = ""
+       , pageHeadings = []
        , pageTitle = snd uid
        , pageSummary = Nothing
        , pageTags = tags

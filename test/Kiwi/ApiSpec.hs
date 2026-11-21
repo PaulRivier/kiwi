@@ -291,6 +291,34 @@ apiSpec = do
         liftIO $ r `shouldSatisfy` any (\l -> "s/a  " `T.isPrefixOf` l && "  1/1 in content" `T.isSuffixOf` l
                                              && "  content_size 8, content_lines 1  " `T.isInfixOf` l)
 
+  it "gives the keywords of the pages, as written, computed on the whole wiki" $ do
+    let docs = [ ("a.md", "title: Ruby\nuid: a\nlang: en\n\nRails and Rails, the Rails migrations.\n")
+               , ("b.md", "title: Soup\nuid: b\nlang: en\n\nA carrot soup, the carrot.\n") ]
+    withKiwiConfig [] [("bob", "secret", ["family"])] docs $ \_ ss app -> do
+      accs <- readIORef (accounts ss)
+      made <- mapM Auth.newApiToken accs
+      _ <- Auth.dumpTokens (M.fromList $ map snd made) (Auth.tokensFile $ kiwiDir ss)
+      let token = case made of
+            (t, _) : _ -> t
+            [] -> error "no token"
+          get' path = do
+            r <- WT.srequest $ WT.SRequest
+                   (WT.setPath Wai.defaultRequest
+                      { Wai.requestHeaders = [("Authorization", "Bearer " <> TE.encodeUtf8 token)] }
+                      path) ""
+            return $ T.lines $ TL.toStrict $ TLE.decodeUtf8 $ WT.simpleBody r
+      flip WT.runSession app $ do
+        -- seen once (migrations) or in every page (the): not keywords
+        listed <- get' "/api/pages?page=s/a&page=s/b&show=keywords"
+        liftIO $ L.sort listed `shouldBe`
+          L.sort [ "2 pages, the most recently modified first"
+                 , "s/a", "  keywords: Rails, Ruby", "s/b", "  keywords: Soup, carrot" ]
+        found <- get' "/api/search?q=carrot&show=keywords"
+        liftIO $ found `shouldSatisfy` elem "  keywords: Soup, carrot"
+        -- only with show
+        plain <- get' "/api/search?q=carrot"
+        liftIO $ plain `shouldSatisfy` all (not . T.isPrefixOf "  keywords:")
+
   it "searches the pages with any of the terms, the best first, with passages" $ do
     let docs = [ ("aid.md", "title: First aid\nuid: aid\ntags: health\n\n# Wounds\n\n\
                             \Clean the wound with water.\n\n## Burns\n\n\

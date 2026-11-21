@@ -257,7 +257,8 @@ tools =
       \best first (the more words, the better), so add synonyms freely. There is no OR nor \
       \AND operator (OR is searched as a word). Each result gives the page (SOURCE/UID), its \
       \title, tags, size (content_size, content_lines: characters and lines of its content), \
-      \how many of the words it contains and where, its summary, and up to three \
+      \how many of the words it contains and where, its summary, its keywords (the terms \
+      \that tell it from the other pages, computed by the wiki), and up to three \
       \passages with their line and section; the first line names the words found in no page. \
       \Words are matched by their stem. \"exact phrase\" and -excluded words are allowed. \
       \The filters of list_pages (tags, fields...) narrow the search."
@@ -267,7 +268,7 @@ tools =
       ["query"]
       (\o -> case text o "query" of
                Nothing -> Left "missing argument: query"
-               Just q -> Right $ apiGet "/api/search" (("q", q) : selectionParams o ++ optional o ["limit"]))
+               Just q -> Right $ apiGet "/api/search" (("q", q) : ("show", "keywords") : selectionParams o ++ optional o ["limit"]))
       asIs
   , Tool "facets" "Explore the metadata" ReadOnly
       "Explore the wiki by its metadata, as a person narrowing a selection step by step, \
@@ -285,16 +286,17 @@ tools =
       asIs
   , Tool "list_pages" "List pages" ReadOnly
       "List the pages matching metadata, the most recently modified first: SOURCE/UID alone, \
-      \and under each page the fields of show (title, tags, summary, lang, modified, \
+      \and under each page the fields of show (title, tags, summary, keywords, lang, modified, \
       \content_size, content_lines, links, backlinks, custom fields), written as in a \
-      \header; content_size and content_lines without show. content_size and \
+      \header; content_size, content_lines and keywords without show. keywords: the terms \
+      \that tell the page from the others, computed by the wiki. content_size and \
       \content_lines: the characters and lines of its content. links: the uids of the \
       \pages it links, \"(missing)\" after a page that does not exist (a broken link); \
       \backlinks: the uids of the pages that link it. Narrow the selection with facets \
       \or search first. show [title, tags] gives an inventory; has_fields and show with a \
       \custom field prepare a metadata script."
       (selectionProps ++
-       [ ("show", stringsProp "Fields given under each page: title, tags, summary, lang, modified (day), content_size, content_lines, links, backlinks, custom fields.")
+       [ ("show", stringsProp "Fields given under each page: title, tags, summary, keywords, lang, modified (day), content_size, content_lines, links, backlinks, custom fields.")
        , ("limit", prop "integer" "Maximum number of pages (100 by default).") ])
       []
       (\o -> Right $ apiGet "/api/pages" (selectionParams o ++ listShow o ++ optional o ["limit"]))
@@ -448,11 +450,11 @@ selectionParams o =
   ++ [ ("page", p) | p <- texts o "pages" ]
   ++ optional o ["since"]
 
--- | The "show" parameter of list_pages: the size of the pages without the
--- "show" argument
+-- | The "show" parameter of list_pages: the size and the keywords of the
+-- pages without the "show" argument
 listShow :: A.Object -> [(T.Text, T.Text)]
 listShow o = case showParam o of
-  [] -> [("show", "content_size,content_lines")]
+  [] -> [("show", "content_size,content_lines,keywords")]
   ps -> ps
 
 -- | The "show" parameter of the "show" argument

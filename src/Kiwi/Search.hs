@@ -11,6 +11,7 @@ module Kiwi.Search (
   , explainPages
   , termFields
   , extractTerms
+  , writtenTerms
   , wordsTerms
   , alg
   ) where
@@ -220,8 +221,17 @@ tokenize = filter (not . T.null) .
            T.split isBreak .
            normalize NFC .
            T.toLower
-  where
-    isBreak c = isSpace c || isPunctuation c || isSymbol c
+
+-- | Characters between the words (see 'tokenize')
+isBreak :: Char -> Bool
+isBreak c = isSpace c || isPunctuation c || isSymbol c
+
+-- | Terms of a text as 'extractTerms' gives them, each one with the word it
+-- comes from, as written (case and accents kept): the words of the keywords
+-- (see "Kiwi.Keywords")
+writtenTerms :: Algorithm -> T.Text -> [(T.Text, T.Text)]
+writtenTerms lg t = zip (map stripAccents $ stems lg $ map (normalize NFC . T.toLower) ws) ws
+  where ws = filter (not . T.null) $ T.split isBreak $ normalize NFC t
 
 -- tokenizeText :: S.Set Char -> T.Text -> [T.Text]
 -- tokenizeText brk = filter (not . T.null) .

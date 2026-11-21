@@ -48,6 +48,7 @@ import qualified Kiwi.Auth as Auth
 import qualified Kiwi.Browse as Browse
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
+import           Kiwi.Keywords (keywordsText)
 import qualified Kiwi.Log as L
 import qualified Kiwi.Mcp as Mcp
 import qualified Kiwi.MetaScript as MS
@@ -132,15 +133,18 @@ pathsFor = do
 -- each one (see 'AT.pagesText'). The fields "links" (the uids of the pages
 -- it links, with "(missing)" for a page that does not exist or can not be
 -- read) and "backlinks" (the uids of the readable pages that link it) are
--- in the same source as the page.
+-- in the same source as the page; "keywords": see "Kiwi.Keywords".
 apiPages :: ActM ()
 apiPages = withSelection ["limit", "show"] $ \db pages ->
   withShow (AT.pageFields ++ map K.cmcName (K.customMetaConfig db)) $ \shown ->
     intParam "limit" 100 $ \limit ->
-      answer $ AT.pagesText (linkField db) shown (length pages)
+      answer $ AT.pagesText (extraField db) shown (length pages)
                             (take limit $ sortOn (Down . K.pageMTime) pages)
-  where
-    linkField db p f =
+
+-- | The fields of a page that the index gives (see 'apiPages'): "links",
+-- "backlinks" and "keywords" (see "Kiwi.Keywords")
+extraField :: K.PagesDB -> K.Page -> T.Text -> Maybe T.Text
+extraField db p f =
       let idx = K.pagesIndex db
           exists uid = maybe False (const True) $ DI.findDoc idx uid
           list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
@@ -149,6 +153,7 @@ apiPages = withSelection ["limit", "show"] $ \db pages ->
                            | l <- U.nodup (K.pageLinks p) ]
            "backlinks" -> list $ sortOn textOrder
                             [ snd (K.pageUID b) | b <- DI.query idx (U.qOnly K.FieldLink (K.pageUID p)) ]
+           "keywords" -> keywordsText db p
            _ -> Nothing
 
 -- | The fields of the "show" parameters (repeated, or separated by commas),
@@ -420,9 +425,10 @@ guideText apiDoc = maybe apiDoc (\g -> T.concat [apiDoc, "\n\n# Guide of the use
 -- (see 'withSelection': context, tags, fields…), at most "limit" pages (10
 -- by default); the first line names the words that no page selected
 -- contains. The lang of the query is the one of the sources, unless it
--- starts with a lang code ("fr:"), as on the search page.
+-- starts with a lang code ("fr:"), as on the search page. "show=keywords"
+-- adds the keywords of each page (see "Kiwi.Keywords").
 apiSearch :: ActM ()
-apiSearch = withSelection ["q", "limit"] $ \db selected -> do
+apiSearch = withSelection ["q", "limit", "show"] $ \db selected -> withShow ["keywords"] $ \shown -> do
   qM <- queryParamMaybe "q"
   allDB <- getDB
   ctx <- asksK (K.context . K.requestState)
@@ -461,7 +467,8 @@ apiSearch = withSelection ["q", "limit"] $ \db selected -> do
         then failWith Net.status400 "the query has no word to search"
         else do
           results <- mapM (withPassages (map fst terms)) (take limit hits)
-          answer $ AS.searchText (T.strip raw) lang terms missing total results
+          let fields p = [ (f, v) | f <- shown, Just v <- [extraField db p f] ]
+          answer $ AS.searchText (T.strip raw) lang terms missing fields total results
   where
     -- the passages of a page, from its content as loaded, with the lines of
     -- its content

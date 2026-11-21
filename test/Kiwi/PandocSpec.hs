@@ -201,6 +201,7 @@ loadPageSpec = do
                     , pageContentLines = 0
                     , pageFiles = ["a.png", "c.ods"]
                     , pagePlainText = ""
+                    , pageHeadings = []
                     , pageTitle = "t"
                     , pageSummary = Nothing
                     , pageTags = []

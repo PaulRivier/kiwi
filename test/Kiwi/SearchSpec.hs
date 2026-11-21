@@ -24,6 +24,7 @@ searchSpec = do
              , pageContentLines = length (T.lines content)
              , pageFiles = []
              , pagePlainText = content
+             , pageHeadings = []
              , pageTitle = uid
              , pageSummary = Nothing
              , pageTags = []

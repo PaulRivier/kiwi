@@ -22,6 +22,7 @@ module Kiwi.Types
   , Access
   , Page(..)
   , PageUID
+  , Keyword(..)
   , TagId
   , TagSegments
   , PandocPage(..)
@@ -181,7 +182,11 @@ data PagesDB =
           , sourceFiles :: M.Map (T.Text, T.Text) FP.FilePath
           -- , lastUpdate :: Time.UTCTime
           , pagesIndex :: DI.DocIndex Page PageUID MetaField DocIndexKey
-          , searchEngine :: PageSearchEngine }
+          , searchEngine :: PageSearchEngine
+          -- | the keywords of each page, the best first (see
+          -- "Kiwi.Keywords"): computed again at each load, as they depend on
+          -- the other pages
+          , pageKeywords :: M.Map PageUID [Keyword] }
 
 
 data MetaField = FieldSource
@@ -243,6 +248,7 @@ data Page =
        -- "Kiwi.Files"), or the target as written when it is not a uid
        , pageFiles :: ![T.Text]
        , pagePlainText :: !T.Text  -- ^ plain text of its content (search, excerpts)
+       , pageHeadings :: ![T.Text]  -- ^ plain text of its headings, all levels (keywords)
        , pageTitle :: !T.Text
        , pageSummary :: !(Maybe T.Text)  -- ^ summary metadata, if any
        , pageTags :: ![TagId]
@@ -257,6 +263,12 @@ data Page =
 
 
 type PageUID = (T.Text, T.Text) -- ^ (source, uid), unique
+
+-- | A keyword of a page (see "Kiwi.Keywords"): a term of the search engine
+-- (a stem), and the word that gives it the most often in the page, as
+-- written there
+data Keyword = Keyword { kwStem :: !T.Text, kwWord :: !T.Text }
+  deriving (Show, Eq)
 -- type PageSet = S.Set Page
 type TagId = T.Text
 type TagSegments = [TagId]

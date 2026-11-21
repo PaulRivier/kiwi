@@ -137,9 +137,10 @@ passageAfter = 24
 -- query and its lang (and the words found in no page), then each page (see
 -- 'AT.pagesText'), the terms it
 -- contains (shown by the words of the query that give them) and where, its
--- summary and its passages
-searchText :: T.Text -> Lang -> [(T.Text, T.Text)] -> [T.Text] -> Int -> [(Hit, [Passage])] -> T.Text
-searchText query lang terms missing total results = T.unlines $ header : concatMap hitLines results
+-- summary, the given fields (those of "show") and its passages
+searchText :: T.Text -> Lang -> [(T.Text, T.Text)] -> [T.Text] -> (Page -> [(T.Text, T.Text)])
+           -> Int -> [(Hit, [Passage])] -> T.Text
+searchText query lang terms missing fields total results = T.unlines $ header : concatMap hitLines results
   where
     n = length (nub $ map fst terms)
     wordOf t = fromMaybe t (lookup t terms)
@@ -164,6 +165,7 @@ searchText query lang terms missing total results = T.unlines $ header : concatM
                         then " (" <> T.intercalate ", " (map wordOf $ hitTerms h) <> ")" else ""
                       , " in ", T.intercalate "+" (map fieldName $ hitFields h) ] ]
          : [ "  summary: " <> s | Just s <- [pageSummary p] ]
+         ++ [ T.concat ["  ", f, ": ", v] | (f, v) <- fields p ]
          ++ [ T.concat [ "  l.", T.pack (show $ passageLine x)
                        , maybe "" (\s -> " § " <> s) (passageSection x), ": ", passageText x ]
             | x <- ps ]

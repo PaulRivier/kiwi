@@ -89,6 +89,7 @@ library
       Kiwi.Edit
       Kiwi.Files
       Kiwi.Git
+      Kiwi.Keywords
       Kiwi.LangDetect
       Kiwi.Locales
       Kiwi.Mcp
@@ -160,6 +161,7 @@ test-suite kiwi-test
       Kiwi.FilesSpec
       Kiwi.GitSpec
       Kiwi.HtmlWriterSpec
+      Kiwi.KeywordsSpec
       Kiwi.LangDetectSpec
       Kiwi.McpSpec
       Kiwi.MetaScriptSpec

@@ -54,15 +54,15 @@ sourcePath contentDir' p =
 -- | The fields of a page that the lists can show, besides its custom
 -- fields (see 'pagesText')
 pageFields :: [T.Text]
-pageFields = [ "title", "tags", "summary", "lang", "modified", "content_size", "content_lines"
-             , "links", "backlinks" ]
+pageFields = [ "title", "tags", "summary", "keywords", "lang", "modified", "content_size"
+             , "content_lines", "links", "backlinks" ]
 
 -- | List of pages, one by line (SOURCE/UID), each one followed by the given
 -- fields that it has, one by line, written as in a header ("  tags: a > b,
 -- c"; "modified": the day of the last change; "content_size" and
 -- "content_lines": the characters and lines of its content, without the
--- header; "links" and "backlinks", given
--- by the function, see 'Kiwi.Api.apiPages'; a custom field by its name).
+-- header; "links", "backlinks" and "keywords", given by the function, see
+-- 'Kiwi.Api.extraField'; a custom field by its name).
 -- The first line gives the number of pages found and of pages shown, and
 -- how to see the others when some are cut.
 pagesText :: (Page -> T.Text -> Maybe T.Text) -> [T.Text] -> Int -> [Page] -> T.Text
@@ -85,6 +85,7 @@ pagesText linkField fields total pages = T.unlines $ header : concatMap pageLine
       "content_lines" -> Just (T.pack $ show $ pageContentLines p)
       "links" -> linkField p f
       "backlinks" -> linkField p f
+      "keywords" -> linkField p f
       _ -> list [ showCustomValue k | CustomMetaData f' ks <- pageCustomMeta p, f' == f, k <- ks ]
     list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
 

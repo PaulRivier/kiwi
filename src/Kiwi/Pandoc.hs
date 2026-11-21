@@ -354,6 +354,8 @@ loadPageIO fullPath source md cmc scM = do
                      !_ = length links
                      files = pandocFiles p
                      !_ = length files
+                     headings = docHeadings (pandocDoc p)
+                     !_ = sum (map T.length headings)
                      unknown = unknownMetaKeys cmc meta
                      invalid = invalidMetaValues cmc meta
                      !_ = length unknown + length invalid
@@ -365,6 +367,7 @@ loadPageIO fullPath source md cmc scM = do
                                   , pageContentLines = length (T.lines $ pandocBody p)
                                   , pageFiles = files
                                   , pagePlainText = content
+                                  , pageHeadings = headings
                                   , pageTitle = title
                                   , pageSummary = mfilter (not . T.null) $ metaSummary header
                                   , pageTags = map normalizeTag $ fromMaybe [] $ metaTags meta
@@ -379,3 +382,13 @@ loadPageIO fullPath source md cmc scM = do
                                   , pagePreviousUids = fromMaybe [] $ metaPreviousUids header
                                   }
         in Right $ Loaded page header unknown invalid
+
+
+-- | Plain text of the headings of a document, all levels, in their order
+docHeadings :: PD.Pandoc -> [T.Text]
+docHeadings = PW.query heading
+  where
+    heading :: PD.Block -> [T.Text]
+    heading b = case b of
+      PD.Header _ _ ils -> [T.unwords $ T.words $ U.inlinesText ils]
+      _ -> []

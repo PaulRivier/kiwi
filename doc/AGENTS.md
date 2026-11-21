@@ -29,11 +29,15 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
 * `GET /api/pages` : the pages, the most recently modified first, at most
   `limit` (100 by default): one `SOURCE/UID` by line, and under it the
   fields of `show`
-  (`show=title,tags,summary,lang,modified,content_size,content_lines,links,backlinks`
+  (`show=title,tags,summary,keywords,lang,modified,content_size,content_lines,links,backlinks`
   and custom fields by their name), written as in a header.
   `content_size` and `content_lines`: the characters and lines of its
-  content, without the header (the tool `list_pages` gives them when no
-  `show` is given). `links`: the
+  content, without the header. `keywords`: at most 10 terms that tell
+  the page from the others (TF-IDF on the whole wiki: occurrences in
+  the content, the title and the headings, rarity in the other pages),
+  as written in the page, the best first, computed again at each load,
+  never written in the files (the tool `list_pages` gives the size and
+  the keywords when no `show` is given). `links`: the
   uids of the pages it links, with `(missing)` after a page that does
   not exist or can not be read (a broken link); `backlinks`: the uids of
   the pages that link it.
@@ -44,7 +48,8 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   summary and up to three passages (lines with their section, or
   headings); the first line names the words that no page contains.
   `"exact phrase"` and `-excluded` words are allowed, the filters of the
-  lists too, and `limit` (10 by default). The search page of the web
+  lists too, `limit` (10 by default), and `show=keywords` (the keywords
+  of each page, given by the tool `search`). The search page of the web
   interface is not changed.
 * `GET /api/facets` : the tags, langs, folders (admins only) and custom
   fields (with their description) of the pages selected by the filters of

@@ -33,6 +33,7 @@ import           Text.Printf (printf)
 import           Kiwi.Edit (writePageFile)
 import qualified Kiwi.Files as Files
 import qualified Kiwi.Git as Git
+import           Kiwi.Keywords (pagesKeywords)
 import qualified Kiwi.Log as L
 import           Kiwi.Meta (isValidUid, uidFromBytes, writePage)
 import           Kiwi.Search
@@ -135,11 +136,18 @@ updatePagesDB logger' git contentDir' db = do
                     | (p, Left e) <- M.toList written ]
     -- the links to missing pages are listed on the /doctor page, not logged:
     -- they are an issue of the content, not of the server
+        newEngine = insertDocs inserted searchEngineClean
+    -- the keywords of every page, as they depend on the other pages; the
+    -- words of the keywords of the pages that were not loaded again are kept
+    keywords <- evaluate $ pagesKeywords newEngine
+                  (M.withoutKeys (pageKeywords db) (S.fromList removedUIDs))
+                  (DI.documentsList newIndex)
     return db { dbGeneration = dbGeneration db + 1
               , loadErrors = sortOn (\(src, p, _) -> (src, p)) (errors ++ fileErrors)
               , sourceFiles = files
               , pagesIndex = newIndex
-              , searchEngine = insertDocs inserted searchEngineClean }
+              , searchEngine = newEngine
+              , pageKeywords = keywords }
   where
     -- TODO : gérer des conditions de rechargement
     -- getCondition = return False
@@ -359,7 +367,8 @@ emptyPagesDB md cmc sc =
             , sourceFiles = M.empty
             -- , lastUpdate = oldDate
             , pagesIndex = DI.empty pageUID (pageExtractKeys cmc)
-            , searchEngine = initPageSearchEngine }
+            , searchEngine = initPageSearchEngine
+            , pageKeywords = M.empty }
 
 
 pageExtractKeys :: [CustomMetaConfig] -> [DI.Field Page MetaField DocIndexKey]
