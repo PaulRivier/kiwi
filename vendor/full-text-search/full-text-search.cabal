@@ -1,7 +1,7 @@
 cabal-version: 3.0
 
 name: full-text-search
-version: 0.2.2.3
+version: 0.2.2.3.1
 synopsis: In-memory full text search engine
 
 description:
@@ -87,7 +87,8 @@ library
                        Data.SearchEngine.DocFeatVals,
                        Data.SearchEngine.TermBag,
                        Data.SearchEngine.DocTermIds,
-                       Data.SearchEngine.DocIdSet
+                       Data.SearchEngine.DocIdSet,
+                       Data.SearchEngine.Stats
   hs-source-dirs:      src
   other-extensions:    BangPatterns,
                        NamedFieldPuns,

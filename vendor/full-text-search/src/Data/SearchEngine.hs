@@ -33,6 +33,11 @@ module Data.SearchEngine (
     Explanation(..),
     setRankParams,
 
+    -- * Index statistics (added for Kiwi)
+    TermStats(..),
+    documentCount,
+    documentTermStats,
+
     -- * Internal sanity check
     invariant,
   ) where
@@ -41,4 +46,5 @@ import Data.SearchEngine.Types
 import Data.SearchEngine.Update
 import Data.SearchEngine.Query
 import Data.SearchEngine.Autosuggest
+import Data.SearchEngine.Stats
 

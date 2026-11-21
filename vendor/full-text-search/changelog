@@ -1,3 +1,7 @@
+Kiwi copy (vendor/full-text-search)
+	* Add Data.SearchEngine.Stats: documentCount, documentTermStats,
+	  TermStats (statistics of the index for TF-IDF)
+
 0.2.2.3 Ben Gamari <ben@well-typed.com> January 2025
 	* Introduce compatibility with GHCs up to 9.12
 	* Drop compatibility with GHC versions pre-9.2
