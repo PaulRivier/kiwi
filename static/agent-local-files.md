@@ -2,7 +2,9 @@
 
 Only if you have a shell and the environment variable KIWI_API_TOKEN holds
 your API token. Never write the token itself in a command. curl 7.87 or
-later.
+later. Run each curl command alone, in the current folder, as written below
+(no `cd`, no `&&`, `;` or `|`): a permission rule on the address of the kiwi
+then allows it without asking the user.
 
 1. Download the text of the page (header and content) to a file; the
    command prints the ETag of the page, keep it:
