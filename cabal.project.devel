@@ -9,3 +9,8 @@ optimization: 0
 -- remain shared with every other builds and projects
 package *
   optimization: 1
+
+-- vendor/full-text-search is a local package, so it would be built at -O0
+-- as kiwi: the index of the pages would then take seconds to build
+package full-text-search
+  optimization: 1
