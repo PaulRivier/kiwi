@@ -32,10 +32,10 @@ keywordsSpec = do
           , ("titr", 3) ]      -- once, but also in a heading
     bestTerms 10 docs weights `shouldBe` ["menth", "glac", "titr", "sucr"]
 
-  it "gives at most 10 terms, by text on a tie, none for a page without terms" $ do
-    let same = M.fromList [ (T.pack [c], 2) | c <- "lkjihgfedcba" ]
+  it "gives at most maxKeywords terms, by text on a tie, none for a page without terms" $ do
+    let same = M.fromList [ (T.pack [c], 2) | c <- reverse ['a' .. 'z'] ]
         docs = M.map (const 1) same
-    bestTerms 10 docs same `shouldBe` map (T.pack . (: [])) (take maxKeywords "abcdefghij")
+    bestTerms 10 docs same `shouldBe` map (T.pack . (: [])) (take maxKeywords ['a' .. 'z'])
     bestTerms 10 M.empty M.empty `shouldBe` []
     bestTerms 10 (M.fromList [("x", 1)]) (M.fromList [("x", 1)]) `shouldBe` []
 

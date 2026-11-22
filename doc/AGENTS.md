@@ -32,7 +32,7 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   (`show=title,tags,summary,keywords,lang,modified,content_size,content_lines,links,backlinks`
   and custom fields by their name), written as in a header.
   `content_size` and `content_lines`: the characters and lines of its
-  content, without the header. `keywords`: at most 10 terms that tell
+  content, without the header. `keywords`: at most 20 terms that tell
   the page from the others (TF-IDF on the whole wiki: occurrences in
   the content, the title and the headings, rarity in the other pages),
   as written in the page, the best first, computed again at each load,

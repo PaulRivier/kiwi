@@ -26,7 +26,7 @@ import           Kiwi.Types
 
 -- | At most this number of keywords by page
 maxKeywords :: Int
-maxKeywords = 10
+maxKeywords = 20
 
 -- | A term is a keyword when its score is at least this part of the best
 -- score of the page: a short page has fewer keywords, rather than common
