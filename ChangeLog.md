@@ -19,7 +19,8 @@
   characters, unless `part=whole`; the search results and the lists give
   the size of the pages, `content_size` and `content_lines`, and with
   `show=keywords`, by default in the MCP tools, the keywords of the pages:
-  terms computed from the statistics of the search engine, TF-IDF), `/api/page/SOURCE/UID/meta` and `/api/guide` (topics
+  terms computed from the text of the pages, TF-IDF, stop words of
+  French, English and Spanish left out), `/api/page/SOURCE/UID/meta` and `/api/guide` (topics
   `wiki`, `metadata-scripts`), in compact text, with API tokens (`kiwi access --token`,
   `--revoke-tokens`; an admin logged in on the web can also read the `GET`
   routes in the browser). New `agent-guide` setting: a file of

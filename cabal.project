@@ -1,13 +1,10 @@
 -- vendor/snowball-c: bindings to the Snowball stemmers (bundled C sources)
--- vendor/full-text-search: full-text-search 0.2.2.3 of Hackage, with the
--- statistics of the index (Data.SearchEngine.Stats, for the keywords)
 packages: .
           vendor/snowball-c
-          vendor/full-text-search
 
 import: stackage/lts-24.56.config
 with-compiler: ghc-9.10.3
 
 -- Packages not in the Stackage snapshot.
-constraints: full-text-search ==0.2.2.3.1
+constraints: full-text-search ==0.2.2.3
 

@@ -34,7 +34,7 @@ import           Text.Printf (printf)
 import           Kiwi.Edit (writePageFile)
 import qualified Kiwi.Files as Files
 import qualified Kiwi.Git as Git
-import           Kiwi.Keywords (pagesKeywords, readKeywords)
+import           Kiwi.Keywords (pagesKeywords)
 import qualified Kiwi.Log as L
 import           Kiwi.Meta (isValidUid, uidFromBytes, writePage)
 import           Kiwi.Search
@@ -139,15 +139,10 @@ updatePagesDB logger' git contentDir' db = do
     -- they are an issue of the content, not of the server
         newEngine = insertDocs inserted searchEngineClean
     -- the keywords of every page, as they depend on the other pages, in a
-    -- thread of their own (see 'pageKeywords'); the words of the keywords of
-    -- the pages that were not loaded again are kept (those of the previous
-    -- load, waited for if they are not ready yet)
+    -- thread of their own (see 'pageKeywords')
     keywords <- newEmptyMVar
     _ <- forkIO $ do
-      r <- try $ timeIO $ do
-        previous <- readKeywords db
-        evaluate $ pagesKeywords newEngine (M.withoutKeys previous (S.fromList removedUIDs))
-                                 (DI.documentsList newIndex)
+      r <- try $ timeIO $ evaluate $ pagesKeywords (DI.documentsList newIndex)
       case r of
         Right (ks, t) -> do
           putMVar keywords ks

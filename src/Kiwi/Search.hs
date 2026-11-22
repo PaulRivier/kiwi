@@ -11,14 +11,16 @@ module Kiwi.Search (
   , explainPages
   , termFields
   , extractTerms
-  , writtenTerms
+  , writtenWords
+  , wordStems
+  , tokenize
   , wordsTerms
   , alg
   ) where
 
 -- import           Data.Text.ICU.Char
 -- import           Data.Text.ICU.Normalize2
-import Data.Char (generalCategory, GeneralCategory(NonSpacingMark),
+import Data.Char (generalCategory, GeneralCategory(NonSpacingMark), isAscii,
                   isPunctuation, isSpace, isSymbol)
 import Data.List (find, findIndex, groupBy, nub)
 import Data.Function (on)
@@ -219,19 +221,22 @@ extractTerms lg = map stripAccents .
 tokenize :: T.Text -> [T.Text]
 tokenize = filter (not . T.null) .
            T.split isBreak .
-           normalize NFC .
+           nfc .
            T.toLower
 
 -- | Characters between the words (see 'tokenize')
 isBreak :: Char -> Bool
 isBreak c = isSpace c || isPunctuation c || isSymbol c
 
--- | Terms of a text as 'extractTerms' gives them, each one with the word it
--- comes from, as written (case and accents kept): the words of the keywords
--- (see "Kiwi.Keywords")
-writtenTerms :: Algorithm -> T.Text -> [(T.Text, T.Text)]
-writtenTerms lg t = zip (map stripAccents $ stems lg $ map (normalize NFC . T.toLower) ws) ws
-  where ws = filter (not . T.null) $ T.split isBreak $ normalize NFC t
+-- | Words of a text as written (case and accents kept, NFC), split as by
+-- 'tokenize': the words of the keywords (see "Kiwi.Keywords")
+writtenWords :: T.Text -> [T.Text]
+writtenWords = filter (not . T.null) . T.split isBreak . nfc
+
+-- | The term of each word of 'writtenWords', as 'extractTerms' gives it,
+-- with a single stemmer
+wordStems :: Algorithm -> [T.Text] -> [T.Text]
+wordStems lg = map stripAccents . stems lg . map (nfc . T.toLower)
 
 -- tokenizeText :: S.Set Char -> T.Text -> [T.Text]
 -- tokenizeText brk = filter (not . T.null) .
@@ -242,10 +247,16 @@ writtenTerms lg t = zip (map stripAccents $ stems lg $ map (normalize NFC . T.to
 
 
 
+-- | Text in NFC (an ASCII text is: most words and many pages)
+nfc :: T.Text -> T.Text
+nfc t | T.all isAscii t = t
+      | otherwise = normalize NFC t
+
 -- | Text without its accents (also used to sort texts, with T.toLower)
 stripAccents :: T.Text -> T.Text
-stripAccents = T.filter ((/= NonSpacingMark) . generalCategory) .
-                normalize NFD
+stripAccents t
+  | T.all isAscii t = t  -- most words: no normalization
+  | otherwise = T.filter ((/= NonSpacingMark) . generalCategory) $ normalize NFD t
 
 -- normalizeText :: T.Text -> T.Text
 -- normalizeText = T.filter (not . property Diacritic) .

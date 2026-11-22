@@ -22,7 +22,6 @@ module Kiwi.Types
   , Access
   , Page(..)
   , PageUID
-  , Keyword(..)
   , TagId
   , TagSegments
   , PandocPage(..)
@@ -189,7 +188,7 @@ data PagesDB =
           -- answers without waiting for them; the box is filled once they are
           -- ready, and read with 'Kiwi.Keywords.readKeywords' (which waits for
           -- them); none for a database that was not loaded
-          , pageKeywords :: Maybe (MVar (M.Map PageUID [Keyword])) }
+          , pageKeywords :: Maybe (MVar (M.Map PageUID [T.Text])) }
 
 
 data MetaField = FieldSource
@@ -267,11 +266,6 @@ data Page =
 
 type PageUID = (T.Text, T.Text) -- ^ (source, uid), unique
 
--- | A keyword of a page (see "Kiwi.Keywords"): a term of the search engine
--- (a stem), and the word that gives it the most often in the page, as
--- written there
-data Keyword = Keyword { kwStem :: !T.Text, kwWord :: !T.Text }
-  deriving (Show, Eq)
 -- type PageSet = S.Set Page
 type TagId = T.Text
 type TagSegments = [TagId]

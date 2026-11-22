@@ -144,14 +144,14 @@ apiPages = withSelection ["limit", "show"] $ \db pages ->
 
 -- | The keywords of the pages when they are shown (waiting for them if they
 -- are not computed yet, see 'K.pageKeywords'), none otherwise
-shownKeywords :: K.PagesDB -> [T.Text] -> ActM (M.Map K.PageUID [K.Keyword])
+shownKeywords :: K.PagesDB -> [T.Text] -> ActM (M.Map K.PageUID [T.Text])
 shownKeywords db shown
   | "keywords" `elem` shown = Scotty.liftIO (readKeywords db)
   | otherwise = return M.empty
 
 -- | The fields of a page that the index gives (see 'apiPages'): "links",
 -- "backlinks" and "keywords" (see "Kiwi.Keywords", 'shownKeywords')
-extraField :: K.PagesDB -> M.Map K.PageUID [K.Keyword] -> K.Page -> T.Text -> Maybe T.Text
+extraField :: K.PagesDB -> M.Map K.PageUID [T.Text] -> K.Page -> T.Text -> Maybe T.Text
 extraField db kws p f =
       let idx = K.pagesIndex db
           exists uid = maybe False (const True) $ DI.findDoc idx uid

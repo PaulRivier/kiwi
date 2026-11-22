@@ -22,6 +22,8 @@ extra-source-files:
     README.md
     static/*.md
     static/*.default
+    static/stopwords/*.txt
+    static/stopwords/LICENSE
     static/themes/**/*.css
     static/themes/**/*.js
     static/themes/**/*.svg
