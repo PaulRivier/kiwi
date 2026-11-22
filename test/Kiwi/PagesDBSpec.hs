@@ -4,7 +4,7 @@ import           Control.Exception (IOException, finally, try)
 import           Data.Either (isRight)
 import qualified Data.ByteString as BS
 import           Control.Monad (forM_, when)
-import           Data.IORef (modifyIORef, newIORef, readIORef)
+import           Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import           Data.List (find, sort)
 import qualified Data.Map.Strict as M
 import qualified Data.SearchEngine as SE
@@ -19,6 +19,7 @@ import           Test.Hspec
 import           Kiwi.Auth (readableQuery)
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Files as Files
+import           Kiwi.Keywords (readKeywords)
 import qualified Kiwi.Log as L
 import qualified Kiwi.PagesDB as DB
 import           Kiwi.Search (queryTerms)
@@ -40,13 +41,15 @@ writeFileAt p sec c = do
                                         (Time.secondsToDiffTime sec))
 
 -- | The database updated by 'DB.updatePagesDB' (without git), and the
--- messages logged
+-- messages logged, once the keywords are computed (their message, written
+-- by their thread, left out)
 reloadDB :: FilePath -> PagesDB -> IO (PagesDB, [(L.LogLevel, T.Text)])
 reloadDB cd db = do
   logR <- newIORef []
-  db' <- DB.updatePagesDB (\lvl msg -> modifyIORef logR ((lvl, msg) :)) False cd db
+  db' <- DB.updatePagesDB (\lvl msg -> atomicModifyIORef' logR (\ms -> ((lvl, msg) : ms, ()))) False cd db
+  _ <- readKeywords db'
   msgs <- reverse <$> readIORef logR
-  return (db', msgs)
+  return (db', filter (not . T.isPrefixOf "TF-IDF finished" . snd) msgs)
 
 loadDB :: FilePath -> IO (PagesDB, [(L.LogLevel, T.Text)])
 loadDB cd = reloadDB cd (DB.emptyPagesDB defMeta [] [])

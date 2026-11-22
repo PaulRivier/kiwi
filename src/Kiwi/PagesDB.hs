@@ -144,13 +144,15 @@ updatePagesDB logger' git contentDir' db = do
     _ <- forkIO $ do
       r <- try $ timeIO $ evaluate $ pagesKeywords (DI.documentsList newIndex)
       case r of
+        -- logged before the box is filled: once the keywords are read, the
+        -- message is written
         Right (ks, t) -> do
-          putMVar keywords ks
           logger' L.Info $ T.pack $ "TF-IDF finished in " ++ printf "%.2f" t ++ "s"
+          putMVar keywords ks
         Left (e :: SomeException) -> do
+          logger' L.Error $ "unable to compute the keywords: " <> T.pack (show e)
           -- the readers must not wait for ever
           putMVar keywords M.empty
-          logger' L.Error $ "unable to compute the keywords: " <> T.pack (show e)
     return db { dbGeneration = dbGeneration db + 1
               , loadErrors = sortOn (\(src, p, _) -> (src, p)) (errors ++ fileErrors)
               , sourceFiles = files
