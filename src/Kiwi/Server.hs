@@ -19,7 +19,8 @@ import qualified Data.Text as T
 import qualified Network.HTTP.Types as Net
 import qualified Network.Wai as Wai
 import           Data.String (fromString)
-import           Network.Wai.Handler.Warp (setHost, setPort)
+import           Data.Version (showVersion)
+import           Network.Wai.Handler.Warp (setBeforeMainLoop, setHost, setPort)
 import           Network.Wai.Middleware.AddHeaders (addHeaders)
 import           Network.Wai.Middleware.Gzip (gzip, defaultGzipSettings)
 import           Network.Wai.Middleware.RequestLogger (DetailedSettings (..), OutputFormat (..),
@@ -42,19 +43,21 @@ import qualified Kiwi.PagesDB as DB
 import           Kiwi.Theme (serveTheme)
 import           Kiwi.Types
 import           Kiwi.Utils (timeIO)
+import           Paths_kiwi (version)
 
 
 -- | Serves a kiwi. Once its pages are loaded, the action that reloads it
 -- (see 'reloadKiwi') is given to the last argument, for the reload signal.
+-- Each step is logged once done: start, pages loaded, listening (and the
+-- keywords, see 'DB.updatePagesDB').
 kiwiServer :: FP.FilePath -> Conf.KiwiConfig -> L.LogLevel -> (IO () -> IO ()) -> IO ()
 kiwiServer cfp c logLevel onReload = do
   let logger' = L.mkLogger logLevel (Conf.name c)
+  logger' L.Info $ T.pack $ "Kiwi " ++ showVersion version ++ " starting"
   (ss, t) <- timeIO $ initServerState cfp c logger'
   onReload $ reloadKiwi ss
   nb <- DB.pagesCount <$> readIORef (pagesDB ss)
-  logger' L.Info $ T.pack $ concat [ nb, " pages loaded in ", printf "%.2f" t
-                                   , "s, listening on ", maybe "port " (++ ":") (Conf.bind c)
-                                   , show (Conf.port c) ]
+  logger' L.Info $ T.pack $ concat [ nb, " pages loaded in ", printf "%.2f" t, "s" ]
   -- HTTP requests are only logged in debug mode
   requestLogger <- mkRequestLogger defaultRequestLoggerSettings
     { outputFormat = DetailedWithSettings defaultDetailedSettings
@@ -64,7 +67,11 @@ kiwiServer cfp c logLevel onReload = do
       -- no scotty startup banner
       opts = defaultOptions { verbose = 0
                             , settings = maybe id (setHost . fromString) (Conf.bind c) $
-                                         setPort (Conf.port c) (settings defaultOptions) }
+                                         setPort (Conf.port c) $
+                                         setBeforeMainLoop listening (settings defaultOptions) }
+      -- once the socket is open
+      listening = logger' L.Info $ T.pack $ concat
+        [ "listening on ", maybe "port " (++ ":") (Conf.bind c), show (Conf.port c) ]
   api <- apiApp ss
   scottyOptsT opts runActionToIO $ do
     when (logLevel == L.Debug) $ middleware requestLogger

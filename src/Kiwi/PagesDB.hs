@@ -146,8 +146,7 @@ updatePagesDB logger' git contentDir' db = do
       case r of
         Right (ks, t) -> do
           putMVar keywords ks
-          logger' L.Debug $ T.pack $ concat
-            [ "keywords of ", show (M.size ks), " pages computed in ", printf "%.2f" t, "s" ]
+          logger' L.Info $ T.pack $ "TF-IDF finished in " ++ printf "%.2f" t ++ "s"
         Left (e :: SomeException) -> do
           -- the readers must not wait for ever
           putMVar keywords M.empty
