@@ -39,7 +39,7 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   as written in the page, the best first, fewer for a short page,
   computed again at each load, never written in the files (the tool
   `list_pages` gives the title, the summary, the size and the keywords
-  when no `show` is given). `links`: the
+  when no `show` is given, the uids alone with an empty `show`). `links`: the
   uids of the pages it links, with `(missing)` after a page that does
   not exist or can not be read (a broken link); `backlinks`: the uids of
   the pages that link it.

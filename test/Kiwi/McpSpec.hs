@@ -175,6 +175,10 @@ mcpSpec = do
     annStr <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\
                             \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":\"[\\\"author\\\"]\"}}}"
     liftIO $ (answer annStr >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n  title: Note\n  summary: A short note\n  content_size: 6\n  content_lines: 1\n  keywords: Note\n"
+    -- an empty show: the uids alone
+    uids <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\
+                          \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":[\"author\"],\"show\":[]}}}"
+    liftIO $ (answer uids >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n"
     e <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"edit_page\",\"arguments\":{\"page\":\"s/p\",\
                        \\"edits\":[{\"old\":\"Hello\",\"new\":\"Hi\"}]}}}"

@@ -17,7 +17,9 @@ only those it can write.
   short description written in its header, when it has one), its
   keywords (terms that tell it from the others, computed by the wiki)
   and its content_size: read only the pages that fit; a long page, its
-  outline, then a section. With show, ask for summary and keywords too.
+  outline, then a section. For a large selection (an inventory, a
+  metadata script), give list_pages only the fields needed in show, or
+  show [] for the uids alone, and a limit.
 - Change a page with edit_page: exact replacements, as many as needed in
   one call, each old text short but unique (a line number from read_page
   numbered helps to find them). write_page only for a deep rewrite.

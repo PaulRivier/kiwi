@@ -289,16 +289,18 @@ tools =
       "List the pages matching metadata, the most recently modified first: SOURCE/UID alone, \
       \and under each page the fields of show (title, tags, summary, keywords, lang, modified, \
       \content_size, content_lines, links, backlinks, custom fields), written as in a \
-      \header; title, summary, content_size, content_lines and keywords without show. summary: a \
+      \header; title, summary, content_size, content_lines and keywords without show (about 100 \
+      \tokens by page: to choose the pages to read), the uids alone with show []. summary: a \
       \short description of the page, written in its header (not every page has one). \
       \keywords: the terms that tell the page from the others, computed by the wiki. content_size and \
       \content_lines: the characters and lines of its content. links: the uids of the \
       \pages it links, \"(missing)\" after a page that does not exist (a broken link); \
       \backlinks: the uids of the pages that link it. Narrow the selection with facets \
-      \or search first. show [title, tags] gives an inventory; has_fields and show with a \
-      \custom field prepare a metadata script."
+      \or search first. For a large selection, ask only the fields needed: show [title, tags] \
+      \gives an inventory; has_fields and show with a custom field (or show [] and the uids) \
+      \prepare a metadata script."
       (selectionProps ++
-       [ ("show", stringsProp "Fields given under each page: title, tags, summary, keywords, lang, modified (day), content_size, content_lines, links, backlinks, custom fields.")
+       [ ("show", stringsProp "Fields given under each page: title, tags, summary, keywords, lang, modified (day), content_size, content_lines, links, backlinks, custom fields. [] for the uids alone; without it, title, summary, content_size, content_lines and keywords.")
        , ("limit", prop "integer" "Maximum number of pages (100 by default).") ])
       []
       (\o -> Right $ apiGet "/api/pages" (selectionParams o ++ listShow o ++ optional o ["limit"]))
@@ -453,11 +455,14 @@ selectionParams o =
   ++ optional o ["since"]
 
 -- | The "show" parameter of list_pages: the title, the summary, the size
--- and the keywords of the pages without the "show" argument
+-- and the keywords of the pages without the "show" argument (or null); an
+-- empty list gives the uids alone
 listShow :: A.Object -> [(T.Text, T.Text)]
-listShow o = case showParam o of
-  [] -> [("show", "title,summary,content_size,content_lines,keywords")]
-  ps -> ps
+listShow o = case KM.lookup "show" o of
+  Nothing -> defaults
+  Just A.Null -> defaults
+  Just _ -> showParam o
+  where defaults = [("show", "title,summary,content_size,content_lines,keywords")]
 
 -- | The "show" parameter of the "show" argument
 showParam :: A.Object -> [(T.Text, T.Text)]
