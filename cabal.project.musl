@@ -9,3 +9,11 @@ package *
   ghc-options:
     -optl-Wl,--gc-sections
     -optl-s
+
+-- the stemmers and the search engine build the index of the pages and the
+-- keywords at each load
+package snowball-c
+  optimization: 2
+
+package full-text-search
+  optimization: 2

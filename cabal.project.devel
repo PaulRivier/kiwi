@@ -10,7 +10,11 @@ optimization: 0
 package *
   optimization: 1
 
--- vendor/full-text-search is a local package, so it would be built at -O0
--- as kiwi: the index of the pages would then take seconds to build
+-- the stemmers and the search engine build the index of the pages and the
+-- keywords at each load: optimized, as the other dependencies (snowball-c
+-- is a local package, it would be built at -O0 as kiwi)
+package snowball-c
+  optimization: 1
+
 package full-text-search
   optimization: 1
