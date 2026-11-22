@@ -289,7 +289,7 @@ tools =
       "List the pages matching metadata, the most recently modified first: SOURCE/UID alone, \
       \and under each page the fields of show (title, tags, summary, keywords, lang, modified, \
       \content_size, content_lines, links, backlinks, custom fields), written as in a \
-      \header; summary, content_size, content_lines and keywords without show. summary: a \
+      \header; title, summary, content_size, content_lines and keywords without show. summary: a \
       \short description of the page, written in its header (not every page has one). \
       \keywords: the terms that tell the page from the others, computed by the wiki. content_size and \
       \content_lines: the characters and lines of its content. links: the uids of the \
@@ -452,11 +452,11 @@ selectionParams o =
   ++ [ ("page", p) | p <- texts o "pages" ]
   ++ optional o ["since"]
 
--- | The "show" parameter of list_pages: the summary, the size and the
--- keywords of the pages without the "show" argument
+-- | The "show" parameter of list_pages: the title, the summary, the size
+-- and the keywords of the pages without the "show" argument
 listShow :: A.Object -> [(T.Text, T.Text)]
 listShow o = case showParam o of
-  [] -> [("show", "summary,content_size,content_lines,keywords")]
+  [] -> [("show", "title,summary,content_size,content_lines,keywords")]
   ps -> ps
 
 -- | The "show" parameter of the "show" argument

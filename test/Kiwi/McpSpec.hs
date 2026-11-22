@@ -167,14 +167,14 @@ mcpSpec = do
     q <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"search\",\"arguments\":{\"query\":\"hello world\"}}}"
     liftIO $ fmap (T.isPrefixOf "1 page for hello world") (answer q >>= toolText) `shouldBe` Just True
-    -- the pages having a field, with their summary, size and keywords by default
+    -- the pages having a field, with their title, summary, size and keywords by default
     ann <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\
                          \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":[\"author\"]}}}"
-    liftIO $ (answer ann >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n  summary: A short note\n  content_size: 6\n  content_lines: 1\n  keywords: Note\n"
+    liftIO $ (answer ann >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n  title: Note\n  summary: A short note\n  content_size: 6\n  content_lines: 1\n  keywords: Note\n"
     -- a list sent as a string holding its JSON, as some clients do
     annStr <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\
                             \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":\"[\\\"author\\\"]\"}}}"
-    liftIO $ (answer annStr >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n  summary: A short note\n  content_size: 6\n  content_lines: 1\n  keywords: Note\n"
+    liftIO $ (answer annStr >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n  title: Note\n  summary: A short note\n  content_size: 6\n  content_lines: 1\n  keywords: Note\n"
     e <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"edit_page\",\"arguments\":{\"page\":\"s/p\",\
                        \\"edits\":[{\"old\":\"Hello\",\"new\":\"Hi\"}]}}}"

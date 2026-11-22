@@ -38,8 +38,8 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   the content, the title and the headings, rarity in the other pages),
   as written in the page, the best first, fewer for a short page,
   computed again at each load, never written in the files (the tool
-  `list_pages` gives the summary, the size and the keywords when no
-  `show` is given). `links`: the
+  `list_pages` gives the title, the summary, the size and the keywords
+  when no `show` is given). `links`: the
   uids of the pages it links, with `(missing)` after a page that does
   not exist or can not be read (a broken link); `backlinks`: the uids of
   the pages that link it.
