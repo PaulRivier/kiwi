@@ -13,10 +13,11 @@ only those it can write.
   give synonyms); facets to explore a subject step by step, then
   list_pages. Search before writing: enrich a page rather than create a
   close one.
-- Read little: search and list_pages give the keywords of each page
-  (terms that tell it from the others, computed by the wiki) and its
-  content_size: read only the pages that fit; a long page, its outline,
-  then a section.
+- Read little: search and list_pages give the summary of each page (a
+  short description written in its header, when it has one), its
+  keywords (terms that tell it from the others, computed by the wiki)
+  and its content_size: read only the pages that fit; a long page, its
+  outline, then a section. With show, ask for summary and keywords too.
 - Change a page with edit_page: exact replacements, as many as needed in
   one call, each old text short but unique (a line number from read_page
   numbered helps to find them). write_page only for a deep rewrite.
