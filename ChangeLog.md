@@ -1,6 +1,9 @@
 # ChangeLog for Kiwi
 
-## Unreleased
+## v0.4.5.0 - 2026-11-22
+
+This release is mostly about AI agents tooling to interact with Kiwi. Since this space evolves fast
+and since I am not an AI agent myself, an AI coding agent was involved in the design. It seems to work well for most things.
 
 - The `root-tag` setting of the `[source NAME]` sections is removed: the
   tags of the pages are those of their header. The key is ignored in an
