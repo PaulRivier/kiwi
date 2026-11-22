@@ -15,7 +15,7 @@ import qualified System.FilePath as FP
 import           Test.Hspec
 
 import qualified Kiwi.Auth as Auth
-import           Kiwi.Mcp (ApiRequest (..), handleMessage, instructionsLimit, instructionsText)
+import           Kiwi.Mcp (ApiRequest (..), handleMessage, instructions)
 import           Kiwi.Types
 import           TestUtils
 
@@ -36,10 +36,11 @@ mcpSpec = do
         answers <- handleMessage (backend calls) (BLC.pack msg)
         (,) answers . reverse <$> readIORef calls
 
-  it "initializes with the guide as instructions, in the version of the client" $ do
+  it "initializes with short instructions (the guide read with its tool), in the version of the client" $ do
     (Just a, _) <- run "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\
                     \\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{}}}"
-    (result a >>= field "instructions") `shouldBe` Just (A.String "the guide")
+    (result a >>= field "instructions") `shouldBe` Just (A.String instructions)
+    instructions `shouldSatisfy` T.isInfixOf "call the tool guide first"
     (result a >>= field "protocolVersion") `shouldBe` Just (A.String "2025-03-26")
     field "id" a `shouldBe` Just (A.Number 1)
 
@@ -68,13 +69,6 @@ mcpSpec = do
     hintsOf "create_page" `shouldBe` Just (Just (A.String "Create a page"), Just (A.Bool False), Just (A.Bool False))
     hintsOf "edit_page" `shouldBe` Just (Just (A.String "Edit a page"), Just (A.Bool False), Just (A.Bool True))
     hintsOf "check_metadata" `shouldBe` Just (Just (A.String "Check a metadata script"), Just (A.Bool True), Nothing)
-
-  it "cuts the instructions at the end of a line, to fit the clients" $ do
-    instructionsText "short" `shouldBe` "short"
-    let long = T.unlines (replicate 500 "0123456789")
-        cut = instructionsText long
-    T.length cut `shouldSatisfy` (<= instructionsLimit)
-    cut `shouldSatisfy` T.isSuffixOf "0123456789\n\n(cut: the tool guide gives the rest)\n"
 
   it "checks a metadata script with check_metadata, and applies it with edit_metadata" $ do
     (_, checks) <- run "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\
@@ -155,8 +149,11 @@ mcpSpec = do
     liftIO $ status' i `shouldBe` 200
     liftIO $ lookup "Content-Type" (WT.simpleHeaders i)
                `shouldSatisfy` maybe False ("application/json" `BLC.isPrefixOf`) . fmap BLC.fromStrict
-    liftIO $ fmap (T.isInfixOf "Be kind") (answer i >>= result >>= field "instructions" >>= str)
-               `shouldBe` Just True
+    liftIO $ (answer i >>= result >>= field "instructions" >>= str) `shouldBe` Just instructions
+    -- the guide of the user, with the tool guide
+    g <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\
+                       \\"name\":\"guide\",\"arguments\":{}}}"
+    liftIO $ fmap (T.isSuffixOf "Be kind\n") (answer g >>= toolText) `shouldBe` Just True
     n <- post token [("MCP-Protocol-Version", "2025-06-18")]
               "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
     liftIO $ (status' n, WT.simpleBody n) `shouldBe` (202, "")

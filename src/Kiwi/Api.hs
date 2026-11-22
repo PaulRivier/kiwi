@@ -10,7 +10,7 @@ module Kiwi.Api
   , apiPage
   , apiPageMeta
   , apiGuide
-  , guideText
+  -- , guideText  -- used by the start warning of the long guides, commented out
   , apiSearch
   , apiPutPage
   , apiPatchPage

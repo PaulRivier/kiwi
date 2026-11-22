@@ -76,11 +76,8 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   *kiwi.ini* (relative to the folder of *kiwi.ini*, or absolute; read
   again at each request; the server does not start if it can not be
   read). `topic=metadata-scripts` gives the syntax of the metadata
-  scripts. It is also given to the MCP agents when they connect, cut at
-  4096 characters (Claude Code cuts the instructions of a server there):
-  keep your guide short, about 2000 characters at most; when it is too
-  long, the log says so at the start, and the agents read the rest with
-  the tool `guide`. Kiwi has
+  scripts. The MCP agents read it with the tool `guide`, once in a
+  session, when you talk about kiwi (see below). Kiwi has
   no syntax of its own for the requests left to the agents in the pages:
   agree on a convention in your guide, for instance a field
   `status: claude:todo` in the header of the pages to handle (declared as
@@ -139,9 +136,12 @@ calls the API, with the rights of the account. Each tool has a title and
 the hints of what it does: `readOnlyHint` for the tools that only read
 (Claude Code runs them in parallel), `destructiveHint` for those that
 change what exists. `check_metadata` only checks a metadata script, so
-that you can allow it without allowing `edit_metadata`. The agent gets
-the guide of `/api/guide` when it connects, cut at 4096 characters (see
-above). Nothing runs on the side of the agent.
+that you can allow it without allowing `edit_metadata`. When it
+connects, the agent gets only three lines of instructions, in the
+context of every session (what kiwi is, and to call the tool `guide`
+first when you talk about kiwi), so that a seldom used wiki costs
+almost nothing; it reads the guide of `/api/guide` with that tool, and
+the tools that write remind it to. Nothing runs on the side of the agent.
 
 Claude Code (and the Code tab of Claude Desktop, which reads the same
 settings):

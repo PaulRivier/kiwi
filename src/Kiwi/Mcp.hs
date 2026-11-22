@@ -5,16 +5,14 @@
 -- translates.
 --
 -- The protocol: JSON-RPC 2.0, one message by POST, the answer in JSON
--- (neither SSE nor session). Requests answered: initialize (with the guide
--- of the API as instructions, cut to fit the clients, see
--- 'instructionsText'), ping, tools/list, tools/call; the notifications are
--- ignored.
+-- (neither SSE nor session). Requests answered: initialize (with short
+-- instructions, see 'instructions': the agent reads the guide with the tool
+-- guide), ping, tools/list, tools/call; the notifications are ignored.
 module Kiwi.Mcp
   ( handleMessage
   , appBackend
   , protocolVersions
-  , instructionsLimit
-  , instructionsText  -- exported for tests
+  , instructions     -- exported for tests
   , Backend        -- exported for tests
   , ApiRequest (..)  -- exported for tests
   ) where
@@ -106,13 +104,12 @@ request backend method params = case method of
         v = case asked of
               Just a | a `elem` protocolVersions -> a
               _ -> latestVersion
-    (st, _, guide) <- backend (apiGet "/api/guide" [])
-    return $ Right $ A.object $
+    return $ Right $ A.object
       [ "protocolVersion" .= v
       , "capabilities" .= A.object ["tools" .= A.object []]
       , "serverInfo" .= A.object [ "name" .= ("kiwi" :: T.Text)
-                                 , "version" .= showVersion version ] ]
-      ++ [ "instructions" .= instructionsText guide | st == 200 ]
+                                 , "version" .= showVersion version ]
+      , "instructions" .= instructions ]
   "ping" -> return $ Right $ A.object []
   "tools/list" -> return $ Right $ A.object ["tools" .= map toolJson tools]
   "tools/call" -> case AT.parseMaybe callParser params of
@@ -132,25 +129,36 @@ request backend method params = case method of
     callParser = A.withObject "params" $ \o ->
       (,) <$> o .: "name" <*> (fromMaybe KM.empty <$> o .:? "arguments")
 
--- | Largest instructions given to the clients, in characters: Claude Code
--- cuts the instructions of a server after 4096 characters
-instructionsLimit :: Int
-instructionsLimit = 4096
+-- | The instructions of the server, in the context of every session of
+-- the agents: short, as the wiki is seldom used; the agent reads the guide
+-- (of the API and of the user) with the tool guide
+instructions :: T.Text
+instructions =
+  "Kiwi is the wiki of the user: Markdown pages in sources, with tags, links and \
+  \metadata. When the user talks about kiwi, call the tool guide first, before any \
+  \other kiwi tool."
 
--- | The instructions of the server, from the guide: the guide whole when it
--- holds in 'instructionsLimit' characters, else its first lines, cut at the
--- end of a line, followed by a note (the tool guide gives it whole)
-instructionsText :: T.Text -> T.Text
-instructionsText g
-  | T.length g <= instructionsLimit = g
-  | otherwise =
-      let start = T.take (instructionsLimit - T.length cutNote) g
-          kept = case T.breakOnEnd "\n" start of
-                   ("", _) -> start
-                   (upToLine, _) -> upToLine
-      in kept <> cutNote
-  where
-    cutNote = "\n(cut: the tool guide gives the rest)\n"
+-- The guide given whole as instructions, cut to fit the clients: replaced
+-- by the short 'instructions' (2026-11-22).
+-- -- | Largest instructions given to the clients, in characters: Claude Code
+-- -- cuts the instructions of a server after 4096 characters
+-- instructionsLimit :: Int
+-- instructionsLimit = 4096
+--
+-- -- | The instructions of the server, from the guide: the guide whole when it
+-- -- holds in 'instructionsLimit' characters, else its first lines, cut at the
+-- -- end of a line, followed by a note (the tool guide gives it whole)
+-- instructionsText :: T.Text -> T.Text
+-- instructionsText g
+--   | T.length g <= instructionsLimit = g
+--   | otherwise =
+--       let start = T.take (instructionsLimit - T.length cutNote) g
+--           kept = case T.breakOnEnd "\n" start of
+--                    ("", _) -> start
+--                    (upToLine, _) -> upToLine
+--       in kept <> cutNote
+--   where
+--     cutNote = "\n(cut: the tool guide gives the rest)\n"
 
 toolResult :: Bool -> T.Text -> A.Value
 toolResult isError txt = A.object
@@ -334,7 +342,7 @@ tools =
                      , if isJust' etag || isJust' range then "---\n" else ""
                      , body ])
   , Tool "edit_page" "Edit a page" Destructive
-      "Change a page by replacing exact passages of its text (as read_page gives it, without \
+      "Call guide first if not done in this session. Change a page by replacing exact passages of its text (as read_page gives it, without \
       \line numbers): each old text must be found exactly once in the page, copied exactly, \
       \with enough of the text around it to be unique; it is replaced by the new text. To \
       \insert, give a line as old text, and this line followed by the new lines as new text. \
@@ -359,7 +367,7 @@ tools =
                      (TE.decodeUtf8 $ BL.toStrict $ A.encode $ A.object ["edits" .= edits]))
       asIs
   , Tool "write_page" "Rewrite a page" Destructive
-      "Replace the whole text of a page (header and content). Only for a deep rewrite: \
+      "Call guide first if not done in this session. Replace the whole text of a page (header and content). Only for a deep rewrite: \
       \prefer edit_page. Give the hash that read_page gave: the write is refused if the page \
       \changed since."
       [ ("page", prop "string" "The page, as SOURCE/UID.")
@@ -375,7 +383,7 @@ tools =
                      [("If-Match", "\"" <> h <> "\"")] t)
       asIs
   , Tool "create_page" "Create a page" Additive
-      "Create a page in a source, from its text: header (title, tags, summary...), a blank \
+      "Call guide first if not done in this session. Create a page in a source, from its text: header (title, tags, summary...), a blank \
       \line, then its content in CommonMark. Kiwi gives it its uid (in the answer, as \
       \SOURCE/UID). Search before creating: do not duplicate an existing page. The file is \
       \named after the title; admins may give its path (the folders: facets, show folder)."
@@ -390,7 +398,7 @@ tools =
           return $ ApiRequest "POST" ("/api/pages/" <> s) (optional o ["path", "message"]) [] t)
       asIs
   , Tool "edit_metadata" "Apply a metadata script" Destructive
-      "Change the metadata (headers) of many pages at once, with a script: one line by \
+      "Call guide first if not done in this session. Change the metadata (headers) of many pages at once, with a script: one line by \
       \directive or command, all of them applied or none, in one commit. A `pages` line chooses \
       \the pages of the commands after it: `pages SOURCE/*` (a source), `pages SOURCE/UID,SOURCE/UID` \
       \(pages), `pages *` (everything). Commands: `meta FIELD move OLD NEW`, `meta FIELD delete VALUE` \
@@ -418,7 +426,7 @@ tools =
       asIs
   , Tool "guide" "Guide of the wiki" ReadOnly
       "Documentation of the wiki for the agents, by topic: wiki (the guide of the wiki and \
-      \the guide of the user, whole, when the instructions were cut), metadata-scripts (the \
+      \the guide of the user: read it first, once in the session), metadata-scripts (the \
       \syntax of the scripts of edit_metadata, with examples)."
       [ ("topic", A.object [ "type" .= ("string" :: T.Text)
                            , "enum" .= (["wiki", "metadata-scripts"] :: [T.Text])

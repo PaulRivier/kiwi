@@ -41,10 +41,12 @@
   a title and the hints of what it does (`readOnlyHint`,
   `destructiveHint`); `check_metadata` checks a metadata script, which
   `edit_metadata` applies; the tool `guide` gives the documentation by
-  topic. The instructions given at the connection (the documentation, then
-  your agent guide) are cut at 4096 characters, as Claude Code does, at
-  the end of a line, with a warning in the log at the start when they are
-  longer. `scripts/kiwi-mcp-bridge.py` is a stdio bridge for the agents that
+  topic. The instructions given at the connection are three lines, in the
+  context of every session of the agent (what kiwi is, and to call the tool
+  `guide` first when you talk about kiwi): the documentation and your agent
+  guide cost nothing until the wiki is used. `list_pages` gives the title,
+  summary, size and keywords of the pages without `show`, the uids alone
+  with an empty `show`. `scripts/kiwi-mcp-bridge.py` is a stdio bridge for the agents that
   need one (Chat tab of Claude Desktop). The agents change the pages with
   `edit_page` and `write_page`; working on a page as a local file with curl
   is left to your agent guide (see *doc/AGENTS.md*).
