@@ -19,9 +19,10 @@ only those it can write.
   and its content_size: read only the pages that fit; a long page, its
   outline, then a section. For a large selection (an inventory, a
   metadata script), give list_pages only the fields needed in show, or
-  show [] for the uids alone, and a limit. show [related] gives the
-  pages closest to a page (keywords, tags): to find what to link or
-  merge.
+  show [] for the uids alone, and a limit.
+- Related pages: list_pages with pages [SOURCE/UID] and show [related]
+  gives the pages closest to that page (common keywords, tags): to find
+  what to link, compare or merge.
 - Change a page with edit_page: exact replacements, as many as needed in
   one call, each old text short but unique (a line number from read_page
   numbered helps to find them). write_page only for a deep rewrite.
