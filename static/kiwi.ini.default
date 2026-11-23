@@ -53,7 +53,7 @@ lang: english
 # page, and for the agents).
 # relating: the weight of the field to find the related pages of a page
 # (shown at the bottom of the pages), pages with the same value being
-# closer: a number, as the keywords weigh 1 and the tags 2; 0 by default,
+# closer: a number, as the keywords weigh 3 and the tags 5; 0 by default,
 # the field is left out.
 
 # [metadata category]

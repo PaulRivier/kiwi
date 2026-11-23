@@ -46,15 +46,15 @@ relatedIndexOf config kws pages =
     features = M.fromList [ (pageUID p, pageFeatures relating kws p) | p <- pages ]
 
 -- | The features of a page with their weight, which depends on the kind of
--- feature only: keywords 1, tags 2 (each tag and its parents: @a > b@ gives
+-- feature only: keywords 3, tags 5 (each tag and its parents: @a > b@ gives
 -- @a@ and @a > b@), values of the relating custom fields their weight
 -- (given by field name)
 pageFeatures :: M.Map T.Text Double -> M.Map PageUID [Keyword] -> Page -> Features
 pageFeatures relating kws p = Features weights (sum $ map (^ (2 :: Int)) $ M.elems weights)
   where
     weights = M.fromList $
-         [ (FKeyword (keywordStem k), 1) | k <- M.findWithDefault [] (pageUID p) kws ]
-      ++ [ (FTag (segmentsToTag s), 2) | t <- pageTags p, s <- tagSubSegments t ]
+         [ (FKeyword (keywordStem k), 3) | k <- M.findWithDefault [] (pageUID p) kws ]
+      ++ [ (FTag (segmentsToTag s), 5) | t <- pageTags p, s <- tagSubSegments t ]
       ++ [ (FCustom (cmdName c) k, w) | c <- pageCustomMeta p, Just w <- [M.lookup (cmdName c) relating]
                                       , k <- cmdKeys c ]
 

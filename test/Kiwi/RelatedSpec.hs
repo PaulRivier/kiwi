@@ -42,8 +42,9 @@ relatedSpec = do
         q = tagged "q" [] [author]
         r = tagged "r" ["a", "b"] []
         cfg w = [CustomMetaConfig "author" CmtText 1 Nothing w]
-    related (cfg 1) M.empty p [p, q, r] `shouldBe` ["r", "q"]
-    related (cfg 5) M.empty p [p, q, r] `shouldBe` ["q", "r"]
+    -- the tags weigh 5
+    related (cfg 3) M.empty p [p, q, r] `shouldBe` ["r", "q"]
+    related (cfg 10) M.empty p [p, q, r] `shouldBe` ["q", "r"]
     related (cfg 0) M.empty p [p, q, r] `shouldBe` ["r"]
 
   it "keeps at most maxRelated pages, the closest first, and not the far ones" $ do
