@@ -54,6 +54,7 @@ pageSearchConfig =
     extractTokens p TitleField   = extractTerms (alg $ pageLang p) $ pageTitle p
     extractTokens p TagsField    = concatMap (extractTerms (alg $ pageLang p)) $
                                    pageTags p
+    extractTokens p SummaryField = maybe [] (extractTerms (alg $ pageLang p)) $ pageSummary p
     extractTokens p ContentField = extractTerms (alg $ pageLang p) $ pagePlainText p
 
     -- the tags are indexed word by word, without the term "[tag]" of before:
@@ -102,6 +103,7 @@ explainPages se terms =
 termFields :: Page -> [T.Text] -> [PageField]
 termFields p terms =
   [ f | (f, ts) <- [ (TitleField, pageTitle p), (TagsField, T.unwords $ pageTags p)
+                   , (SummaryField, fromMaybe "" $ pageSummary p)
                    , (ContentField, pagePlainText p) ]
       , any (`elem` terms) (extractTerms (alg $ pageLang p) ts) ]
 
@@ -323,6 +325,7 @@ defaultSearchRankParameters =
     paramB :: PageField -> Float
     paramB TitleField       = 0.3
     paramB TagsField        = 0.2
+    paramB SummaryField     = 0.3
     paramB ContentField     = 0.7
 
     -- weight of the fields. It multiplies the term frequency before the
@@ -332,6 +335,7 @@ defaultSearchRankParameters =
     paramFieldWeights :: PageField -> Float
     paramFieldWeights TitleField   = 10
     paramFieldWeights TagsField    = 5
+    paramFieldWeights SummaryField = 3
     paramFieldWeights ContentField = 1
 
 

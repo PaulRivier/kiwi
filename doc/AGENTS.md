@@ -46,7 +46,7 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
 * `GET /api/search?q=QUERY` : full-text search for the agents. The pages
   that contain any of the words, those with the most of them first, each
   one with its size (`content_size`, `content_lines`), the words it
-  contains, where (title, tags, content), its
+  contains, where (title, tags, summary, content), its
   summary and up to three passages (lines with their section, or
   headings); the first line names the words that no page contains.
   `"exact phrase"` and `-excluded` words are allowed, the filters of the

@@ -8,7 +8,8 @@ import qualified Data.Time as Time
 import           Test.Hspec
 
 import           Kiwi.Search (excerpt, initPageSearchEngine, searchPages, queryTerms, queryLang,
-                              searchLang)
+                              searchLang, termFields)
+import           Kiwi.Api.Search (hasPhrase)
 import           Kiwi.Types
 
 searchSpec :: Spec
@@ -87,6 +88,23 @@ searchSpec = do
     sort (fst $ searchPages se' (const True) $ queryTerms French "chats soleil")
       `shouldBe` [ (("src", "t"), queryTerms French "soleil")
                  , (("src", "u"), queryTerms French "chat soleil") ]
+
+  it "finds the words of the summary of the pages, after those of the title" $ do
+    let se' = SE.insertDocs ([ page "s" "Rien" `withSummary` "Le chat dort"
+                            , page "t" "Rien" `withTitle` "Chat"
+                            , page "u" "Un chat" ]
+                            -- "chat" in less than half of the pages
+                            ++ [ page (T.pack $ "o" ++ show n) "Autre chose" | n <- [1 .. 4 :: Int] ])
+                            initPageSearchEngine
+        withTitle p t = p { pageTitle = t }
+        withSummary p s = p { pageSummary = Just s }
+    -- the summary, as the title, gives no term for the excerpt
+    fst (searchPages se' (const True) $ queryTerms French "chat")
+      `shouldBe` [ (("src", "t"), []), (("src", "s"), []), (("src", "u"), queryTerms French "chat") ]
+    termFields (page "s" "Un chat" `withSummary` "Chats") (queryTerms French "chat")
+      `shouldBe` [SummaryField, ContentField]
+    hasPhrase (page "s" "Rien" `withSummary` "Le chat dort") "chats dort" `shouldBe` True
+    hasPhrase (page "s" "Rien" `withSummary` "Le chat noir dort") "chat dort" `shouldBe` False
 
   it "gives 12 pages at most, telling when there are more" $ do
     let se' = SE.insertDocs [ page (T.pack $ "p" ++ show n) "Un chat" | n <- [1 .. 13 :: Int] ]

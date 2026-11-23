@@ -386,6 +386,7 @@ type PageSearchEngine = SearchEngine Page PageUID PageField NoFeatures
 
 data PageField = TitleField
                | TagsField
+               | SummaryField
                | ContentField
   deriving (Eq, Ord, Enum, Bounded, Ix, Show)
 

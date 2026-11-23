@@ -83,13 +83,14 @@ data Hit = Hit { hitPage :: Page
 --      then Ranked (byTerms partial) False 0
 --      else Ranked (byTerms complete) True (length partial)
 
--- | Whether the title or the content of a page has the phrase: its terms
--- follow one another
+-- | Whether the title, the summary or the content of a page has the phrase:
+-- its terms follow one another
 hasPhrase :: Page -> T.Text -> Bool
 hasPhrase p phrase =
   let terms t = concat $ wordsTerms (alg $ pageLang p) (T.words t)
       ts = terms phrase
-  in not (null ts) && any ((ts `isInfixOf`) . terms) [pageTitle p, pagePlainText p]
+  in not (null ts) && any ((ts `isInfixOf`) . terms)
+                           (pageTitle p : maybe id (:) (pageSummary p) [pagePlainText p])
 
 
 -- | A line of a page that contains terms of the query: its number in the
@@ -172,4 +173,5 @@ searchText query lang terms missing fields total results = T.unlines $ header : 
     fieldName f = case f of
       TitleField   -> "title"
       TagsField    -> "tags"
+      SummaryField -> "summary"
       ContentField -> "content"
