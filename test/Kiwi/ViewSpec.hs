@@ -276,14 +276,15 @@ viewSpec = do
       found <- run $ get "/page/s/new"
       WT.simpleStatus found `shouldBe` Net.status200
 
-  it "shows the search results one by line, with an excerpt" $
-    withKiwiApp [ ("a.md", "uid: a\ntitle: Alpha\nlang: english\n\nThe horses run in the field")
+  it "shows the search results one by line, with the summary and an excerpt" $
+    withKiwiApp [ ("a.md", "uid: a\ntitle: Alpha\nlang: english\nsummary: About horses\n\nThe horses run in the field")
                 , ("b.md", "uid: b\ntitle: Beta\n\nA horse sleeps") ] $ WT.runSession $ do
       resp <- get "/search?query=horse"
       liftIO $ WT.simpleStatus resp `shouldBe` Net.status200
       liftIO $ body resp `shouldSatisfy` T.isInfixOf "<h1>2 results</h1>"
       liftIO $ body resp `shouldSatisfy` T.isInfixOf
         "<li><a href=\"/page/s/a\"><span class=\"title\">Alpha</span>\
+        \<p class=\"summary\" lang=\"en\">About horses</p>\
         \<p class=\"excerpt\" lang=\"en\">The <strong>horses</strong> run in the field</p>\
         \</a></li>"
       liftIO $ body resp `shouldNotSatisfy` T.isInfixOf "search-more"

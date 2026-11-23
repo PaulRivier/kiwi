@@ -551,11 +551,14 @@ searchView loc ctx lang query pages more = div_ [class_ "search-results-page"] $
     _ -> do
       h1_ $ toHtml $ T.concat [T.pack (show $ length pages), " ", K.loc_SearchResults loc]
       searched
-      -- one result by line, a single link: the title, then the excerpt, in
-      -- the lang of the page, with the words of the query in bold
+      -- one result by line, a single link: the title, then the summary of
+      -- the page and the excerpt, in the lang of the page, with the words of
+      -- the query in bold in the excerpt
       ul_ [class_ "results"] $ forM_ pages $ \(pg, fragments) ->
-        li_ $ a_ ([href_ $ Url.inContext ctx $ Url.pageUrl pg] ++ summaryTitle pg) $ do
+        li_ $ a_ [href_ $ Url.inContext ctx $ Url.pageUrl pg] $ do
           span_ [class_ "title"] $ toHtml $ K.pageTitle pg
+          forM_ (K.pageSummary pg) $ \s ->
+            p_ [class_ "summary", lang_ (K.langCode $ K.pageLang pg)] $ toHtml s
           unless (null fragments) $
             p_ [class_ "excerpt", lang_ (K.langCode $ K.pageLang pg)] $
               sequence_ $ intersperse " "

@@ -334,7 +334,7 @@ ul.pages-list li a:hover {
 }
 
 /* Search results: one by line, each one a single link, the title (as the
-   links to pages of a document) then an excerpt of the page, in white and
+   links to pages of a document) then the summary and an excerpt of the page, in white and
    never underlined. The underline is on the title only: an underline of the
    link would also apply to the excerpt. */
 
@@ -368,6 +368,14 @@ ul.pages-list li a:hover {
   margin: 0;
   color: rgb(var(--kiwi-text));
   font-size: 0.9em;
+}
+
+/* the summary of the page, between its title and the excerpt */
+.search-results-page ul.results li a p.summary {
+  margin: 0;
+  color: rgba(var(--kiwi-text), 0.85);
+  font-size: 0.9em;
+  font-style: italic;
 }
 
 /* other pages match, but are not shown */
