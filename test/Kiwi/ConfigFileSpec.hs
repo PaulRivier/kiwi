@@ -54,11 +54,14 @@ configSpec = do
     let c = Conf.parseConfig $ ini [ "ui-lang: french", "toc: off"
                                    , "editor: emacsclient -n -s kiwi" ]
                                <> "[metadata year]\ntype: int\ndescription: of publication\n"
+                               <> "[metadata author]\ntype: text\nrelating: 2.5\n"
     fmap Conf.uiLang c `shouldBe` Right UI_French
     fmap Conf.toc c `shouldBe` Right TocOff
     fmap Conf.editor c `shouldBe` Right (Just ("emacsclient", ["-n", "-s", "kiwi"]))
-    fmap (map cmcType . Conf.customMetaConfig) c `shouldBe` Right [CmtInt]
-    fmap (map cmcDescription . Conf.customMetaConfig) c `shouldBe` Right [Just "of publication"]
+    fmap (map cmcType . Conf.customMetaConfig) c `shouldBe` Right [CmtInt, CmtText]
+    fmap (map cmcDescription . Conf.customMetaConfig) c `shouldBe` Right [Just "of publication", Nothing]
+    -- the weight of a field for the related pages, 0 (left out) by default
+    fmap (map cmcRelating . Conf.customMetaConfig) c `shouldBe` Right [0, 2.5]
     -- an empty editor disables the edition, as no editor
     fmap Conf.editor (Conf.parseConfig $ ini ["editor:"]) `shouldBe` Right Nothing
 
@@ -68,6 +71,8 @@ configSpec = do
     failsWith "allowed values: yes, no" $ Conf.parseConfig $ ini ["git-commit: maybe"]
     failsWith "allowed values: text, int, date, bool" $ Conf.parseConfig $
       ini [] <> "[metadata year]\ntype: float\n"
+    failsWith "expected a weight" $ Conf.parseConfig $
+      ini [] <> "[metadata author]\ntype: text\nrelating: yes\n"
     failsWith "allowed values: danish" $ Conf.parseConfig $ ini [] <> "lang: klingon\n"
 
   it "reads the default config file, without editor" $ do

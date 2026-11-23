@@ -334,8 +334,9 @@ data CustomMetaConfig =
                    , cmcType    :: CustomMetaType
                    , cmcThreshold :: Float
                    , cmcDescription :: Maybe T.Text  -- ^ what the field is for
-                   -- | whether its values bring pages together (see "Kiwi.Related")
-                   , cmcRelating :: Bool
+                   -- | weight of its values to bring pages together (see
+                   -- "Kiwi.Related"); 0: left out
+                   , cmcRelating :: Double
                    }
   deriving (Show)
 

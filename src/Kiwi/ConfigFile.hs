@@ -15,6 +15,7 @@ import           Data.Ini.Config
 import           Data.FileEmbed (embedFileRelative)
 import           Data.Foldable (toList)
 import qualified Data.Text as T
+import qualified Data.Text.Read as TR
 import qualified System.Directory as D
 import qualified System.FilePath as FP
 
@@ -93,7 +94,7 @@ customMetaParser name' = do
   cmcType <- fieldOf "type" K.parseCustomMetaType
   cmcThreshold <- fieldDefOf "threshold" number 1.0
   cmcDescription <- fieldMbOf "description" string
-  cmcRelating <- fieldDefOf "relating" (flagOr False "relating") False
+  cmcRelating <- fieldDefOf "relating" relatingWeight 0
   return K.CustomMetaConfig { K.cmcName = name'
                             , K.cmcType = cmcType
                             , K.cmcThreshold = cmcThreshold
@@ -119,6 +120,15 @@ accessList t = case Meta.parseAccess t of
   (access, []) -> Right access
   (_, invalid) -> Left $ "invalid access: " ++ T.unpack (T.intercalate ", " invalid)
                   ++ " (expected GROUP, GROUP:w or GROUP:a; public can only read)"
+
+-- | The weight of a custom field for the related pages: a number, 0 or
+-- more; 0 (the default, also when empty) leaves the field out
+relatingWeight :: T.Text -> Either String Double
+relatingWeight t = case T.strip t of
+  "" -> Right 0
+  s -> case TR.double s of
+    Right (w, rest) | T.null rest, w >= 0 -> Right w
+    _ -> Left $ "invalid relating value " ++ show s ++ ", expected a weight (a number, 0 or more)"
 
 -- | A yes/no value (true/false too, any case), or this default when empty
 flagOr :: Bool -> String -> T.Text -> Either String Bool

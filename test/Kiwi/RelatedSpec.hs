@@ -36,13 +36,15 @@ relatedSpec = do
         page uid = tagged uid [] []
     related [] kws (page "p") (map page ["p", "q", "r"]) `shouldBe` ["q", "r"]
 
-  it "brings the pages with the same value of a relating custom field only" $ do
+  it "brings the pages with the same value of a relating custom field only, by its weight" $ do
     let author = CustomMetaData "author" [KeyText "Dupont"]
-        p = tagged "p" [] [author]
+        p = tagged "p" ["a", "b"] [author]
         q = tagged "q" [] [author]
-        cfg relating = [CustomMetaConfig "author" CmtText 1 Nothing relating]
-    related (cfg True) M.empty p [p, q] `shouldBe` ["q"]
-    related (cfg False) M.empty p [p, q] `shouldBe` []
+        r = tagged "r" ["a", "b"] []
+        cfg w = [CustomMetaConfig "author" CmtText 1 Nothing w]
+    related (cfg 1) M.empty p [p, q, r] `shouldBe` ["r", "q"]
+    related (cfg 5) M.empty p [p, q, r] `shouldBe` ["q", "r"]
+    related (cfg 0) M.empty p [p, q, r] `shouldBe` ["r"]
 
   it "keeps at most maxRelated pages, the closest first, and not the far ones" $ do
     let p = tagged "p" ["a", "b", "c", "d", "e"] []

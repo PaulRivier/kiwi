@@ -14,7 +14,6 @@ module Kiwi.Related
 import           Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import           Data.Ord (Down (..))
-import qualified Data.Set as S
 import qualified Data.Text as T
 
 import           Kiwi.Tags (segmentsToTag, tagSubSegments)
@@ -43,19 +42,20 @@ relatedIndexOf config kws pages =
                , riPages = M.fromListWith (++) [ (f, [u]) | (u, fs) <- M.toList features
                                                          , f <- M.keys (featureWeights fs) ] }
   where
-    relating = S.fromList [ cmcName c | c <- config, cmcRelating c ]
+    relating = M.fromList [ (cmcName c, cmcRelating c) | c <- config, cmcRelating c > 0 ]
     features = M.fromList [ (pageUID p, pageFeatures relating kws p) | p <- pages ]
 
 -- | The features of a page with their weight, which depends on the kind of
 -- feature only: keywords 1, tags 2 (each tag and its parents: @a > b@ gives
--- @a@ and @a > b@), values of the relating custom fields 1
-pageFeatures :: S.Set T.Text -> M.Map PageUID [Keyword] -> Page -> Features
+-- @a@ and @a > b@), values of the relating custom fields their weight
+-- (given by field name)
+pageFeatures :: M.Map T.Text Double -> M.Map PageUID [Keyword] -> Page -> Features
 pageFeatures relating kws p = Features weights (sum $ map (^ (2 :: Int)) $ M.elems weights)
   where
     weights = M.fromList $
          [ (FKeyword (keywordStem k), 1) | k <- M.findWithDefault [] (pageUID p) kws ]
       ++ [ (FTag (segmentsToTag s), 2) | t <- pageTags p, s <- tagSubSegments t ]
-      ++ [ (FCustom (cmdName c) k, 1) | c <- pageCustomMeta p, cmdName c `S.member` relating
+      ++ [ (FCustom (cmdName c) k, w) | c <- pageCustomMeta p, Just w <- [M.lookup (cmdName c) relating]
                                       , k <- cmdKeys c ]
 
 -- | The pages related to a page (itself left out), among those that the

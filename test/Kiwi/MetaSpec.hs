@@ -10,8 +10,8 @@ import           Kiwi.Meta
 import           Kiwi.Types
 
 cfg :: [CustomMetaConfig]
-cfg = [ CustomMetaConfig "date" CmtDate 1 Nothing False, CustomMetaConfig "authors" CmtText 1 Nothing False
-      , CustomMetaConfig "count" CmtInt 1 Nothing False ]
+cfg = [ CustomMetaConfig "date" CmtDate 1 Nothing 0, CustomMetaConfig "authors" CmtText 1 Nothing 0
+      , CustomMetaConfig "count" CmtInt 1 Nothing 0 ]
 
 parse :: T.Text -> MetaData
 parse = either error id . parseHeader cfg

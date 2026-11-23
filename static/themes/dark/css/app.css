@@ -673,6 +673,10 @@ a.archive-switch.active:hover,
   border-color: rgba(var(--kiwi-page-link), 0.3);
 }
 
+.page-view fieldset.keywords {
+  border-color: rgba(var(--kiwi-text), 0.3);
+}
+
 .page-view fieldset.related + fieldset.keywords {
   margin-top: 1.2em;
 }

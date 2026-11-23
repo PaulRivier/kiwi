@@ -45,7 +45,7 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   the pages that link it; `related`: the `SOURCE/UID` of the pages closest
   to it, the closest first, at most 5, in the sources of the context (by
   their common keywords, tags with their parents, and values of the custom
-  fields marked `relating: yes` in `kiwi.ini`; backlinks not left out),
+  fields given a `relating` weight in `kiwi.ini`; backlinks not left out),
   the same as below a page on the web, after its backlinks.
 * `GET /api/search?q=QUERY` : full-text search for the agents. The pages
   that contain any of the words, those with the most of them first, each
