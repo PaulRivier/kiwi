@@ -20,6 +20,7 @@ module Kiwi.Types
   , Keyword(..)
   , Feature(..)
   , Features(..)
+  , RelatedIndex(..)
   , MetaField(..)
   , MetaData(..)
   , AccessLevel(..)
@@ -190,7 +191,7 @@ data PagesDB =
           , pageKeywords :: Keywords
           -- | the features of the pages, for the related pages (see
           -- "Kiwi.Related")
-          , relatedFeatures :: M.Map PageUID Features }
+          , relatedIndex :: RelatedIndex }
 
 -- | The keywords of the pages, and what their update needs (see
 -- 'Kiwi.Keywords.updateKeywords'): a load computes those of the pages read
@@ -221,6 +222,12 @@ data Feature = FKeyword T.Text             -- ^ stem of a keyword
 -- the weights
 data Features = Features { featureWeights :: !(M.Map Feature Double)
                          , featureNorm :: !Double }
+
+-- | The features of every page, and the pages of each feature (see
+-- "Kiwi.Related")
+data RelatedIndex =
+  RelatedIndex { riFeatures :: !(M.Map PageUID Features)
+               , riPages :: !(M.Map Feature [PageUID]) }
 
 
 data MetaField = FieldSource

@@ -5,7 +5,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import           Test.Hspec
 
-import           Kiwi.Related (maxRelated, relatedPages)
+import           Kiwi.Related (maxRelated, relatedIndexOf, relatedPages)
 import           Kiwi.Types
 import           TestUtils (mkPage)
 
@@ -15,7 +15,9 @@ tagged uid tags custom = (mkPage ("s", uid) tags [] False 1) { pageCustomMeta = 
 
 -- | The uids of the pages related to a page, with these keywords
 related :: [CustomMetaConfig] -> M.Map PageUID [Keyword] -> Page -> [Page] -> [T.Text]
-related cfg kws p pages = map (snd . pageUID) $ relatedPages cfg kws p pages
+related cfg kws p pages =
+  map (snd . pageUID) $ relatedPages (relatedIndexOf cfg kws (p : pages)) (`M.lookup` byUid) p
+  where byUid = M.fromList [ (pageUID q, q) | q <- pages ]
 
 relatedSpec :: Spec
 relatedSpec = do

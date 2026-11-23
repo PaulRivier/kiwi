@@ -854,11 +854,11 @@ ifAdmin a = withLogin $ do
 relatedOf :: K.PagesDB -> ActM (S.Set K.PageUID -> K.Page -> [K.Page])
 relatedOf db = do
   ctxSources <- asksK (K.contextSources . K.context . K.requestState)
-  let inContext = [ q | q <- DI.documentsList (K.pagesIndex db)
-                      , S.null ctxSources || S.member (fst $ K.pageUID q) ctxSources ]
-  return $ \excluded p ->
-    Related.relatedPages (K.relatedFeatures db) p
-                         [ q | q <- inContext, not $ S.member (K.pageUID q) excluded ]
+  let candidate excluded uid
+        | S.member uid excluded = Nothing
+        | S.null ctxSources || S.member (fst uid) ctxSources = findPage db uid
+        | otherwise = Nothing
+  return $ \excluded -> Related.relatedPages (K.relatedIndex db) (candidate excluded)
 
 -- | The pages the user can read, archived or not according to the context
 getRestrictedDB :: ActM K.PagesDB
