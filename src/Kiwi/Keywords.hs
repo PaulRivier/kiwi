@@ -2,16 +2,17 @@
 -- | Keywords of the pages, for the agents: the terms that tell a page from
 -- the others (TF-IDF), computed from the text of the pages, so that nobody
 -- has to write them. Design in @CLAUDE/projects/mots-cles-pages-2026-11-21.md@
--- (iterations 8 and 9).
+-- (iterations 8 and 9) and @CLAUDE/projects/session-23-nov.md@ (iterations 4
+-- and 5: update by load).
 module Kiwi.Keywords
-  ( pagesKeywords
-  , readKeywords
+  ( updateKeywords
+  , emptyKeywords
   , keywordsText
+  , pagesKeywords    -- exported for tests
   , bestTerms        -- exported for tests
   , maxKeywords      -- exported for tests
   ) where
 
-import           Control.Concurrent.MVar (readMVar)
 import           Data.FileEmbed (embedFileRelative)
 import           Data.List (sortOn)
 import qualified Data.Map.Strict as M
@@ -34,45 +35,90 @@ maxKeywords = 20
 relativeThreshold :: Double
 relativeThreshold = 0.4
 
--- | Keywords of the pages, the best first, the words as written in each
--- page. All the pages are needed, as the score of a term depends on the
--- number of pages that contain it. The keywords are evaluated.
-pagesKeywords :: [Page] -> M.Map PageUID [T.Text]
-pagesKeywords pages = M.fromList [ (pageUID p, forced (keywords ts)) | (p, ts) <- tables ]
+-- | No keywords, before the first load
+emptyKeywords :: Keywords
+emptyKeywords = Keywords M.empty M.empty 0 0
+
+-- | The keywords after a load, given all the pages, the pages removed (old
+-- versions of the pages read again included) and the pages inserted. The
+-- number of pages of each term is updated, and the keywords of the inserted
+-- pages computed with it; the other pages keep theirs, computed with former
+-- numbers. When the pages changed since the last computation of every page
+-- reach a tenth of the pages (10 at least), every page is computed again
+-- (true with the result). The keywords are evaluated.
+updateKeywords :: [Page] -> [Page] -> [Page] -> Keywords -> (Keywords, Bool)
+updateKeywords pages removed inserted kw
+  | changes - kwFullAt kw >= max 10 (n `div` 10) =
+      ((allKeywords pages) { kwChanges = changes, kwFullAt = changes }, True)
+  | otherwise =
+      ( Keywords { kwDocs = docs
+                 , kwPages = M.union (M.fromList [ (pageUID p, keywordsOf n docs t)
+                                                  | (p, t) <- newTables ])
+                                     (foldl' (flip M.delete) (kwPages kw) (map pageUID removed))
+                 , kwChanges = changes
+                 , kwFullAt = kwFullAt kw }
+      , False )
+  where
+    n = length pages
+    changes = kwChanges kw + S.size (S.fromList $ map pageUID (removed ++ inserted))
+    newTables = [ (p, pageTerms p) | p <- inserted ]
+    docs = M.filter (> 0) $ addDocs 1 (map snd newTables) $
+             addDocs (-1) (map pageTerms removed) (kwDocs kw)
+
+-- | Every page computed (see 'updateKeywords')
+allKeywords :: [Page] -> Keywords
+allKeywords pages =
+  Keywords { kwDocs = docs
+           , kwPages = M.fromList [ (pageUID p, keywordsOf n docs t) | (p, t) <- tables ]
+           , kwChanges = 0
+           , kwFullAt = 0 }
   where
     tables = [ (p, pageTerms p) | p <- pages ]
     n = length pages
-    docs = M.unionsWith (+) [ M.map (const 1) weights | (_, (weights, _)) <- tables ]
-    keywords (weights, written) =
-      [ T.copy w | t <- bestTerms n docs weights, Just w <- [mostWritten t written] ]
-    forced ks = foldr seq () ks `seq` ks
+    docs = addDocs 1 (map snd tables) M.empty
+
+-- | Keywords of the pages, the best first, all of them computed
+pagesKeywords :: [Page] -> M.Map PageUID [T.Text]
+pagesKeywords = kwPages . allKeywords
+
+-- | The number of pages of each term, with the terms of the given pages
+-- added (1) or removed (-1)
+addDocs :: Int -> [Terms] -> M.Map T.Text Int -> M.Map T.Text Int
+addDocs d tables docs0 = foldl' add docs0 tables
+  where add docs (weights, _) = M.foldlWithKey' (\m t _ -> M.insertWith (+) t d m) docs weights
+
+-- | The keywords of a page, given the number of pages and the number of
+-- pages of each term, as written in the page, evaluated
+keywordsOf :: Int -> M.Map T.Text Int -> Terms -> [T.Text]
+keywordsOf n docs (weights, forms) = forced
+  [ T.copy w | t <- bestTerms n docs weights, Just w <- [M.lookup t forms] ]
+  where forced ks = foldr seq () ks `seq` ks
+
+-- | The terms of a page with their weight, and the word written for each
+-- (see 'pageTerms')
+type Terms = (M.Map T.Text Int, M.Map T.Text T.Text)
 
 -- | Terms of a page, stop words of its lang left out, with their weight:
 -- those of its content (weight 1), of its title (3) and of its headings (2
--- more, as they are also in the content); and the words of the content and
--- of the title, with their term and number of occurrences. Each distinct
--- word is stemmed once.
-pageTerms :: Page -> (M.Map T.Text Int, [(T.Text, T.Text, Int)])
-pageTerms p = (M.fromListWith (+) [ (t, w * c) | (w, ws) <- texts, (t, _, c) <- ws ], written)
+-- more, as they are also in the content); and the word written for each
+-- term: the one that gives it the most often in the content and the title
+-- (the shortest one, then the first in order, on a tie; none for a term of
+-- the headings alone). Each distinct word is stemmed once.
+pageTerms :: Page -> Terms
+pageTerms p = (M.fromListWith (+) [ (t, w * c) | (w, ws) <- texts, (t, _, c) <- ws ], forms)
   where
     texts = [ (1, terms (pagePlainText p)), (3, terms (pageTitle p))
             , (2, terms (T.unlines $ pageHeadings p)) ]
-    written = concat [ ws | (w, ws) <- texts, w /= (2 :: Int) ]
+    written = M.fromListWith (+) [ ((t, x), c) | (w, ws) <- texts, w /= (2 :: Int), (t, x, c) <- ws ]
+    forms = M.map fst $ M.fromListWith better [ (t, (x, c)) | ((t, x), c) <- M.toList written ]
+    better new old = if rank new < rank old then new else old
+    rank (x, c) = (Down c, T.length x, x)
     lg = pageLang p
     stops = stopWords lg
     terms text =
       let counts = M.toList $ M.fromListWith (+) [ (x, 1 :: Int) | x <- writtenWords text ]
           kept = [ wc | wc@(x, _) <- counts, stripAccents (T.toLower x) `S.notMember` stops ]
       in [ (t, x, c) | (t, (x, c)) <- zip (wordStems (alg lg) (map fst kept)) kept ]
-
--- | The word that gives a term the most often (the shortest one, then the
--- first in order, on a tie), none for a term of the headings alone
-mostWritten :: T.Text -> [(T.Text, T.Text, Int)] -> Maybe T.Text
-mostWritten t written =
-  case sortOn (\(w, c) -> (Down c, T.length w, w)) (M.toList counts) of
-    (w, _) : _ -> Just w
-    [] -> Nothing
-  where counts = M.fromListWith (+) [ (w, c) | (t', w, c) <- written, t' == t ]
 
 -- | The best terms of a page, the best first, by their score: the weight of
 -- the term in the page (see 'pageTerms'), sublinear, times its inverse
@@ -114,12 +160,6 @@ spanishStopWords = stopWordList $(embedFileRelative "static/stopwords/stopwords-
 -- "aujourd" and "hui")
 stopWordList :: ByteString -> S.Set T.Text
 stopWordList = S.fromList . map stripAccents . tokenize . TE.decodeUtf8
-
--- | The keywords of the pages of a database: waits for them when they are
--- not computed yet (see 'pageKeywords'); none for a database that was not
--- loaded
-readKeywords :: PagesDB -> IO (M.Map PageUID [T.Text])
-readKeywords db = maybe (return M.empty) readMVar (pageKeywords db)
 
 -- | The keywords of a page as a field of the lists ("a, b, c"), none
 -- without them

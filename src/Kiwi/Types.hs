@@ -16,6 +16,7 @@ module Kiwi.Types
   , ActM
     -- * Pages and metadata
   , PagesDB(..)
+  , Keywords(..)
   , MetaField(..)
   , MetaData(..)
   , AccessLevel(..)
@@ -182,13 +183,20 @@ data PagesDB =
           -- , lastUpdate :: Time.UTCTime
           , pagesIndex :: DI.DocIndex Page PageUID MetaField DocIndexKey
           , searchEngine :: PageSearchEngine
-          -- | the keywords of each page, the best first (see
-          -- "Kiwi.Keywords"): computed again at each load, as they depend on
-          -- the other pages, in a thread of their own, so that the server
-          -- answers without waiting for them; the box is filled once they are
-          -- ready, and read with 'Kiwi.Keywords.readKeywords' (which waits for
-          -- them); none for a database that was not loaded
-          , pageKeywords :: Maybe (MVar (M.Map PageUID [T.Text])) }
+          -- | the keywords of the pages (see "Kiwi.Keywords")
+          , pageKeywords :: Keywords }
+
+-- | The keywords of the pages, and what their update needs (see
+-- 'Kiwi.Keywords.updateKeywords'): a load computes those of the pages read
+-- again, with the number of pages of each term updated; the keywords of the
+-- other pages are computed again only from time to time, as they depend on
+-- the other pages
+data Keywords =
+  Keywords { kwDocs :: !(M.Map T.Text Int)          -- ^ number of pages of each term
+           , kwPages :: !(M.Map PageUID [T.Text])   -- ^ keywords of each page, the best first
+           , kwChanges :: !Int  -- ^ pages read again or removed since the start (only grows)
+           , kwFullAt :: !Int   -- ^ 'kwChanges' at the last computation of every page
+           }
 
 
 data MetaField = FieldSource

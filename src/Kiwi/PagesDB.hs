@@ -11,8 +11,7 @@ module Kiwi.PagesDB
 
 import           Control.Concurrent (forkIO, getNumCapabilities)
 import           Control.Concurrent.Async (mapConcurrently)
-import           Control.Concurrent.MVar (newEmptyMVar, putMVar)
-import           Control.Exception (IOException, SomeException, evaluate, try)
+import           Control.Exception (IOException, evaluate, try)
 import           Control.Monad (filterM, forM, forM_, unless, void, when)
 import qualified Crypto.Random as CR
 import           Data.Bifunctor (first)
@@ -34,7 +33,7 @@ import           Text.Printf (printf)
 import           Kiwi.Edit (writePageFile)
 import qualified Kiwi.Files as Files
 import qualified Kiwi.Git as Git
-import           Kiwi.Keywords (pagesKeywords)
+import           Kiwi.Keywords (emptyKeywords, updateKeywords)
 import qualified Kiwi.Log as L
 import           Kiwi.Meta (isValidUid, uidFromBytes, writePage)
 import           Kiwi.Search
@@ -107,8 +106,8 @@ updatePagesDB logger' git contentDir' db = do
         keptPaths = S.difference (S.fromList fsPaths) (S.fromList toReload)
         -- the pages of the files that are gone, or reloaded: a reloaded file
         -- may give another page id, or no page if it can not be loaded
-        removedUIDs = [ pageUID pg | pg <- dbPages
-                                   , not $ S.member (pageAbsoluteFSPath pg) keptPaths ]
+        removedPages = [ pg | pg <- dbPages, not $ S.member (pageAbsoluteFSPath pg) keptPaths ]
+        removedUIDs = map pageUID removedPages
         pagesIndexClean = DI.removeMany (pagesIndex db) removedUIDs
         searchEngineClean = foldr deleteDoc (searchEngine db) removedUIDs
     (loaded, failed) <- loadPages toReload
@@ -138,27 +137,20 @@ updatePagesDB logger' git contentDir' db = do
     -- the links to missing pages are listed on the /doctor page, not logged:
     -- they are an issue of the content, not of the server
         newEngine = insertDocs inserted searchEngineClean
-    -- the keywords of every page, as they depend on the other pages, in a
-    -- thread of their own (see 'pageKeywords')
-    keywords <- newEmptyMVar
-    _ <- forkIO $ do
-      r <- try $ timeIO $ evaluate $ pagesKeywords (DI.documentsList newIndex)
-      case r of
-        -- logged before the box is filled: once the keywords are read, the
-        -- message is written
-        Right (ks, t) -> do
-          logger' L.Info $ T.pack $ "TF-IDF finished in " ++ printf "%.2f" t ++ "s"
-          putMVar keywords ks
-        Left (e :: SomeException) -> do
-          logger' L.Error $ "unable to compute the keywords: " <> T.pack (show e)
-          -- the readers must not wait for ever
-          putMVar keywords M.empty
+    -- the keywords of the pages read again, or of every page from time to
+    -- time, as they depend on the other pages
+    ((keywords, full), t) <- timeIO $ do
+      let r@(kw, _) = updateKeywords (DI.documentsList newIndex) removedPages inserted
+                                     (pageKeywords db)
+      _ <- evaluate kw
+      return r
+    when full $ logger' L.Info $ T.pack $ "TF-IDF finished in " ++ printf "%.2f" t ++ "s"
     return db { dbGeneration = dbGeneration db + 1
               , loadErrors = sortOn (\(src, p, _) -> (src, p)) (errors ++ fileErrors)
               , sourceFiles = files
               , pagesIndex = newIndex
               , searchEngine = newEngine
-              , pageKeywords = Just keywords }
+              , pageKeywords = keywords }
   where
     -- TODO : gérer des conditions de rechargement
     -- getCondition = return False
@@ -379,7 +371,7 @@ emptyPagesDB md cmc sc =
             -- , lastUpdate = oldDate
             , pagesIndex = DI.empty pageUID (pageExtractKeys cmc)
             , searchEngine = initPageSearchEngine
-            , pageKeywords = Nothing }
+            , pageKeywords = emptyKeywords }
 
 
 pageExtractKeys :: [CustomMetaConfig] -> [DI.Field Page MetaField DocIndexKey]

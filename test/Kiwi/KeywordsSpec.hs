@@ -5,7 +5,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import           Test.Hspec
 
-import           Kiwi.Keywords (bestTerms, maxKeywords, pagesKeywords)
+import           Kiwi.Keywords (bestTerms, emptyKeywords, maxKeywords, pagesKeywords, updateKeywords)
 import           Kiwi.Types
 import           TestUtils (mkPage)
 
@@ -57,3 +57,39 @@ keywordsSpec = do
     let p = textPage "p" English "Notes" "rails and ruby, rails" ["Ruby"]
         others = [ textPage (T.pack (show i)) English "Other" "Something else entirely" [] | i <- [1 .. 8 :: Int] ]
     M.lookup ("s", "p") (pagesKeywords (p : others)) `shouldBe` Just ["Notes", "ruby", "rails"]
+
+  it "updates the number of pages of each term as a computation of every page would" $ do
+    let (kw0, full0) = updateKeywords pages0 [] pages0 emptyKeywords
+        -- page 3 changed, page 4 removed, page 31 added
+        p3 = numbered 3 "bananas bananas cherries"
+        p31 = numbered 31 "cherries cherries apples"
+        old3 = pages0 !! 2
+        old4 = pages0 !! 3
+        pages1 = p3 : p31 : drop 4 pages0 ++ take 2 pages0
+        (kw1, full1) = updateKeywords pages1 [old3, old4] [p3, p31] kw0
+    (full0, kwChanges kw0, kwFullAt kw0) `shouldBe` (True, 30, 30)
+    (full1, kwChanges kw1, kwFullAt kw1) `shouldBe` (False, 33, 30)
+    kwDocs kw1 `shouldBe` kwDocs (fst $ updateKeywords pages1 [] pages1 emptyKeywords)
+    M.lookup (pageUID p3) (kwPages kw1) `shouldBe` M.lookup (pageUID p3) (pagesKeywords pages1)
+    M.lookup (pageUID p31) (kwPages kw1) `shouldBe` M.lookup (pageUID p31) (pagesKeywords pages1)
+    M.member (pageUID old4) (kwPages kw1) `shouldBe` False
+    M.size (kwPages kw1) `shouldBe` 30
+
+  it "computes every page again once the changed pages reach a tenth of them, 10 at least" $ do
+    let kw0 = fst $ updateKeywords pages0 [] pages0 emptyKeywords
+        changed k = [ numbered i "cherries cherries plums" | i <- [1 .. k] ]
+        pagesAfter k = changed k ++ drop k pages0
+        update k = updateKeywords (pagesAfter k) (take k pages0) (changed k) kw0
+        (kw9, full9) = update 9
+        (kw10, full10) = update 10
+    (full9, kwChanges kw9, kwFullAt kw9) `shouldBe` (False, 39, 30)
+    (full10, kwChanges kw10, kwFullAt kw10) `shouldBe` (True, 40, 40)
+    kwPages kw10 `shouldBe` pagesKeywords (pagesAfter 10)
+    -- the next update counts from there
+    let (_, full) = updateKeywords (pagesAfter 10) [head (changed 1)] [numbered 1 "plums"] kw10
+    full `shouldBe` False
+  where
+    numbered :: Int -> T.Text -> Page
+    numbered i text = textPage (T.pack (show i)) English ("Page " <> T.pack (show i)) text []
+    -- 30 pages
+    pages0 = [ numbered i ("apples pears " <> T.replicate i "kiwis ") | i <- [1 .. 30] ]

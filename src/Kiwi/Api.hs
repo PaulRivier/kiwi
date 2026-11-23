@@ -48,7 +48,7 @@ import qualified Kiwi.Auth as Auth
 import qualified Kiwi.Browse as Browse
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
-import           Kiwi.Keywords (keywordsText, readKeywords)
+import           Kiwi.Keywords (keywordsText)
 import qualified Kiwi.Log as L
 import qualified Kiwi.Mcp as Mcp
 import qualified Kiwi.MetaScript as MS
@@ -138,16 +138,16 @@ apiPages :: ActM ()
 apiPages = withSelection ["limit", "show"] $ \db pages ->
   withShow (AT.pageFields ++ map K.cmcName (K.customMetaConfig db)) $ \shown ->
     intParam "limit" 100 $ \limit -> do
-      kws <- shownKeywords db shown
+      let kws = shownKeywords db shown
       answer $ AT.pagesText (extraField db kws) shown (length pages)
                             (take limit $ sortOn (Down . K.pageMTime) pages)
 
--- | The keywords of the pages when they are shown (waiting for them if they
--- are not computed yet, see 'K.pageKeywords'), none otherwise
-shownKeywords :: K.PagesDB -> [T.Text] -> ActM (M.Map K.PageUID [T.Text])
+-- | The keywords of the pages when they are shown (see 'K.pageKeywords'),
+-- none otherwise
+shownKeywords :: K.PagesDB -> [T.Text] -> M.Map K.PageUID [T.Text]
 shownKeywords db shown
-  | "keywords" `elem` shown = Scotty.liftIO (readKeywords db)
-  | otherwise = return M.empty
+  | "keywords" `elem` shown = K.kwPages $ K.pageKeywords db
+  | otherwise = M.empty
 
 -- | The fields of a page that the index gives (see 'apiPages'): "links",
 -- "backlinks" and "keywords" (see "Kiwi.Keywords", 'shownKeywords')
@@ -475,7 +475,7 @@ apiSearch = withSelection ["q", "limit", "show"] $ \db selected -> withShow ["ke
         then failWith Net.status400 "the query has no word to search"
         else do
           results <- mapM (withPassages (map fst terms)) (take limit hits)
-          kws <- shownKeywords db shown
+          let kws = shownKeywords db shown
           let fields p = [ (f, v) | f <- shown, Just v <- [extraField db kws p f] ]
           answer $ AS.searchText (T.strip raw) lang terms missing fields total results
   where
