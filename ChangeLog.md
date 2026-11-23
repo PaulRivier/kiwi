@@ -1,5 +1,21 @@
 # ChangeLog for Kiwi
 
+## Unreleased
+
+- The page view shows the summary of the page below its title, in the
+  frame of the metadata, and its keywords after the backlinks, each one a
+  search of the pages that have it.
+- The web search results show the summary of each page between its title
+  and the excerpt.
+- The search finds the words of the summary of the pages (between the
+  tags and the content), `/api/search` names it among the fields found,
+  and the exact phrases are also looked for in it.
+- The keywords count the summary of the page.
+- The keywords are updated at each load for the pages that changed only,
+  all of them being computed again once a tenth of the pages changed: a
+  reload no longer computes them for the whole wiki, and they are always
+  ready (no more background computation).
+
 ## v0.4.5.0 - 2026-11-22
 
 This release is mostly about AI agents tooling to interact with Kiwi. Since this space evolves fast
