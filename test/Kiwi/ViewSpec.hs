@@ -50,6 +50,15 @@ viewSpec = do
     html `shouldSatisfy` T.isInfixOf "<h1 class=\"page-title\" lang=\"fr\">Titre</h1>"
     html `shouldSatisfy` T.isInfixOf "<div class=\"document\" lang=\"fr\">"
 
+  it "shows the summary of the page in the frame of its metadata, none without it" $ do
+    let render p = TL.toStrict $ renderText $
+          V.pageView (Loc.locales UI_English) noContext (const $ Just Nothing) p False
+                     (PD.Pandoc mempty []) []
+        withSummary = (page "Titre") { pageLang = French, pageSummary = Just "À propos <de> p" }
+    render withSummary `shouldSatisfy` T.isInfixOf
+      "<fieldset class=\"flex page-meta\"><p class=\"page-summary\" lang=\"fr\">À propos &lt;de&gt; p</p></fieldset>"
+    render (page "Titre") `shouldNotSatisfy` T.isInfixOf "page-meta"
+
   it "adds the security headers to the responses" $ do
     let app _ respond = respond $ Wai.responseLBS Net.status404 [] "not found"
     resp <- WT.runSession (WT.request Wai.defaultRequest) (securityHeaders app)

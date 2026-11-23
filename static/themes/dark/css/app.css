@@ -594,7 +594,7 @@ a.archive-switch.active:hover,
   margin: 0;
 }
 
-/* custom metadata, below the title: a frame holding a two-column table,
+/* metadata, below the title: a frame holding the summary, then a two-column table,
    the names of the fields (links to the pages having them) on the left, their
    values on the right, both aligned to the left */
 .page-view fieldset.page-meta {
@@ -633,6 +633,17 @@ a.archive-switch.active:hover,
 
 .page-view dl.page-meta-list a.field:hover {
   text-decoration: underline dotted;
+}
+
+/* the summary of the page, above the custom metadata */
+.page-view p.page-summary {
+  margin: 0;
+  font-style: italic;
+  color: rgba(var(--kiwi-text), 0.85);
+}
+
+.page-view p.page-summary + dl.page-meta-list {
+  margin-top: 0.5em;
 }
 
 /* the title close to the metadata that follow it */

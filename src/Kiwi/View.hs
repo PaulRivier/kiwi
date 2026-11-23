@@ -25,7 +25,7 @@ module Kiwi.View
 
 import           Control.Monad (forM_, unless, when)
 import           Data.List (intersperse)
-import           Data.Maybe (fromMaybe, isJust)
+import           Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
@@ -423,18 +423,21 @@ pageView loc ctx findPage p canWrite doc backlinks = div_ [class_ "page-view"] $
                            | t <- K.pageTags p ])
     (K.contextArchive ctx)
   h1_ [class_ "page-title", pageLang] $ toHtml $ K.pageTitle p
+  -- metadata: the summary (plain text, in the lang of the page), then the
   -- custom metadata as a two-column table: the names of the fields (links to
   -- the pages having them), then their values
-  unless (null $ K.pageCustomMeta p) $
-    fieldset_ [class_ "flex page-meta"] $
-      dl_ [class_ "page-meta-list"] $ forM_ (K.pageCustomMeta p) $ \cmd -> do
-        dt_ $ a_ [ class_ "field", title_ (K.loc_PagesWithField loc)
-                 , href_ $ Browse.browseUrl ctx $ Browse.addFieldToReq contextReq
-                                                    (K.FieldCustom $ K.cmdName cmd) ] $
-          toHtml $ K.cmdName cmd
-        dd_ $ sequence_ $ intersperse " "
-          [ link (Browse.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
-          | k <- K.cmdKeys cmd ]
+  unless (isNothing (K.pageSummary p) && null (K.pageCustomMeta p)) $
+    fieldset_ [class_ "flex page-meta"] $ do
+      forM_ (K.pageSummary p) $ \s -> p_ [class_ "page-summary", pageLang] $ toHtml s
+      unless (null $ K.pageCustomMeta p) $
+        dl_ [class_ "page-meta-list"] $ forM_ (K.pageCustomMeta p) $ \cmd -> do
+          dt_ $ a_ [ class_ "field", title_ (K.loc_PagesWithField loc)
+                   , href_ $ Browse.browseUrl ctx $ Browse.addFieldToReq contextReq
+                                                      (K.FieldCustom $ K.cmdName cmd) ] $
+            toHtml $ K.cmdName cmd
+          dd_ $ sequence_ $ intersperse " "
+            [ link (Browse.showKeyLabel k, browseLink (K.FieldCustom $ K.cmdName cmd) k)
+            | k <- K.cmdKeys cmd ]
   div_ ([class_ "document", pageLang] ++
         if canWrite then [ data_ "edit-url" (Url.editUrl $ K.pageUID p)
                          , data_ "edit-title" (K.loc_EditBlock loc) ] else []) $
