@@ -92,12 +92,12 @@ renderView title actions tocDoc content = do
 -- | A page, its document and the pages linking to it. The links of the
 -- document to the pages that do not exist (according to the predicate) are
 -- marked as broken.
-renderPage :: PageLookup -> K.Page -> Bool -> PD.Pandoc -> [K.Page] -> ActM TL.Text
-renderPage findPage p canWrite doc backlinks = do
+renderPage :: PageLookup -> K.Page -> Bool -> PD.Pandoc -> [K.Page] -> [T.Text] -> ActM TL.Text
+renderPage findPage p canWrite doc backlinks keywords = do
   loc <- getLocales
   ctx <- asksK (K.context . K.requestState)
   renderView (K.pageTitle p) (PageActions p canWrite) (Just doc)
-             (pageView loc ctx findPage p canWrite doc backlinks)
+             (pageView loc ctx findPage p canWrite doc backlinks keywords)
 
 -- | Editor of a page: the text of its file, its hash, and the line where
 -- the editor starts (from 1)
@@ -416,8 +416,8 @@ plainText = inlinesText
 -- | A page. With the write right, its document has the URL of its editor,
 -- to edit it from one of its blocks (see 'Kiwi.HtmlWriter.lineKey').
 pageView :: K.Locales -> K.Context -> PageLookup -> K.Page -> Bool -> PD.Pandoc ->
-            [K.Page] -> Html ()
-pageView loc ctx findPage p canWrite doc backlinks = div_ [class_ "page-view"] $ do
+            [K.Page] -> [T.Text] -> Html ()
+pageView loc ctx findPage p canWrite doc backlinks keywords = div_ [class_ "page-view"] $ do
   contextBar loc [fst $ K.pageUID p]
     (linksList "tags-list" [ (prettyTag t, browseLink K.FieldTag (K.KeyText t))
                            | t <- K.pageTags p ])
@@ -446,6 +446,13 @@ pageView loc ctx findPage p canWrite doc backlinks = div_ [class_ "page-view"] $
     fieldset_ [class_ "flex backlinks"] $ do
       legend_ $ toHtml $ K.loc_Backlinks loc
       pagesList "pages-list backlinks" ctx backlinks
+  -- the keywords (see "Kiwi.Keywords"), the best first, each one a search of
+  -- the pages having it, in the lang of the page
+  unless (null keywords) $
+    fieldset_ [class_ "flex keywords"] $ do
+      legend_ $ toHtml $ K.loc_Keywords loc
+      ul_ [class_ "flex-hz keywords", pageLang] $ forM_ keywords $ \k ->
+        li_ $ a_ [href_ $ Url.searchUrl ctx (K.langCode (K.pageLang p) <> ":" <> k)] $ toHtml k
   where
     -- the title and the document are in the lang of the page, the rest in
     -- the lang of the interface

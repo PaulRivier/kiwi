@@ -86,7 +86,7 @@ keywordsSpec = do
     (full10, kwChanges kw10, kwFullAt kw10) `shouldBe` (True, 40, 40)
     kwPages kw10 `shouldBe` pagesKeywords (pagesAfter 10)
     -- the next update counts from there
-    let (_, full) = updateKeywords (pagesAfter 10) [head (changed 1)] [numbered 1 "plums"] kw10
+    let (_, full) = updateKeywords (pagesAfter 10) (changed 1) [numbered 1 "plums"] kw10
     full `shouldBe` False
   where
     numbered :: Int -> T.Text -> Page

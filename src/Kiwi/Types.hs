@@ -574,6 +574,8 @@ data Locales = Locales
   , loc_CopyFileLink :: T.Text
   -- | legend of the pages linking to a page
   , loc_Backlinks :: T.Text
+  -- | legend of the keywords of a page
+  , loc_Keywords :: T.Text
   -- | metadata editor (admins, /metadata-editor): its link on /metadata,
   -- title, help, buttons
   , loc_OpenMetadataEditor :: T.Text

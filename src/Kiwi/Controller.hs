@@ -100,6 +100,7 @@ servePage pgId = do
           findLinked = fmap K.pageSummary . findPage db
       r <- V.renderPage findLinked p (maybe False (>= K.AccessWrite) level) doc
                         backLinkPages
+                        (M.findWithDefault [] (K.pageUID p) (K.kwPages $ K.pageKeywords db))
       htmlETag db r
     Nothing -> serveNotFound
 

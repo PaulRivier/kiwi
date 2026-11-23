@@ -659,18 +659,45 @@ a.archive-switch.active:hover,
   margin-bottom: 0.5em;
 }
 
-/* backlinks, after the document, in a frame with a legend */
-.page-view fieldset.backlinks legend {
+/* backlinks, then keywords, after the document, in frames with a legend */
+.page-view fieldset.backlinks legend,
+.page-view fieldset.keywords legend {
   color: rgba(var(--kiwi-text), 0.6);
 }
 
-.page-view fieldset.backlinks {
+.page-view fieldset.backlinks,
+.page-view fieldset.keywords {
   margin: 2.5em 0 0 0;
   border-color: rgba(var(--kiwi-page-link), 0.3);
 }
 
-.page-view fieldset.backlinks ul.backlinks {
+.page-view fieldset.backlinks + fieldset.keywords {
+  margin-top: 1.2em;
+}
+
+.page-view fieldset.backlinks ul.backlinks,
+.page-view fieldset.keywords ul.keywords {
   margin: 0 0 12px 0;
+}
+
+/* the keywords are searches: in the color of the text, not of the links to
+   pages */
+.page-view fieldset.keywords ul.keywords a {
+  color: rgba(var(--kiwi-text), 0.7);
+  text-decoration: none;
+}
+
+.page-view fieldset.keywords ul.keywords a:hover {
+  color: rgb(var(--kiwi-text));
+  text-decoration: underline dotted;
+}
+
+.page-view fieldset.keywords ul.keywords li {
+  border-color: rgba(var(--kiwi-text), 0.3);
+}
+
+.page-view fieldset.keywords ul.keywords li:hover {
+  border-color: rgba(var(--kiwi-text), 0.7);
 }
 
 /* centered, with a short centered rule below: it can not be mistaken for a

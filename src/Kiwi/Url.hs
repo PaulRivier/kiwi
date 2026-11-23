@@ -8,6 +8,7 @@ module Kiwi.Url
   , contextParams
   , withoutContextParams
   , inContext
+  , searchUrl
   , renderParams
   ) where
 
@@ -46,6 +47,10 @@ withoutContextParams = filter ((`notElem` ["source", "archive"]) . fst)
 inContext :: Context -> T.Text -> T.Text
 inContext ctx url = let (path, fragment) = T.breakOn "#" url
                     in T.concat [path, renderParams (contextParams ctx), fragment]
+
+-- | URL of the search of the query, in the navigation context
+searchUrl :: Context -> T.Text -> T.Text
+searchUrl ctx query = "/search" <> renderParams (("query", query) : contextParams ctx)
 
 -- | Query string of the parameters, empty without parameter
 renderParams :: [(T.Text, T.Text)] -> T.Text
