@@ -647,6 +647,7 @@ a.archive-switch.active:hover,
 .page-view p.page-summary {
   margin: 0;
   font-style: italic;
+  text-align: right;
   color: rgba(var(--kiwi-text), 0.85);
 }
 
@@ -693,11 +694,15 @@ a.archive-switch.active:hover,
 }
 
 .page-view fieldset.keywords ul.keywords li {
-  border-color: rgba(var(--kiwi-text), 0.3);
+  border: none;
+  margin: 4px 8px 0 0;
+  padding: 2px 2px;
+  /* border-color: rgba(var(--kiwi-text), 0.3); */
 }
 
 .page-view fieldset.keywords ul.keywords li:hover {
-  border-color: rgba(var(--kiwi-text), 0.7);
+  border: none;
+  /* border-color: rgba(var(--kiwi-text), 0.7); */
 }
 
 /* centered, with a short centered rule below: it can not be mistaken for a
