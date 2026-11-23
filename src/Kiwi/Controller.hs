@@ -857,7 +857,7 @@ relatedOf db = do
   let inContext = [ q | q <- DI.documentsList (K.pagesIndex db)
                       , S.null ctxSources || S.member (fst $ K.pageUID q) ctxSources ]
   return $ \excluded p ->
-    Related.relatedPages (K.customMetaConfig db) (K.kwPages $ K.pageKeywords db) p
+    Related.relatedPages (K.relatedFeatures db) p
                          [ q | q <- inContext, not $ S.member (K.pageUID q) excluded ]
 
 -- | The pages the user can read, archived or not according to the context

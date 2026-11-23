@@ -18,6 +18,8 @@ module Kiwi.Types
   , PagesDB(..)
   , Keywords(..)
   , Keyword(..)
+  , Feature(..)
+  , Features(..)
   , MetaField(..)
   , MetaData(..)
   , AccessLevel(..)
@@ -185,7 +187,10 @@ data PagesDB =
           , pagesIndex :: DI.DocIndex Page PageUID MetaField DocIndexKey
           , searchEngine :: PageSearchEngine
           -- | the keywords of the pages (see "Kiwi.Keywords")
-          , pageKeywords :: Keywords }
+          , pageKeywords :: Keywords
+          -- | the features of the pages, for the related pages (see
+          -- "Kiwi.Related")
+          , relatedFeatures :: M.Map PageUID Features }
 
 -- | The keywords of the pages, and what their update needs (see
 -- 'Kiwi.Keywords.updateKeywords'): a load computes those of the pages read
@@ -204,6 +209,18 @@ data Keywords =
 -- "Kiwi.Related"), and the word written for it in the page (shown)
 data Keyword = Keyword { keywordStem :: !T.Text, keywordWord :: !T.Text }
   deriving (Eq, Show)
+
+
+-- | What brings pages together (see "Kiwi.Related")
+data Feature = FKeyword T.Text             -- ^ stem of a keyword
+             | FTag TagId                  -- ^ a tag or one of its parents
+             | FCustom T.Text DocIndexKey  -- ^ value of a relating custom field
+  deriving (Eq, Ord, Show)
+
+-- | The features of a page with their weight, and the sum of the squares of
+-- the weights
+data Features = Features { featureWeights :: !(M.Map Feature Double)
+                         , featureNorm :: !Double }
 
 
 data MetaField = FieldSource

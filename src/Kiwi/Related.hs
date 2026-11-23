@@ -1,12 +1,13 @@
 -- | Related pages: the pages that look like a page, by their keywords, their
 -- tags and the custom metadata marked @relating: yes@ in @kiwi.ini@. Each
 -- page is a set of weighted features, and two pages are as close as the
--- cosine of their sets. Computed when shown, over the given pages. Design
+-- cosine of their sets. The features of every page are computed at each
+-- load, the related pages when shown, over the given pages. Design
 -- in @CLAUDE/projects/pages-connexes-2026-11-23.md@.
 module Kiwi.Related
-  ( relatedPages
+  ( relatedFeaturesOf
+  , relatedPages
   , maxRelated      -- exported for tests
-  , similarity      -- exported for tests
   ) where
 
 import           Data.List (sortOn)
@@ -27,41 +28,41 @@ maxRelated = 5
 minSimilarity :: Double
 minSimilarity = 0.2
 
--- | What brings pages together
-data Feature = FKeyword T.Text             -- ^ stem of a keyword
-             | FTag TagId                  -- ^ a tag or one of its parents
-             | FCustom T.Text DocIndexKey  -- ^ value of a relating custom field
-  deriving (Eq, Ord, Show)
+-- | The features of the pages, given the custom fields of the config and
+-- the keywords of the pages; computed at each load (see
+-- 'Kiwi.PagesDB.updatePagesDB'), as they change with the keywords
+relatedFeaturesOf :: [CustomMetaConfig] -> M.Map PageUID [Keyword] -> [Page] -> M.Map PageUID Features
+relatedFeaturesOf config kws pages =
+  M.fromList [ (pageUID p, pageFeatures relating kws p) | p <- pages ]
+  where relating = S.fromList [ cmcName c | c <- config, cmcRelating c ]
 
 -- | The features of a page with their weight: keywords 1, tags 2 (each tag
 -- and its parents: @a > b@ gives @a@ and @a > b@), values of the relating
 -- custom fields 1
-pageFeatures :: S.Set T.Text -> M.Map PageUID [Keyword] -> Page -> M.Map Feature Double
-pageFeatures relating kws p = M.fromList $
-     [ (FKeyword (keywordStem k), 1) | k <- M.findWithDefault [] (pageUID p) kws ]
-  ++ [ (FTag (segmentsToTag s), 2) | t <- pageTags p, s <- tagSubSegments t ]
-  ++ [ (FCustom (cmdName c) k, 1) | c <- pageCustomMeta p, cmdName c `S.member` relating
-                                  , k <- cmdKeys c ]
+pageFeatures :: S.Set T.Text -> M.Map PageUID [Keyword] -> Page -> Features
+pageFeatures relating kws p = Features weights (sum $ map (^ (2 :: Int)) $ M.elems weights)
+  where
+    weights = M.fromList $
+         [ (FKeyword (keywordStem k), 1) | k <- M.findWithDefault [] (pageUID p) kws ]
+      ++ [ (FTag (segmentsToTag s), 2) | t <- pageTags p, s <- tagSubSegments t ]
+      ++ [ (FCustom (cmdName c) k, 1) | c <- pageCustomMeta p, cmdName c `S.member` relating
+                                      , k <- cmdKeys c ]
 
 -- | Cosine of two sets of weighted features: 1 for the same features, 0
 -- without common feature
-similarity :: M.Map Feature Double -> M.Map Feature Double -> Double
+similarity :: Features -> Features -> Double
 similarity a b
-  | na == 0 || nb == 0 = 0
-  | otherwise = sum (M.intersectionWith (*) a b) / sqrt (na * nb)
-  where na = norm a
-        nb = norm b
-        norm = sum . map (^ (2 :: Int)) . M.elems
+  | featureNorm a == 0 || featureNorm b == 0 = 0
+  | otherwise = sum (M.intersectionWith (*) (featureWeights a) (featureWeights b))
+                / sqrt (featureNorm a * featureNorm b)
 
 -- | The pages related to a page among the given ones (itself left out), the
 -- closest first (then by title), at most 'maxRelated', at least
--- 'minSimilarity'; given the custom fields of the config and the keywords
--- of the pages
-relatedPages :: [CustomMetaConfig] -> M.Map PageUID [Keyword] -> Page -> [Page] -> [Page]
-relatedPages config kws p candidates =
+-- 'minSimilarity', given the features of the pages
+relatedPages :: M.Map PageUID Features -> Page -> [Page] -> [Page]
+relatedPages features p candidates =
   map snd $ take maxRelated $ sortOn (\(s, q) -> (Down s, pageTitle q, pageUID q))
     [ (s, q) | q <- candidates, pageUID q /= pageUID p
-             , let s = similarity features (pageFeatures relating kws q)
+             , let s = similarity (featuresOf p) (featuresOf q)
              , s >= minSimilarity ]
-  where relating = S.fromList [ cmcName c | c <- config, cmcRelating c ]
-        features = pageFeatures relating kws p
+  where featuresOf q = M.findWithDefault (Features M.empty 0) (pageUID q) features

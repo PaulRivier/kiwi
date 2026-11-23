@@ -34,6 +34,7 @@ import           Kiwi.Edit (writePageFile)
 import qualified Kiwi.Files as Files
 import qualified Kiwi.Git as Git
 import           Kiwi.Keywords (emptyKeywords, updateKeywords)
+import           Kiwi.Related (relatedFeaturesOf)
 import qualified Kiwi.Log as L
 import           Kiwi.Meta (isValidUid, uidFromBytes, writePage)
 import           Kiwi.Search
@@ -145,12 +146,18 @@ updatePagesDB logger' git contentDir' db = do
       _ <- evaluate kw
       return r
     when full $ logger' L.Info $ T.pack $ "TF-IDF finished in " ++ printf "%.2f" t ++ "s"
+    -- the features of every page for the related pages, as they change
+    -- with the keywords (see "Kiwi.Related")
+    let features = relatedFeaturesOf (customMetaConfig db) (kwPages keywords)
+                                     (DI.documentsList newIndex)
+    _ <- evaluate $ M.foldl' (\n f -> n + featureNorm f) 0 features
     return db { dbGeneration = dbGeneration db + 1
               , loadErrors = sortOn (\(src, p, _) -> (src, p)) (errors ++ fileErrors)
               , sourceFiles = files
               , pagesIndex = newIndex
               , searchEngine = newEngine
-              , pageKeywords = keywords }
+              , pageKeywords = keywords
+              , relatedFeatures = features }
   where
     -- TODO : gérer des conditions de rechargement
     -- getCondition = return False
@@ -371,7 +378,8 @@ emptyPagesDB md cmc sc =
             -- , lastUpdate = oldDate
             , pagesIndex = DI.empty pageUID (pageExtractKeys cmc)
             , searchEngine = initPageSearchEngine
-            , pageKeywords = emptyKeywords }
+            , pageKeywords = emptyKeywords
+            , relatedFeatures = M.empty }
 
 
 pageExtractKeys :: [CustomMetaConfig] -> [DI.Field Page MetaField DocIndexKey]
