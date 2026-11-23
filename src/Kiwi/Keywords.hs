@@ -99,17 +99,20 @@ keywordsOf n docs (weights, forms) = forced
 type Terms = (M.Map T.Text Int, M.Map T.Text T.Text)
 
 -- | Terms of a page, stop words of its lang left out, with their weight:
--- those of its content (weight 1), of its title (3) and of its headings (2
--- more, as they are also in the content); and the word written for each
--- term: the one that gives it the most often in the content and the title
--- (the shortest one, then the first in order, on a tie; none for a term of
--- the headings alone). Each distinct word is stemmed once.
+-- those of its content (weight 1), of its title (3), of its summary (2) and
+-- of its headings (2 more, as they are also in the content); and the word
+-- written for each term: the one that gives it the most often in the
+-- content, the title and the summary (the shortest one, then the first in
+-- order, on a tie; none for a term of the headings alone). Each distinct
+-- word is stemmed once.
 pageTerms :: Page -> Terms
-pageTerms p = (M.fromListWith (+) [ (t, w * c) | (w, ws) <- texts, (t, _, c) <- ws ], forms)
+pageTerms p = (M.fromListWith (+) [ (t, w * c) | (w, _, ws) <- texts, (t, _, c) <- ws ], forms)
   where
-    texts = [ (1, terms (pagePlainText p)), (3, terms (pageTitle p))
-            , (2, terms (T.unlines $ pageHeadings p)) ]
-    written = M.fromListWith (+) [ ((t, x), c) | (w, ws) <- texts, w /= (2 :: Int), (t, x, c) <- ws ]
+    -- weight, and whether the words are written forms
+    texts = [ (1 :: Int, True, terms (pagePlainText p)), (3, True, terms (pageTitle p))
+            , (2, True, maybe [] terms (pageSummary p))
+            , (2, False, terms (T.unlines $ pageHeadings p)) ]
+    written = M.fromListWith (+) [ ((t, x), c) | (_, True, ws) <- texts, (t, x, c) <- ws ]
     forms = M.map fst $ M.fromListWith better [ (t, (x, c)) | ((t, x), c) <- M.toList written ]
     better new old = if rank new < rank old then new else old
     rank (x, c) = (Down c, T.length x, x)

@@ -58,6 +58,14 @@ keywordsSpec = do
         others = [ textPage (T.pack (show i)) English "Other" "Something else entirely" [] | i <- [1 .. 8 :: Int] ]
     M.lookup ("s", "p") (pagesKeywords (p : others)) `shouldBe` Just ["Notes", "ruby", "rails"]
 
+  it "weighs the summary, its words written as in the content" $ do
+    let p = (textPage "p" English "Notes" "rails and ruby, ruby rails, gems" [])
+              { pageSummary = Just "About Ruby" }
+        others = [ textPage (T.pack (show i)) English "Other" "Something else entirely" [] | i <- [1 .. 8 :: Int] ]
+    -- "ruby": 2 in the content, 2 in the summary, over the title (3) and
+    -- "rails" (2); written as in the content, more often than "Ruby"
+    M.lookup ("s", "p") (pagesKeywords (p : others)) `shouldBe` Just ["ruby", "Notes", "rails"]
+
   it "updates the number of pages of each term as a computation of every page would" $ do
     let (kw0, full0) = updateKeywords pages0 [] pages0 emptyKeywords
         -- page 3 changed, page 4 removed, page 31 added
