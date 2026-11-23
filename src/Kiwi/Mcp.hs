@@ -296,19 +296,21 @@ tools =
   , Tool "list_pages" "List pages" ReadOnly
       "List the pages matching metadata, the most recently modified first: SOURCE/UID alone, \
       \and under each page the fields of show (title, tags, summary, keywords, lang, modified, \
-      \content_size, content_lines, links, backlinks, custom fields), written as in a \
+      \content_size, content_lines, links, backlinks, related, custom fields), written as in a \
       \header; title, summary, content_size, content_lines and keywords without show (about 100 \
       \tokens by page: to choose the pages to read), the uids alone with show []. summary: a \
       \short description of the page, written in its header (not every page has one). \
       \keywords: the terms that tell the page from the others, computed by the wiki. content_size and \
       \content_lines: the characters and lines of its content. links: the uids of the \
       \pages it links, \"(missing)\" after a page that does not exist (a broken link); \
-      \backlinks: the uids of the pages that link it. Narrow the selection with facets \
+      \backlinks: the uids of the pages that link it; related: SOURCE/UID of the pages \
+      \closest to it (common keywords, tags and some custom fields), the closest first, \
+      \at most 5. Narrow the selection with facets \
       \or search first. For a large selection, ask only the fields needed: show [title, tags] \
       \gives an inventory; has_fields and show with a custom field (or show [] and the uids) \
       \prepare a metadata script."
       (selectionProps ++
-       [ ("show", stringsProp "Fields given under each page: title, tags, summary, keywords, lang, modified (day), content_size, content_lines, links, backlinks, custom fields. [] for the uids alone; without it, title, summary, content_size, content_lines and keywords.")
+       [ ("show", stringsProp "Fields given under each page: title, tags, summary, keywords, lang, modified (day), content_size, content_lines, links, backlinks, related, custom fields. [] for the uids alone; without it, title, summary, content_size, content_lines and keywords.")
        , ("limit", prop "integer" "Maximum number of pages (100 by default).") ])
       []
       (\o -> Right $ apiGet "/api/pages" (selectionParams o ++ listShow o ++ optional o ["limit"]))

@@ -29,7 +29,7 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
 * `GET /api/pages` : the pages, the most recently modified first, at most
   `limit` (100 by default): one `SOURCE/UID` by line, and under it the
   fields of `show`
-  (`show=title,tags,summary,keywords,lang,modified,content_size,content_lines,links,backlinks`
+  (`show=title,tags,summary,keywords,lang,modified,content_size,content_lines,links,backlinks,related`
   and custom fields by their name), written as in a header. `summary`:
   the short description written in the header of the page, if any.
   `content_size` and `content_lines`: the characters and lines of its
@@ -42,7 +42,11 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   when no `show` is given, the uids alone with an empty `show`). `links`: the
   uids of the pages it links, with `(missing)` after a page that does
   not exist or can not be read (a broken link); `backlinks`: the uids of
-  the pages that link it.
+  the pages that link it; `related`: the `SOURCE/UID` of the pages closest
+  to it, the closest first, at most 5, in the sources of the context (by
+  their common keywords, tags with their parents, and values of the custom
+  fields marked `relating: yes` in `kiwi.ini`; backlinks not left out),
+  the same as below a page on the web, after its backlinks.
 * `GET /api/search?q=QUERY` : full-text search for the agents. The pages
   that contain any of the words, those with the most of them first, each
   one with its size (`content_size`, `content_lines`), the words it

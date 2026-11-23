@@ -15,6 +15,13 @@
   all of them being computed again once a tenth of the pages changed: a
   reload no longer computes them for the whole wiki, and they are always
   ready (no more background computation).
+- **Related pages** below each page, in place of the backlinks frame: one
+  list "Related pages" with the backlinks first (marked by an icon), then at
+  most 5 pages close to it, in the sources of the context: common keywords
+  (by stem), tags (with their parents) and values of the custom fields
+  marked `relating: yes` in their `[metadata NAME]` section (no by
+  default). `show=related` gives them in `/api/pages` and the MCP tool
+  `list_pages`, as `SOURCE/UID`.
 
 ## v0.4.5.0 - 2026-11-22
 
