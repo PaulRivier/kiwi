@@ -52,7 +52,7 @@ import           Kiwi.Keywords (keywordsText)
 import qualified Kiwi.Log as L
 import qualified Kiwi.Mcp as Mcp
 import qualified Kiwi.MetaScript as MS
-import           Kiwi.Controller (findPage, getRestrictedDB, keyOrder, sameOrigin, textOrder,
+import           Kiwi.Controller (findPage, getRestrictedDB, relatedOf, keyOrder, sameOrigin, textOrder,
                                   withContext, withLogin)
 import           Kiwi.Pandoc (pageDoc)
 import           Kiwi.Search (alg, explainPages, extractTerms, queryLang, searchLang, termFields)
@@ -133,26 +133,31 @@ pathsFor = do
 -- each one (see 'AT.pagesText'). The fields "links" (the uids of the pages
 -- it links, with "(missing)" for a page that does not exist or can not be
 -- read) and "backlinks" (the uids of the readable pages that link it) are
--- in the same source as the page; "keywords": see "Kiwi.Keywords".
+-- in the same source as the page; "keywords": see "Kiwi.Keywords";
+-- "related": SOURCE/UID of the related pages (see "Kiwi.Related"), the
+-- closest first.
 apiPages :: ActM ()
 apiPages = withSelection ["limit", "show"] $ \db pages ->
   withShow (AT.pageFields ++ map K.cmcName (K.customMetaConfig db)) $ \shown ->
     intParam "limit" 100 $ \limit -> do
       let kws = shownKeywords db shown
-      answer $ AT.pagesText (extraField db kws) shown (length pages)
+      related <- relatedOf db
+      answer $ AT.pagesText (extraField db kws (related S.empty)) shown (length pages)
                             (take limit $ sortOn (Down . K.pageMTime) pages)
 
 -- | The keywords of the pages when they are shown (see 'K.pageKeywords'),
 -- none otherwise
-shownKeywords :: K.PagesDB -> [T.Text] -> M.Map K.PageUID [T.Text]
+shownKeywords :: K.PagesDB -> [T.Text] -> M.Map K.PageUID [K.Keyword]
 shownKeywords db shown
   | "keywords" `elem` shown = K.kwPages $ K.pageKeywords db
   | otherwise = M.empty
 
 -- | The fields of a page that the index gives (see 'apiPages'): "links",
--- "backlinks" and "keywords" (see "Kiwi.Keywords", 'shownKeywords')
-extraField :: K.PagesDB -> M.Map K.PageUID [T.Text] -> K.Page -> T.Text -> Maybe T.Text
-extraField db kws p f =
+-- "backlinks", "keywords" (see "Kiwi.Keywords", 'shownKeywords') and
+-- "related" (given the related pages of a page)
+extraField :: K.PagesDB -> M.Map K.PageUID [K.Keyword] -> (K.Page -> [K.Page]) -> K.Page -> T.Text
+           -> Maybe T.Text
+extraField db kws related p f =
       let idx = K.pagesIndex db
           exists uid = maybe False (const True) $ DI.findDoc idx uid
           list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
@@ -162,6 +167,7 @@ extraField db kws p f =
            "backlinks" -> list $ sortOn textOrder
                             [ snd (K.pageUID b) | b <- DI.query idx (U.qOnly K.FieldLink (K.pageUID p)) ]
            "keywords" -> keywordsText kws p
+           "related" -> list [ src <> "/" <> uid | (src, uid) <- map K.pageUID (related p) ]
            _ -> Nothing
 
 -- | The fields of the "show" parameters (repeated, or separated by commas),
@@ -476,7 +482,7 @@ apiSearch = withSelection ["q", "limit", "show"] $ \db selected -> withShow ["ke
         else do
           results <- mapM (withPassages (map fst terms)) (take limit hits)
           let kws = shownKeywords db shown
-          let fields p = [ (f, v) | f <- shown, Just v <- [extraField db kws p f] ]
+          let fields p = [ (f, v) | f <- shown, Just v <- [extraField db kws (const []) p f] ]
           answer $ AS.searchText (T.strip raw) lang terms missing fields total results
   where
     -- the passages of a page, from its content as loaded, with the lines of

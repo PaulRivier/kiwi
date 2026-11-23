@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Backlink: two links of a chain, traced from the maintainer's drawing -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 512 512">
+  <g transform="translate(256 256) rotate(-45)" fill="none" stroke="#ffffff"
+     stroke-width="62" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 80 -136 L 114.5 -136 A 136 136 0 0 1 114.5 136 L 80 136"/>
+    <path d="M -80 136 L -114.5 136 A 136 136 0 0 1 -114.5 -136 L -80 -136"/>
+    <path d="M -118 0 L 118 0"/>
+  </g>
+</svg>

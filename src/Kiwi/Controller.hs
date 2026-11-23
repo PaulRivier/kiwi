@@ -26,6 +26,7 @@ module Kiwi.Controller
   , ifAdmin
   , sameOrigin
   , getRestrictedDB
+  , relatedOf
   , findPage
   , textOrder
   , keyOrder
@@ -81,6 +82,7 @@ import qualified Kiwi.View as V
 import qualified Kiwi.Write as Write
 import qualified Kiwi.Auth as Auth
 import qualified Kiwi.Browse as Browse
+import qualified Kiwi.Related as Related
 import qualified Kiwi.Tags as Tags
 import qualified Kiwi.Url as Url
 import           Kiwi.Utils (getDB, asksK, fastListDiff)
@@ -98,9 +100,10 @@ servePage pgId = do
       let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
           -- links to the pages the user can not read are shown as broken
           findLinked = fmap K.pageSummary . findPage db
+      related <- relatedOf db
       r <- V.renderPage findLinked p (maybe False (>= K.AccessWrite) level) doc
-                        backLinkPages
-                        (M.findWithDefault [] (K.pageUID p) (K.kwPages $ K.pageKeywords db))
+                        backLinkPages (related (S.fromList $ map K.pageUID backLinkPages) p)
+                        (map K.keywordWord $ M.findWithDefault [] (K.pageUID p) (K.kwPages $ K.pageKeywords db))
       htmlETag db r
     Nothing -> serveNotFound
 
@@ -845,6 +848,17 @@ ifAdmin a = withLogin $ do
   if adm then a
     else serveForbidden
 
+
+-- | The pages related to a page (see "Kiwi.Related"), among the pages of the
+-- index in the sources of the context, the given ones left out
+relatedOf :: K.PagesDB -> ActM (S.Set K.PageUID -> K.Page -> [K.Page])
+relatedOf db = do
+  ctxSources <- asksK (K.contextSources . K.context . K.requestState)
+  let inContext = [ q | q <- DI.documentsList (K.pagesIndex db)
+                      , S.null ctxSources || S.member (fst $ K.pageUID q) ctxSources ]
+  return $ \excluded p ->
+    Related.relatedPages (K.customMetaConfig db) (K.kwPages $ K.pageKeywords db) p
+                         [ q | q <- inContext, not $ S.member (K.pageUID q) excluded ]
 
 -- | The pages the user can read, archived or not according to the context
 getRestrictedDB :: ActM K.PagesDB

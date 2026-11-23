@@ -78,7 +78,7 @@ allKeywords pages =
     docs = addDocs 1 (map snd tables) M.empty
 
 -- | Keywords of the pages, the best first, all of them computed
-pagesKeywords :: [Page] -> M.Map PageUID [T.Text]
+pagesKeywords :: [Page] -> M.Map PageUID [Keyword]
 pagesKeywords = kwPages . allKeywords
 
 -- | The number of pages of each term, with the terms of the given pages
@@ -89,9 +89,9 @@ addDocs d tables docs0 = foldl' add docs0 tables
 
 -- | The keywords of a page, given the number of pages and the number of
 -- pages of each term, as written in the page, evaluated
-keywordsOf :: Int -> M.Map T.Text Int -> Terms -> [T.Text]
+keywordsOf :: Int -> M.Map T.Text Int -> Terms -> [Keyword]
 keywordsOf n docs (weights, forms) = forced
-  [ T.copy w | t <- bestTerms n docs weights, Just w <- [M.lookup t forms] ]
+  [ Keyword (T.copy t) (T.copy w) | t <- bestTerms n docs weights, Just w <- [M.lookup t forms] ]
   where forced ks = foldr seq () ks `seq` ks
 
 -- | The terms of a page with their weight, and the word written for each
@@ -166,7 +166,7 @@ stopWordList = S.fromList . map stripAccents . tokenize . TE.decodeUtf8
 
 -- | The keywords of a page as a field of the lists ("a, b, c"), none
 -- without them
-keywordsText :: M.Map PageUID [T.Text] -> Page -> Maybe T.Text
+keywordsText :: M.Map PageUID [Keyword] -> Page -> Maybe T.Text
 keywordsText kws p = case M.findWithDefault [] (pageUID p) kws of
   [] -> Nothing
-  ks -> Just (T.intercalate ", " ks)
+  ks -> Just (T.intercalate ", " $ map keywordWord ks)

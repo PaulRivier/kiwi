@@ -51,11 +51,14 @@ lang: english
 # Types: text | int | date (YYYY-MM-DD) | bool (yes, true, 1 | no, false, 0)
 # The description, optional, tells what the field is for (on the metadata
 # page, and for the agents).
+# relating: yes makes pages with the same value of the field related pages
+# (shown at the bottom of the pages); no by default.
 
 # [metadata category]
 # type: text
 # threshold: 0
 # description: the kind of document
+# relating: yes
 # 
 # [metadata authors]
 # type: text

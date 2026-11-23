@@ -172,8 +172,8 @@ loadPageSpec = do
     invalidValues [] "title: t\narchive: true\n\narchive: x" `shouldBe` []
 
   it "finds the invalid lang and typed custom metadata values" $ do
-    let cfg = [ CustomMetaConfig "date" CmtDate 1 Nothing, CustomMetaConfig "count" CmtInt 1 Nothing
-              , CustomMetaConfig "flag" CmtBool 1 Nothing, CustomMetaConfig "authors" CmtText 1 Nothing ]
+    let cfg = [ CustomMetaConfig "date" CmtDate 1 Nothing False, CustomMetaConfig "count" CmtInt 1 Nothing False
+              , CustomMetaConfig "flag" CmtBool 1 Nothing False, CustomMetaConfig "authors" CmtText 1 Nothing False ]
     invalidValues cfg "lang: fr\ndate: 2020-1-5, 2020-13-1\ncount: 3, x\n\
                           \flag: yes, oui\nauthors: anything\n\nlang: x"
       `shouldBe` [ ("lang", "fr"), ("date", "2020-13-1"), ("count", "x"), ("flag", "oui") ]
@@ -281,11 +281,11 @@ metaDataSpec = do
       `shouldBe` Right (Just "untitled")
 
   it "parses custom metadata according to their type" $ do
-    let cfg = [ CustomMetaConfig "date" CmtDate 1 Nothing
-              , CustomMetaConfig "count" CmtInt 1 Nothing
-              , CustomMetaConfig "flag" CmtBool 1 Nothing
-              , CustomMetaConfig "authors" CmtText 1 Nothing
-              , CustomMetaConfig "absent" CmtText 1 Nothing ]
+    let cfg = [ CustomMetaConfig "date" CmtDate 1 Nothing False
+              , CustomMetaConfig "count" CmtInt 1 Nothing False
+              , CustomMetaConfig "flag" CmtBool 1 Nothing False
+              , CustomMetaConfig "authors" CmtText 1 Nothing False
+              , CustomMetaConfig "absent" CmtText 1 Nothing False ]
         m = "date: 2020-1-5, 2021-12-31, bad\ncount: 3, x, 12\n\
             \flag: Yes\nauthors: John, Jack\\, Jr"
         res = [ (cmdName c, cmdKeys c) | c <- customMeta cfg m ]
@@ -296,13 +296,13 @@ metaDataSpec = do
                    , ("authors", [KeyText "John", KeyText "Jack, Jr"]) ]
 
   it "finds the unknown metadata keys, in the header only" $ do
-    let cfg = [CustomMetaConfig "authors" CmtText 1 Nothing]
+    let cfg = [CustomMetaConfig "authors" CmtText 1 Nothing False]
         c = "title: t\ntag: typo\nTitle: case\nauthors: a\nfiles-dir: f\n\nbody: no"
     unknownKeys cfg c `shouldBe` ["Title", "files-dir", "tag"]
     unknownKeys [] "title: t\nauthors: a" `shouldBe` ["authors"]
 
   it "reads booleans" $ do
-    let cfg = [CustomMetaConfig "b" CmtBool 1 Nothing]
+    let cfg = [CustomMetaConfig "b" CmtBool 1 Nothing False]
         m = "b: true, 1, Yes, no, false, 0, oui"
     -- invalid values are ignored
     map cmdKeys (customMeta cfg m)

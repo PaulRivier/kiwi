@@ -47,7 +47,7 @@ keywordsSpec = do
                "However the soup, the carrot soup. Carrots and soups, however."
                []
         others = [ textPage (T.pack (show i)) English "Other" "Something else entirely" [] | i <- [1 .. 8 :: Int] ]
-        kws = pagesKeywords (fr : en : others)
+        kws = M.map (map keywordWord) $ pagesKeywords (fr : en : others)
     -- French stop words out, English ones kept in a French page; "glace" and
     -- "the" are the most frequent forms, "Menthe" the first in order of a tie
     M.lookup ("s", "fr") kws `shouldBe` Just ["glace", "the", "Menthe"]
@@ -56,7 +56,7 @@ keywordsSpec = do
   it "weighs the title and the headings, the words taken from the content" $ do
     let p = textPage "p" English "Notes" "rails and ruby, rails" ["Ruby"]
         others = [ textPage (T.pack (show i)) English "Other" "Something else entirely" [] | i <- [1 .. 8 :: Int] ]
-    M.lookup ("s", "p") (pagesKeywords (p : others)) `shouldBe` Just ["Notes", "ruby", "rails"]
+    fmap (map keywordWord) (M.lookup ("s", "p") (pagesKeywords (p : others))) `shouldBe` Just ["Notes", "ruby", "rails"]
 
   it "weighs the summary, its words written as in the content" $ do
     let p = (textPage "p" English "Notes" "rails and ruby, ruby rails, gems" [])
@@ -64,7 +64,7 @@ keywordsSpec = do
         others = [ textPage (T.pack (show i)) English "Other" "Something else entirely" [] | i <- [1 .. 8 :: Int] ]
     -- "ruby": 2 in the content, 2 in the summary, over the title (3) and
     -- "rails" (2); written as in the content, more often than "Ruby"
-    M.lookup ("s", "p") (pagesKeywords (p : others)) `shouldBe` Just ["ruby", "Notes", "rails"]
+    fmap (map keywordWord) (M.lookup ("s", "p") (pagesKeywords (p : others))) `shouldBe` Just ["ruby", "Notes", "rails"]
 
   it "updates the number of pages of each term as a computation of every page would" $ do
     let (kw0, full0) = updateKeywords pages0 [] pages0 emptyKeywords

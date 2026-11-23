@@ -12,6 +12,7 @@ import           Kiwi.FilesSpec (filesSpec)
 import           Kiwi.GitSpec (gitSpec)
 import           Kiwi.HtmlWriterSpec (htmlWriterSpec)
 import           Kiwi.KeywordsSpec (keywordsSpec)
+import           Kiwi.RelatedSpec (relatedSpec)
 import           Kiwi.LangDetectSpec (langDetectSpec)
 import           Kiwi.McpSpec (mcpSpec)
 import           Kiwi.MetaScriptSpec (metaScriptSpec)
@@ -41,6 +42,7 @@ main = hspec $ do
   describe "Kiwi.LangDetect" langDetectSpec
   describe "Kiwi.Search" searchSpec
   describe "Kiwi.Keywords" keywordsSpec
+  describe "Kiwi.Related" relatedSpec
   describe "Kiwi.Files" filesSpec
   describe "Kiwi.PagesDB.updatePagesDB" pagesDBSpec
   describe "Kiwi.HtmlWriter" htmlWriterSpec

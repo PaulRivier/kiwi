@@ -92,12 +92,12 @@ renderView title actions tocDoc content = do
 -- | A page, its document and the pages linking to it. The links of the
 -- document to the pages that do not exist (according to the predicate) are
 -- marked as broken.
-renderPage :: PageLookup -> K.Page -> Bool -> PD.Pandoc -> [K.Page] -> [T.Text] -> ActM TL.Text
-renderPage findPage p canWrite doc backlinks keywords = do
+renderPage :: PageLookup -> K.Page -> Bool -> PD.Pandoc -> [K.Page] -> [K.Page] -> [T.Text] -> ActM TL.Text
+renderPage findPage p canWrite doc backlinks related keywords = do
   loc <- getLocales
   ctx <- asksK (K.context . K.requestState)
   renderView (K.pageTitle p) (PageActions p canWrite) (Just doc)
-             (pageView loc ctx findPage p canWrite doc backlinks keywords)
+             (pageView loc ctx findPage p canWrite doc backlinks related keywords)
 
 -- | Editor of a page: the text of its file, its hash, and the line where
 -- the editor starts (from 1)
@@ -416,8 +416,8 @@ plainText = inlinesText
 -- | A page. With the write right, its document has the URL of its editor,
 -- to edit it from one of its blocks (see 'Kiwi.HtmlWriter.lineKey').
 pageView :: K.Locales -> K.Context -> PageLookup -> K.Page -> Bool -> PD.Pandoc ->
-            [K.Page] -> [T.Text] -> Html ()
-pageView loc ctx findPage p canWrite doc backlinks keywords = div_ [class_ "page-view"] $ do
+            [K.Page] -> [K.Page] -> [T.Text] -> Html ()
+pageView loc ctx findPage p canWrite doc backlinks related keywords = div_ [class_ "page-view"] $ do
   contextBar loc [fst $ K.pageUID p]
     (linksList "tags-list" [ (prettyTag t, browseLink K.FieldTag (K.KeyText t))
                            | t <- K.pageTags p ])
@@ -442,10 +442,16 @@ pageView loc ctx findPage p canWrite doc backlinks keywords = div_ [class_ "page
         if canWrite then [ data_ "edit-url" (Url.editUrl $ K.pageUID p)
                          , data_ "edit-title" (K.loc_EditBlock loc) ] else []) $
     writeHtml5 findPage $ linksInContext ctx doc
-  unless (null backlinks) $
-    fieldset_ [class_ "flex backlinks"] $ do
-      legend_ $ toHtml $ K.loc_Backlinks loc
-      pagesList "pages-list backlinks" ctx backlinks
+  -- the backlinks, each one marked by an icon, then the related pages (see
+  -- "Kiwi.Related"), in one list
+  unless (null backlinks && null related) $
+    fieldset_ [class_ "flex related"] $ do
+      legend_ $ toHtml $ K.loc_RelatedPages loc
+      ul_ [class_ "flex-hz pages-list related"] $ do
+        forM_ backlinks $ \pg -> li_ [class_ "backlink"] $ pageItem pg $
+          img_ [ src_ "/static/images/backlink.svg", class_ "backlink"
+               , alt_ (K.loc_Backlink loc), title_ (K.loc_Backlink loc) ]
+        forM_ related $ \pg -> li_ $ pageItem pg mempty
   -- the keywords (see "Kiwi.Keywords"), the best first, each one a search of
   -- the pages having it, in the lang of the page
   unless (null keywords) $
@@ -457,6 +463,8 @@ pageView loc ctx findPage p canWrite doc backlinks keywords = div_ [class_ "page
     -- the title and the document are in the lang of the page, the rest in
     -- the lang of the interface
     pageLang = lang_ $ K.langCode $ K.pageLang p
+    pageItem pg mark = a_ ([href_ $ Url.inContext ctx $ Url.pageUrl pg] ++ summaryTitle pg) $
+      mark >> toHtml (K.pageTitle pg)
     contextReq = Browse.sourcesReq $ K.contextSources ctx
     browseLink f k = Browse.browseUrl ctx $ Browse.addToReq contextReq (f, k)
 

@@ -92,6 +92,7 @@ library
       Kiwi.Files
       Kiwi.Git
       Kiwi.Keywords
+      Kiwi.Related
       Kiwi.LangDetect
       Kiwi.Locales
       Kiwi.Mcp
@@ -164,6 +165,7 @@ test-suite kiwi-test
       Kiwi.GitSpec
       Kiwi.HtmlWriterSpec
       Kiwi.KeywordsSpec
+      Kiwi.RelatedSpec
       Kiwi.LangDetectSpec
       Kiwi.McpSpec
       Kiwi.MetaScriptSpec

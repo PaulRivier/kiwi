@@ -17,10 +17,10 @@ import qualified Utils.DocIndex as DI
 
 browseReqSpec :: Spec
 browseReqSpec = do
-  let cmcs = [ CustomMetaConfig "author" CmtText 1 Nothing
-             , CustomMetaConfig "year" CmtInt 1 Nothing
-             , CustomMetaConfig "date" CmtDate 1 Nothing
-             , CustomMetaConfig "done" CmtBool 1 Nothing ]
+  let cmcs = [ CustomMetaConfig "author" CmtText 1 Nothing False
+             , CustomMetaConfig "year" CmtInt 1 Nothing False
+             , CustomMetaConfig "date" CmtDate 1 Nothing False
+             , CustomMetaConfig "done" CmtBool 1 Nothing False ]
       -- decode the query string of an URL, as scotty does
       decodeUrl url = Browse.decodeReq cmcs $ map (fmap $ fromMaybe "") $
                       URI.parseQueryText $ TE.encodeUtf8 $ T.dropWhile (/= '?') url

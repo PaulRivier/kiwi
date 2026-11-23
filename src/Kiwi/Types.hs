@@ -17,6 +17,7 @@ module Kiwi.Types
     -- * Pages and metadata
   , PagesDB(..)
   , Keywords(..)
+  , Keyword(..)
   , MetaField(..)
   , MetaData(..)
   , AccessLevel(..)
@@ -193,10 +194,16 @@ data PagesDB =
 -- the other pages
 data Keywords =
   Keywords { kwDocs :: !(M.Map T.Text Int)          -- ^ number of pages of each term
-           , kwPages :: !(M.Map PageUID [T.Text])   -- ^ keywords of each page, the best first
+           , kwPages :: !(M.Map PageUID [Keyword])  -- ^ keywords of each page, the best first
            , kwChanges :: !Int  -- ^ pages read again or removed since the start (only grows)
            , kwFullAt :: !Int   -- ^ 'kwChanges' at the last computation of every page
            }
+
+
+-- | A keyword of a page: its term (stem, compared between the pages, see
+-- "Kiwi.Related"), and the word written for it in the page (shown)
+data Keyword = Keyword { keywordStem :: !T.Text, keywordWord :: !T.Text }
+  deriving (Eq, Show)
 
 
 data MetaField = FieldSource
@@ -303,6 +310,8 @@ data CustomMetaConfig =
                    , cmcType    :: CustomMetaType
                    , cmcThreshold :: Float
                    , cmcDescription :: Maybe T.Text  -- ^ what the field is for
+                   -- | whether its values bring pages together (see "Kiwi.Related")
+                   , cmcRelating :: Bool
                    }
   deriving (Show)
 
@@ -574,7 +583,8 @@ data Locales = Locales
   , loc_UnlinkedFiles :: T.Text
   , loc_CopyFileLink :: T.Text
   -- | legend of the pages linking to a page
-  , loc_Backlinks :: T.Text
+  , loc_Backlink :: T.Text
+  , loc_RelatedPages :: T.Text
   -- | legend of the keywords of a page
   , loc_Keywords :: T.Text
   -- | metadata editor (admins, /metadata-editor): its link on /metadata,

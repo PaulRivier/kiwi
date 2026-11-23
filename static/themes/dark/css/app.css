@@ -660,25 +660,35 @@ a.archive-switch.active:hover,
   margin-bottom: 0.5em;
 }
 
-/* backlinks, then keywords, after the document, in frames with a legend */
-.page-view fieldset.backlinks legend,
+/* related pages (backlinks first), then keywords, after the document, in
+   frames with a legend */
+.page-view fieldset.related legend,
 .page-view fieldset.keywords legend {
   color: rgba(var(--kiwi-text), 0.6);
 }
 
-.page-view fieldset.backlinks,
+.page-view fieldset.related,
 .page-view fieldset.keywords {
   margin: 2.5em 0 0 0;
   border-color: rgba(var(--kiwi-page-link), 0.3);
 }
 
-.page-view fieldset.backlinks + fieldset.keywords {
+.page-view fieldset.related + fieldset.keywords {
   margin-top: 1.2em;
 }
 
-.page-view fieldset.backlinks ul.backlinks,
+.page-view fieldset.related ul.related,
 .page-view fieldset.keywords ul.keywords {
   margin: 0 0 12px 0;
+}
+
+/* the icon of the backlinks, before their title */
+.page-view ul.related li a img.backlink {
+  height: 0.9em;
+  width: 0.9em;
+  margin-right: 0.4em;
+  vertical-align: -0.05em;
+  opacity: 0.6;
 }
 
 /* the keywords are searches: in the color of the text, not of the links to

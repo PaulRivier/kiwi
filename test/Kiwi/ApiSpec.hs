@@ -166,6 +166,16 @@ apiSpec = do
         , "s/b", "  links: a", "  backlinks: a"
         , "s/c" ]
 
+  it "gives the related pages as a field of the list, in the sources of the context" $
+    withKiwiAccounts' [ ("a.md", "title: A\nuid: a\ntags: cuisine > dessert\n\nA\n")
+                      , ("b.md", "title: B\nuid: b\ntags: cuisine > dessert\n\nB\n")
+                      , ("c.md", "title: C\nuid: c\ntags: cuisine > plat\n\nC\n")
+                      , ("d.md", "title: D\nuid: d\ntags: jardin\n\nD\n")
+                      , ("s.md", "title: S\nuid: s\naccess: nobody\ntags: cuisine > dessert\n\nS\n") ] $ \get' -> do
+      r <- get' "/api/pages?page=s/a&page=s/d&show=related"
+      liftIO $ L.sort (drop 1 $ T.lines (body r)) `shouldBe` L.sort
+        [ "s/a", "  related: s/b, s/c", "s/d" ]
+
   it "gives the outline of a page too long to be given whole, and its lines on demand" $
     withKiwiAccounts' [ ("big.md", "title: Big\nuid: big\n\n# Start\n\n"
                                     <> concat (replicate 1000 "A line of fifty characters, to make it long.\n")) ] $ \get' -> do

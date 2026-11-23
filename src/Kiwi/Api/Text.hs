@@ -55,13 +55,13 @@ sourcePath contentDir' p =
 -- fields (see 'pagesText')
 pageFields :: [T.Text]
 pageFields = [ "title", "tags", "summary", "keywords", "lang", "modified", "content_size"
-             , "content_lines", "links", "backlinks" ]
+             , "content_lines", "links", "backlinks", "related" ]
 
 -- | List of pages, one by line (SOURCE/UID), each one followed by the given
 -- fields that it has, one by line, written as in a header ("  tags: a > b,
 -- c"; "modified": the day of the last change; "content_size" and
 -- "content_lines": the characters and lines of its content, without the
--- header; "links", "backlinks" and "keywords", given by the function, see
+-- header; "links", "backlinks", "keywords" and "related", given by the function, see
 -- 'Kiwi.Api.extraField'; a custom field by its name).
 -- The first line gives the number of pages found and of pages shown, and
 -- how to see the others when some are cut.
@@ -86,6 +86,7 @@ pagesText linkField fields total pages = T.unlines $ header : concatMap pageLine
       "links" -> linkField p f
       "backlinks" -> linkField p f
       "keywords" -> linkField p f
+      "related" -> linkField p f
       _ -> list [ showCustomValue k | CustomMetaData f' ks <- pageCustomMeta p, f' == f, k <- ks ]
     list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
 

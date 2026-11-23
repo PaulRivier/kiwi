@@ -93,10 +93,12 @@ customMetaParser name' = do
   cmcType <- fieldOf "type" K.parseCustomMetaType
   cmcThreshold <- fieldDefOf "threshold" number 1.0
   cmcDescription <- fieldMbOf "description" string
+  cmcRelating <- fieldDefOf "relating" (flagOr False "relating") False
   return K.CustomMetaConfig { K.cmcName = name'
                             , K.cmcType = cmcType
                             , K.cmcThreshold = cmcThreshold
                             , K.cmcDescription = cmcDescription
+                            , K.cmcRelating = cmcRelating
                             }
 
 

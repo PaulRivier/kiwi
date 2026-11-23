@@ -77,7 +77,7 @@ metaIndexSpec = do
 
   it "links the name of a custom field to the pages having it" $ do
     let withAuthor a p = p { pageCustomMeta = [CustomMetaData "author" [KeyText a]] }
-        db' = mkPagesDBWith [CustomMetaConfig "author" CmtText 0 Nothing]
+        db' = mkPagesDBWith [CustomMetaConfig "author" CmtText 0 Nothing False]
                 [ withAuthor "Smith" $ mkPage ("s", "a") ["livre"] ["public"] False 1
                 , withAuthor "Jones" $ mkPage ("s", "b") ["livre"] ["public"] False 2
                 , mkPage ("s", "c") ["livre"] ["public"] False 3 ]

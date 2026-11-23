@@ -10,7 +10,7 @@ import           Kiwi.Types
 
 
 cfg :: [CustomMetaConfig]
-cfg = [CustomMetaConfig "zone" CmtText 1 Nothing, CustomMetaConfig "date" CmtDate 1 Nothing]
+cfg = [CustomMetaConfig "zone" CmtText 1 Nothing False, CustomMetaConfig "date" CmtDate 1 Nothing False]
 
 metaScriptSpec :: Spec
 metaScriptSpec = do
