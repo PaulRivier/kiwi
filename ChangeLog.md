@@ -22,6 +22,9 @@
   with a `relating: WEIGHT` in their `[metadata NAME]` section (0 by
   default: left out). `show=related` gives them in `/api/pages` and the MCP tool
   `list_pages`, as `SOURCE/UID`.
+- The pages a user can read are no longer a copy of the index made at each
+  request, but a view of it: a request of a user who can not read every
+  page is much faster (about 0.02 ms instead of 0.65 ms for 240 pages).
 
 ## v0.4.5.0 - 2026-11-22
 

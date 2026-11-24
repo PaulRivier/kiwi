@@ -16,7 +16,7 @@ import           Test.Hspec
 import qualified Kiwi.Auth as Auth
 import           Kiwi.Auth (readableQuery)
 import           Kiwi.Types
-import qualified Utils.DocIndex as DI
+import qualified Utils.DocIndex.Restricted as RDI
 import           TestUtils
 
 passwordSpec :: Spec
@@ -196,7 +196,7 @@ readableQuerySpec = do
       t0 = Time.UTCTime (Time.fromGregorian 2026 1 1) 0
       user groups = Just (Login "user" groups t0)
       readable loginM archive =
-        sort $ map snd $ S.toList $ DI.queryIdSet idx $ readableQuery loginM archive
+        sort $ map snd $ S.toList $ RDI.queryIdSet idx $ readableQuery loginM archive
 
   it "gives anonymous users the public pages only" $ do
     readable Nothing False `shouldBe` ["public"]
