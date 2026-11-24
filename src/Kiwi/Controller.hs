@@ -86,6 +86,7 @@ import qualified Kiwi.Url as Url
 import           Kiwi.Utils (getDB, asksK, fastListDiff)
 import qualified Kiwi.Utils as U
 import qualified Utils.DocIndex as DI
+import qualified Utils.DocIndex.Restricted as RDI
 
 servePage :: K.PageUID -> ActM ()
 servePage pgId = do
@@ -95,7 +96,7 @@ servePage pgId = do
       -- the page was parsed when loaded, so this should not fail
       doc <- orRenderError (K.pageAbsoluteFSPath p) $ pageDoc (K.sourceFiles db) p
       level <- accessLevel p
-      let backLinkPages = DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
+      let backLinkPages = RDI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
           -- links to the pages the user can not read are shown as broken
           findLinked = fmap K.pageSummary . findPage db
       r <- V.renderPage findLinked p (maybe False (>= K.AccessWrite) level) doc
@@ -124,7 +125,7 @@ serveDoctor = do
                       [ (K.pageUID pg, [snd uid]) | (pg, uid) <- brokenLinks $ K.pagesIndex db ]
       -- page by page, in the order of the file paths, so source by source
       byPage = [ (pg, targets)
-               | pg <- sortOn K.pageAbsoluteFSPath $ DI.documentsList $ K.pagesIndex db
+               | pg <- sortOn K.pageAbsoluteFSPath $ RDI.documentsList $ K.pagesIndex db
                , let source = fst $ K.pageUID pg
                      targets = M.findWithDefault [] (K.pageUID pg) brokenPages ++
                                [ "file:" <> f | f <- K.pageFiles pg
@@ -143,7 +144,7 @@ serveDoctor = do
   unlinked <- if not admin then return [] else do
     full <- getDB
     let linked = S.fromList [ (fst $ K.pageUID pg, f)
-                            | pg <- DI.documentsList $ K.pagesIndex full, f <- K.pageFiles pg ]
+                            | pg <- RDI.documentsList $ K.pagesIndex full, f <- K.pageFiles pg ]
     return [ (s, map snd fs)
            | fs@((s, _) : _) <- groupBy ((==) `on` fst)
                [ (s, (p, u)) | ((s, u), p) <- M.toList $ K.sourceFiles full
@@ -221,15 +222,15 @@ metadataPage db = do
   ctx <- asksK (K.context . K.requestState)
   admin <- Auth.isAdmin
   let idx = K.pagesIndex db
-      sources = sortOn textOrder [ s | K.KeyText s <- DI.getFieldKeys idx K.FieldSource ]
+      sources = sortOn textOrder [ s | K.KeyText s <- RDI.getFieldKeys idx K.FieldSource ]
       -- the tags, the fields of kiwi, then the custom fields by name
       fields = [K.FieldTag, K.FieldLang] ++ [K.FieldAccess | admin]
                ++ map K.FieldCustom (sortOn (\n -> (textOrder n, n)) $
                                      map K.cmcName $ K.customMetaConfig db)
       section s =
-        let sub = DI.narrow idx (U.qOnly K.FieldSource s)
+        let sub = RDI.narrow idx (U.qOnly K.FieldSource s)
         in (s, [ (f, fieldLink s f, description f, map (fmap $ entry s sub f) $ keysForest f keys)
-               | f <- fields, let keys = DI.getFieldKeys sub f, not (null keys) ])
+               | f <- fields, let keys = RDI.getFieldKeys sub f, not (null keys) ])
       -- a custom field: the pages of the source having it
       fieldLink s f@(K.FieldCustom _) =
         Just $ Browse.browseUrl ctx $ Browse.addFieldToReq (Browse.sourcesReq $ S.singleton s) f
@@ -244,7 +245,7 @@ metadataPage db = do
         { V.metaLabel = keyLabel f k
         , V.metaCopy  = keyCopy f k
         , V.metaLink  = Browse.browseUrl ctx $ Browse.addToReq (Browse.sourcesReq $ S.singleton s) (f, k)
-        , V.metaCount = S.size $ DI.lookupIndex sub f k }
+        , V.metaCount = S.size $ RDI.lookupIndex sub f k }
   V.renderMetadata admin (map section sources)
   where
     -- a sub-tag shows its last segment, below its parent
@@ -328,7 +329,7 @@ metaIndex :: K.PagesDB -> K.Context -> Browse.BrowseAllReq -> BrowseAll
 metaIndex db ctx req =
   let idx = K.pagesIndex db
       subset = if M.null req then idx
-               else DI.narrow idx $ Browse.reqToQuery req
+               else RDI.narrow idx $ Browse.reqToQuery req
       reqKeySet f = M.findWithDefault S.empty f req
       reqKeys = S.toList . reqKeySet
       isUnion f = case Browse.fieldCombination f of
@@ -341,15 +342,15 @@ metaIndex db ctx req =
       -- tags of the request, or in the archives)
       fieldKeys K.FieldSource = S.toList $ otherSources <> reqKeySet K.FieldSource
       fieldKeys f = if isUnion f
-                    then S.toList $ S.fromList (DI.getFieldKeys idx f) <> reqKeySet f
-                    else DI.getFieldKeys subset f
+                    then S.toList $ S.fromList (RDI.getFieldKeys idx f) <> reqKeySet f
+                    else RDI.getFieldKeys subset f
       -- sources of the pages matching the other fields of the request,
       -- without narrowing the index again: from the ids (source, page id)
       otherSources
-        | M.null others = S.fromList $ DI.getFieldKeys idx K.FieldSource
+        | M.null others = S.fromList $ RDI.getFieldKeys idx K.FieldSource
         | not (M.member K.FieldSource req) =
-            S.fromList $ DI.getFieldKeys subset K.FieldSource
-        | otherwise = S.map (K.KeyText . fst) $ DI.queryIdSet idx $
+            S.fromList $ RDI.getFieldKeys subset K.FieldSource
+        | otherwise = S.map (K.KeyText . fst) $ RDI.queryIdSet idx $
                       Browse.reqToQuery others
         where others = M.delete K.FieldSource req
       -- tags specific handling
@@ -396,7 +397,7 @@ metaIndex db ctx req =
       nextStepLink f k = (nextStepLabel f k, Browse.browseUrl ctx $ Browse.addToReq req (f,k))
       -- most recently modified first, only the latest ones without
       -- intersection
-      byMTime = sortOn (Down . K.pageMTime) $ DI.documentsList subset
+      byMTime = sortOn (Down . K.pageMTime) $ RDI.documentsList subset
       listing = if all isUnion (M.keys req) then V.RecentPages else V.AllPages
       pages = case listing of
         V.RecentPages -> take recentPagesCount byMTime
@@ -412,7 +413,7 @@ metaIndex db ctx req =
     keyLabel _ k = Browse.showKeyLabel k
 
     relevantFields idx cmcs =
-      let cardinal = DI.cardinal idx
+      let cardinal = RDI.cardinal idx
           relevants = filter (ratioReached cardinal) cmcs
       in fmap (K.FieldCustom . K.cmcName) relevants
       where
@@ -420,7 +421,7 @@ metaIndex db ctx req =
           | K.cmcThreshold cmc > 1  = False -- never reached
           | K.cmcThreshold cmc <= 0 = True  -- always reached
           | otherwise =
-              let fieldCardinal = S.size $ DI.queryIdSet idx $
+              let fieldCardinal = S.size $ RDI.queryIdSet idx $
                                   U.qHasField (K.FieldCustom $ K.cmcName cmc)
                   ratio = fromIntegral fieldCardinal / fromIntegral total
               in ratio >= K.cmcThreshold cmc
@@ -439,7 +440,7 @@ serveSearch query
     ctx <- asksK (K.context . K.requestState)
     let sources = K.contextSources ctx
         -- all the sources, as those the context can have (see 'withContext')
-        allSources = [ s | K.KeyText s <- DI.getFieldKeys (K.pagesIndex allDB) K.FieldSource ]
+        allSources = [ s | K.KeyText s <- RDI.getFieldKeys (K.pagesIndex allDB) K.FieldSource ]
         ctxLang = searchLang (fromMaybe K.defaultLangSetting $ K.metaLang $ K.defaultMeta allDB)
                              (K.sourcesConfig allDB)
                              allSources sources
@@ -470,14 +471,14 @@ serveUidSearch query uid = do
   allDB <- getDB
   loginM <- asksK (K.login . K.requestState)
   ctxSources <- asksK (K.contextSources . K.context . K.requestState)
-  let sources = [ s | K.KeyText s <- DI.getFieldKeys (K.pagesIndex allDB) K.FieldSource
+  let sources = [ s | K.KeyText s <- RDI.getFieldKeys (K.pagesIndex allDB) K.FieldSource
                     , S.null ctxSources || S.member s ctxSources ]
       pages = mapMaybe (\s -> findPage db (s, uid)) sources
       files = [ (s, servedName $ FP.takeFileName path)
               | s <- sources, Just path <- [M.lookup (s, uid) (K.sourceFiles allDB)]
-              , not $ null $ DI.query (K.pagesIndex allDB) $
+              , not $ null $ RDI.query (K.pagesIndex allDB) $
                   DI.And [U.qOnly K.FieldFile (s, uid), Auth.readableAnyArchiveQuery loginM] ]
-      linking = sortOn (textOrder . K.pageTitle) $ DI.query (K.pagesIndex db) $
+      linking = sortOn (textOrder . K.pageTitle) $ RDI.query (K.pagesIndex db) $
                   DI.Or [ U.qOnly f (s, uid) | s <- sources, f <- [K.FieldLink, K.FieldFile] ]
   r <- V.renderUidSearch query uid pages files linking
   htmlETag db r
@@ -669,7 +670,7 @@ logMsg level msg = do
 serveFile :: T.Text -> T.Text -> ActM ()
 serveFile source uid = do
   let key = (source, uid)
-      linked q = DI.query (K.pagesIndex q) . DI.And . (U.qOnly K.FieldFile key :)
+      linked q = RDI.query (K.pagesIndex q) . DI.And . (U.qOnly K.FieldFile key :)
   db <- getDB
   loginM <- asksK (K.login . K.requestState)
   case M.lookup key (K.sourceFiles db) of
@@ -760,7 +761,7 @@ serveForbidden = do
 
 
 findPage :: K.PagesDB -> K.PageUID -> Maybe K.Page
-findPage db pgId = DI.findDoc (K.pagesIndex db) pgId 
+findPage db pgId = RDI.findDoc (K.pagesIndex db) pgId 
 
 
 -- | Set login from session cookie, if the session exists, has not expired,
@@ -780,7 +781,7 @@ withContext :: ActM () -> ActM ()
 withContext run = do
   params <- queryParams
   db <- getDB
-  let known = DI.getFieldKeys (K.pagesIndex db) K.FieldSource
+  let known = RDI.getFieldKeys (K.pagesIndex db) K.FieldSource
       sources = S.fromList [ s | ("source", s) <- params, K.KeyText s `elem` known ]
   case [ v | ("archive", v) <- params ] of
     vs | all (== "yes") vs ->
@@ -852,12 +853,12 @@ getRestrictedDB = do
   db <- getDB
   loginM <- asksK (K.login . K.requestState)
   archive <- asksK (K.contextArchive . K.context . K.requestState)
-  return db { K.pagesIndex = DI.narrow (K.pagesIndex db) (Auth.readableQuery loginM archive) }
+  return db { K.pagesIndex = RDI.narrow (K.pagesIndex db) (Auth.readableQuery loginM archive) }
 
 -- | Whether the user can read archived pages
 hasArchives :: ActM Bool
 hasArchives = do
   db <- getDB
   loginM <- asksK (K.login . K.requestState)
-  return $ not $ S.null $ DI.queryIdSet (K.pagesIndex db) (Auth.readableQuery loginM True)
+  return $ not $ S.null $ RDI.queryIdSet (K.pagesIndex db) (Auth.readableQuery loginM True)
 

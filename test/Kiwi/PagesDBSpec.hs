@@ -24,7 +24,7 @@ import qualified Kiwi.PagesDB as DB
 import           Kiwi.Search (queryTerms)
 import           Kiwi.Types
 import qualified Kiwi.Utils as U
-import qualified Utils.DocIndex as DI
+import qualified Utils.DocIndex.Restricted as RDI
 import           TestUtils
 
 -- | Path of a file of the pages of source "s"
@@ -55,7 +55,7 @@ loadDB cd = reloadDB cd (DB.emptyPagesDB defMeta [] [])
 -- every test page has the word "kiwiword"
 dbIds :: PagesDB -> IO [T.Text]
 dbIds db = do
-  let ids' = sort $ map (snd . pageUID) $ DI.documentsList $ pagesIndex db
+  let ids' = sort $ map (snd . pageUID) $ RDI.documentsList $ pagesIndex db
   sort (map snd $ dbSearch db "kiwiword") `shouldBe` ids'
   return ids'
 
@@ -64,11 +64,11 @@ dbSearch db w = SE.query (searchEngine db) (queryTerms English w)
 
 -- | File path of the page
 dbPagePath :: PagesDB -> T.Text -> Maybe FilePath
-dbPagePath db pId = pageAbsoluteFSPath <$> DI.findDoc (pagesIndex db) ("s", pId)
+dbPagePath db pId = pageAbsoluteFSPath <$> RDI.findDoc (pagesIndex db) ("s", pId)
 
 -- | The page of a file
 dbPageOf :: PagesDB -> FilePath -> Maybe Page
-dbPageOf db path = find ((== path) . pageAbsoluteFSPath) $ DI.documentsList $ pagesIndex db
+dbPageOf db path = find ((== path) . pageAbsoluteFSPath) $ RDI.documentsList $ pagesIndex db
 
 -- | Uid of the page of a file (fails without page)
 dbUidOf :: PagesDB -> FilePath -> T.Text
@@ -125,11 +125,11 @@ pagesDBSpec = do
       BS.writeFile (pageFile cd "Home.md") DP.defaultHomePage
       BS.writeFile (pageFile cd "CommonMark.md") DP.commonmarkDocPage
       (db, msgs) <- loadDB cd
-      sort (map pageUID $ DI.documentsList $ pagesIndex db)
+      sort (map pageUID $ RDI.documentsList $ pagesIndex db)
         `shouldBe` [("s", "CommonMark"), ("s", "Home")]
       warnings msgs `shouldBe` []
       DB.brokenLinks (pagesIndex db) `shouldSatisfy` null
-      fmap pageLinks (DI.findDoc (pagesIndex db) ("s", "Home")) `shouldBe` Just [("s", "CommonMark")]
+      fmap pageLinks (RDI.findDoc (pagesIndex db) ("s", "Home")) `shouldBe` Just [("s", "CommonMark")]
       BS.readFile (pageFile cd "Home.md") `shouldReturn` DP.defaultHomePage
       BS.readFile (pageFile cd "CommonMark.md") `shouldReturn` DP.commonmarkDocPage
 
@@ -252,7 +252,7 @@ pagesDBSpec = do
       writeFileAt (pageFile cd "a.md") 0 "uid: x\n\nkiwiword"
       writeFileAt (cd FP.</> "t" FP.</> "a.md") 0 "uid: x\n\nkiwiword"
       (db, msgs) <- loadDB cd
-      sort (map pageUID $ DI.documentsList $ pagesIndex db) `shouldBe` [("s", "x"), ("t", "x")]
+      sort (map pageUID $ RDI.documentsList $ pagesIndex db) `shouldBe` [("s", "x"), ("t", "x")]
       warnings msgs `shouldBe` []
 
   it "replaces an invalid uid" $
@@ -303,7 +303,7 @@ pagesDBSpec = do
       writeFileAt (pageFile cd "b.md") 0 "uid: b\naccess: secret\n\nkiwiword"
       (db, _) <- loadDB cd
       let broken loginM = map (\(pg, uid) -> (pageUID pg, uid)) $ DB.brokenLinks $
-                          DI.narrow (pagesIndex db) (readableQuery loginM False)
+                          RDI.narrow (pagesIndex db) (readableQuery loginM False)
       broken Nothing `shouldBe` [(("s", "a"), ("s", "b"))]
       broken (Just $ Login "someone" ["secret"] $ Time.UTCTime (Time.fromGregorian 2026 1 1) 0)
         `shouldBe` []
@@ -314,7 +314,7 @@ pagesDBSpec = do
       writeFileAt (pageFile cd "sub/b.md") 0 "uid: b\n\nkiwiword [a](page:a)"
       (db, _) <- loadDB cd
       let backlinks :: PageUID -> [PageUID]
-          backlinks uid = map pageUID $ DI.query (pagesIndex db) (U.qOnly FieldLink uid)
+          backlinks uid = map pageUID $ RDI.query (pagesIndex db) (U.qOnly FieldLink uid)
       backlinks ("s", "b") `shouldBe` [("s", "a")]
       backlinks ("s", "a") `shouldBe` [("s", "b")]
 

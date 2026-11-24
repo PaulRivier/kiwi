@@ -71,7 +71,7 @@ import qualified Text.Pandoc.Definition as PD
 import           Web.Scotty.Trans
 
 import           Kiwi.Log (Logger)
-import qualified Utils.DocIndex as DI
+import qualified Utils.DocIndex.Restricted as RDI
 
 data ServerState =
   ServerState { kiwiName      :: T.Text
@@ -181,7 +181,7 @@ data PagesDB =
           -- (see "Kiwi.Files"), and their path from the top of their source
           , sourceFiles :: M.Map (T.Text, T.Text) FP.FilePath
           -- , lastUpdate :: Time.UTCTime
-          , pagesIndex :: DI.DocIndex Page PageUID MetaField DocIndexKey
+          , pagesIndex :: RDI.RestrictedDocIndex Page PageUID MetaField DocIndexKey
           , searchEngine :: PageSearchEngine
           -- | the keywords of the pages (see "Kiwi.Keywords")
           , pageKeywords :: Keywords }

@@ -9,6 +9,7 @@ import           Test.QuickCheck
 
 import           Kiwi.Types
 import qualified Utils.DocIndex as DI
+import qualified Utils.DocIndex.Restricted as RDI
 
 -- | (id, tags, year)
 type Doc = (Int, [T.Text], Int)
@@ -161,3 +162,32 @@ docIndexSpec = do
       sameIndex (DI.removeMany (docsIndex ds) removed)
                 [ d | d <- storedDocs ds, docId d `notElem` removed ]
 
+  describe "Restricted" $ do
+    prop "reads a view as the index narrowed again" $
+      forAll genDocs $ \ds -> forAll (resize 2 $ listOf1 genRestriction) $ \rs ->
+        forAll (genQuery 4) $ \q ->
+          let ref = foldl narrowRef (docsIndex ds) rs
+              view = foldl narrowView (RDI.whole $ docsIndex ds) rs
+              tags = map KeyText ["a", "b", "c", "d", "z"]
+          in conjoin
+               [ RDI.documentsList view === DI.documentsList ref
+               , RDI.cardinal view === DI.cardinal ref
+               , RDI.queryIdSet view q === DI.queryIdSet ref q
+               , RDI.query view q === DI.query ref q
+               , map (RDI.findDoc view) [0 .. 13] === map (DI.findDoc ref) [0 .. 13]
+               , map (RDI.lookupIndex view "tag") tags === map (DI.lookupIndex ref "tag") tags
+               , map (RDI.getFieldKeys view) ["tag", "year", "none"]
+                 === map (DI.getFieldKeys ref) ["tag", "year", "none"] ]
+
+    it "narrows a view without changing its index" $ do
+      let view = RDI.narrowOnSet (RDI.narrow (RDI.whole idx) (DI.Only "tag" (KeyText "a"))) (S.fromList [2, 3, 9])
+      map docId (RDI.documentsList view) `shouldBe` [2]
+      DI.index (RDI.docIndex view) `shouldBe` DI.index idx
+      RDI.getFieldKeys view "tag" `shouldBe` [KeyText "a"]
+  where
+    narrowRef idx = either (DI.narrow idx) (DI.narrowOnSet idx . S.fromList)
+    narrowView v = either (RDI.narrow v) (RDI.narrowOnSet v . S.fromList)
+
+-- | A restriction by a query or by a set of ids (some not stored)
+genRestriction :: Gen (Either DocQuery [Int])
+genRestriction = oneof [ Left <$> genQuery 2, Right <$> listOf (choose (0, 13)) ]

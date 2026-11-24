@@ -42,6 +42,7 @@ import           Kiwi.Pandoc (Loaded (..), loadPageIO, pagePath)
 import           Kiwi.Tags (tagSubSegments, segmentsToTag)
 import           Kiwi.Utils (traverseDir, nodup, isDotFile, isValidMdFilename, timeIO)
 import qualified Utils.DocIndex as DI
+import qualified Utils.DocIndex.Restricted as RDI
 
 -- | Reloads the pages of the kiwi (see 'updatePagesDB'). The caller holds
 -- 'pagesDBLock', so that two reloads (or a reload and a page save) can not
@@ -56,7 +57,7 @@ reloadPages ss = do
                                      , "s, ", pagesCount db, " pages" ]
 
 pagesCount :: PagesDB -> String
-pagesCount = show . M.size . DI.store . pagesIndex
+pagesCount = show . RDI.cardinal . pagesIndex
 
 -- | Evaluate the search engine in a thread, so that the first search after
 -- a load does not wait for it
@@ -108,7 +109,7 @@ updatePagesDB logger' git contentDir' db = do
         -- may give another page id, or no page if it can not be loaded
         removedPages = [ pg | pg <- dbPages, not $ S.member (pageAbsoluteFSPath pg) keptPaths ]
         removedUIDs = map pageUID removedPages
-        pagesIndexClean = DI.removeMany (pagesIndex db) removedUIDs
+        pagesIndexClean = DI.removeMany (RDI.docIndex $ pagesIndex db) removedUIDs
         searchEngineClean = foldr deleteDoc (searchEngine db) removedUIDs
     (loaded, failed) <- loadPages toReload
     -- the pages of the index keep their uid
@@ -148,14 +149,14 @@ updatePagesDB logger' git contentDir' db = do
     return db { dbGeneration = dbGeneration db + 1
               , loadErrors = sortOn (\(src, p, _) -> (src, p)) (errors ++ fileErrors)
               , sourceFiles = files
-              , pagesIndex = newIndex
+              , pagesIndex = RDI.whole newIndex
               , searchEngine = newEngine
               , pageKeywords = keywords }
   where
     -- TODO : gérer des conditions de rechargement
     -- getCondition = return False
 
-    dbPages = DI.documentsList $ pagesIndex db
+    dbPages = RDI.documentsList $ pagesIndex db
     loadedByPath = M.fromList [ (pageAbsoluteFSPath pg, pg) | pg <- dbPages ]
 
     -- unknown file, or modification time different from the one of its page
@@ -352,11 +353,11 @@ resolveFiles logger' git contentDir' previous files = do
 -- | The links to pages that are not in the index, with the page of each one,
 -- by file path of the page then target. Given the index restricted to the
 -- pages a user can read, the links that are broken for this user.
-brokenLinks :: DI.DocIndex Page PageUID MetaField DocIndexKey -> [(Page, PageUID)]
+brokenLinks :: RDI.RestrictedDocIndex Page PageUID MetaField DocIndexKey -> [(Page, PageUID)]
 brokenLinks idx =
-  [ (pg, uid) | pg <- sortOn pageAbsoluteFSPath $ DI.documentsList idx
+  [ (pg, uid) | pg <- sortOn pageAbsoluteFSPath $ RDI.documentsList idx
               , uid <- nodup $ pageLinks pg
-              , isNothing $ DI.findDoc idx uid ]
+              , isNothing $ RDI.findDoc idx uid ]
 
 
 emptyPagesDB :: MetaData -> [CustomMetaConfig] -> [SourceConfig] -> PagesDB
@@ -369,7 +370,7 @@ emptyPagesDB md cmc sc =
             , loadErrors = []
             , sourceFiles = M.empty
             -- , lastUpdate = oldDate
-            , pagesIndex = DI.empty pageUID (pageExtractKeys cmc)
+            , pagesIndex = RDI.whole $ DI.empty pageUID (pageExtractKeys cmc)
             , searchEngine = initPageSearchEngine
             , pageKeywords = emptyKeywords }
 

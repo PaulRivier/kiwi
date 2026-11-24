@@ -38,7 +38,7 @@ import           Kiwi.Pandoc (checkPageText, loadPage)
 import qualified Kiwi.Tags as Tags
 import qualified Kiwi.Utils as U
 import           Kiwi.Types
-import qualified Utils.DocIndex as DI
+import qualified Utils.DocIndex.Restricted as RDI
 
 
 -- | Text and bytes of a page file
@@ -133,7 +133,7 @@ createPage ss loginM messageM source pathM sent = withMVar (pagesDBLock ss) $ \_
   where
     newUid db = do
       u <- uidFromBytes <$> (CR.getRandomBytes 10 :: IO BS.ByteString)
-      if isJust (DI.findDoc (pagesIndex db) (source, u)) then newUid db else return u
+      if isJust (RDI.findDoc (pagesIndex db) (source, u)) then newUid db else return u
     -- the first name not taken: NAME.md, NAME (2).md...
     freePath base = go (1 :: Int)
       where go n = do
@@ -159,7 +159,7 @@ runMetaScript :: ServerState -> Maybe Login -> Maybe T.Text -> Bool -> [MS.Comma
 runMetaScript ss loginM messageM check cmds = withMVar (pagesDBLock ss) $ \_ -> runExceptT $ do
   db <- liftIO $ readIORef (pagesDB ss)
   let cmc = customMetaConfig db
-      readable = DI.query (pagesIndex db) (Auth.readableAnyArchiveQuery loginM)
+      readable = RDI.query (pagesIndex db) (Auth.readableAnyArchiveQuery loginM)
       byUid = M.fromList [ (pageUID p, p) | p <- readable ]
       canWrite p = maybe False (>= AccessWrite) (Auth.pageAccessLevel loginM p)
       writable = filter canWrite readable
@@ -201,7 +201,7 @@ runMetaScript ss loginM messageM check cmds = withMVar (pagesDBLock ss) $ \_ -> 
   let -- the tags of these sources close to a tag that no page has
       closeTags ss' t = take 5 $ L.nub
         [ Tags.prettyTag x | s <- ss'
-        , KeyText x <- DI.getFieldKeys (DI.narrow (pagesIndex db) (U.qOnly FieldSource s)) FieldTag
+        , KeyText x <- RDI.getFieldKeys (RDI.narrow (pagesIndex db) (U.qOnly FieldSource s)) FieldTag
         , let l = T.toLower (last' $ Tags.tagToSegments t)
         , not (T.null l), l `T.isInfixOf` T.toLower x ]
       last' xs = if null xs then "" else last xs

@@ -23,6 +23,7 @@ import qualified Text.Pandoc.Definition as PD
 import           Kiwi.Server (initServerState, kiwiApp)
 import           Kiwi.Types
 import qualified Utils.DocIndex as DI
+import qualified Utils.DocIndex.Restricted as RDI
 
 defMeta :: MetaData
 defMeta = emptyMeta { metaTitle = Just "untitled"
@@ -62,7 +63,7 @@ mkPagesDB = mkPagesDBWith []
 -- | 'mkPagesDB', with custom metadata fields
 mkPagesDBWith :: [CustomMetaConfig] -> [Page] -> PagesDB
 mkPagesDBWith cmc pages = let db = DB.emptyPagesDB defMeta cmc []
-                  in db { pagesIndex = DI.insertMany (pagesIndex db) pages }
+                  in db { pagesIndex = RDI.whole $ DI.insertMany (RDI.docIndex $ pagesIndex db) pages }
 
 
 -- | Document of a page content, as displayed (see 'pageDoc')

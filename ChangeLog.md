@@ -15,6 +15,9 @@
   all of them being computed again once a tenth of the pages changed: a
   reload no longer computes them for the whole wiki, and they are always
   ready (no more background computation).
+- The pages a user can read are no longer a copy of the index made at each
+  request, but a view of it: a request of a user who can not read every
+  page is much faster (about 0.02 ms instead of 0.65 ms for 240 pages).
 
 ## v0.4.5.0 - 2026-11-22
 

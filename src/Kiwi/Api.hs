@@ -63,7 +63,7 @@ import qualified Kiwi.Url as Url
 import           Kiwi.Utils (asksK, getDB)
 import qualified Kiwi.Utils as U
 import qualified Kiwi.Write as Write
-import qualified Utils.DocIndex as DI
+import qualified Utils.DocIndex.Restricted as RDI
 
 
 -- | Runs the action with the login of the API token of the request, and the
@@ -154,13 +154,13 @@ shownKeywords db shown
 extraField :: K.PagesDB -> M.Map K.PageUID [T.Text] -> K.Page -> T.Text -> Maybe T.Text
 extraField db kws p f =
       let idx = K.pagesIndex db
-          exists uid = maybe False (const True) $ DI.findDoc idx uid
+          exists uid = maybe False (const True) $ RDI.findDoc idx uid
           list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
       in case f of
            "links" -> list [ snd l <> if exists l then "" else " (missing)"
                            | l <- U.nodup (K.pageLinks p) ]
            "backlinks" -> list $ sortOn textOrder
-                            [ snd (K.pageUID b) | b <- DI.query idx (U.qOnly K.FieldLink (K.pageUID p)) ]
+                            [ snd (K.pageUID b) | b <- RDI.query idx (U.qOnly K.FieldLink (K.pageUID p)) ]
            "keywords" -> keywordsText kws p
            _ -> Nothing
 
@@ -200,8 +200,8 @@ withSelection others run = do
     (Right req, Just since, Just uids) -> do
       let req' = Browse.sourcesReq (K.contextSources ctx) <> req
           idx = K.pagesIndex db
-          selected = if M.null req' then DI.documentsList idx
-                     else DI.documentsList $ DI.narrow idx $ Browse.reqToQuery req'
+          selected = if M.null req' then RDI.documentsList idx
+                     else RDI.documentsList $ RDI.narrow idx $ Browse.reqToQuery req'
           keep p = maybe True (\d -> Time.utctDay (K.pageMTime p) >= d) since
                    && (null uids || K.pageUID p `elem` uids)
       run db $ filter keep selected
@@ -225,26 +225,26 @@ apiFacets = withSelection ["show"] $ \db pages -> do
  cd <- asksK K.contentDir
  withShow (["tags", "lang"] ++ [ "folder" | admin ] ++ map K.cmcName (K.customMetaConfig db)) $ \shown -> do
   let wants f = null shown || f `elem` shown
-      idx = DI.narrowOnSet (K.pagesIndex db) (S.fromList $ map K.pageUID pages)
-      sources = [ s | K.KeyText s <- DI.getFieldKeys idx K.FieldSource ]
+      idx = RDI.narrowOnSet (K.pagesIndex db) (S.fromList $ map K.pageUID pages)
+      sources = [ s | K.KeyText s <- RDI.getFieldKeys idx K.FieldSource ]
       facets s =
-        let sub = DI.narrow idx (U.qOnly K.FieldSource s)
-            count f k = S.size $ DI.lookupIndex sub f k
+        let sub = RDI.narrow idx (U.qOnly K.FieldSource s)
+            count f k = S.size $ RDI.lookupIndex sub f k
             tags = sortOn (map (\seg -> (textOrder seg, seg)) . Tags.tagToSegments . fst)
-                     [ (t, count K.FieldTag k) | k@(K.KeyText t) <- DI.getFieldKeys sub K.FieldTag ]
+                     [ (t, count K.FieldTag k) | k@(K.KeyText t) <- RDI.getFieldKeys sub K.FieldTag ]
             langs = [ (Browse.showKeyLabel k, count K.FieldLang k)
-                    | k <- DI.getFieldKeys sub K.FieldLang ]
+                    | k <- RDI.getFieldKeys sub K.FieldLang ]
             folders = AT.folderCounts
                         [ FP.makeRelative (cd FP.</> T.unpack s) (K.pageAbsoluteFSPath p)
-                        | p <- DI.documentsList sub ]
+                        | p <- RDI.documentsList sub ]
             customs = [ (K.cmcName c, typeName (K.cmcType c) <> maybe "" ("; " <>) (K.cmcDescription c),
                          [ (Browse.showKeyLabel k, count f k)
-                         | k <- sortOn keyOrder (DI.getFieldKeys sub f) ])
+                         | k <- sortOn keyOrder (RDI.getFieldKeys sub f) ])
                       | c <- sortOn (textOrder . K.cmcName) (K.customMetaConfig db)
                       , wants (K.cmcName c)
                       , let f = K.FieldCustom (K.cmcName c)
-                      , not (null $ DI.getFieldKeys sub f) ]
-        in AT.facetsText s (DI.cardinal sub) (if wants "tags" then Just tags else Nothing)
+                      , not (null $ RDI.getFieldKeys sub f) ]
+        in AT.facetsText s (RDI.cardinal sub) (if wants "tags" then Just tags else Nothing)
                          (if wants "lang" then Just langs else Nothing)
                          (if admin && wants "folder" then Just folders else Nothing) customs
   if null pages
@@ -265,7 +265,7 @@ apiFacets = withSelection ["show"] $ \db pages -> do
 -- apiLinks :: ActM ()
 -- apiLinks = withSelection [] $ \db pages -> do
 --   let bySource = M.fromListWith (++) [ (fst (K.pageUID p), [p]) | p <- pages ]
---       exists uid = maybe False (const True) $ DI.findDoc (K.pagesIndex db) uid
+--       exists uid = maybe False (const True) $ RDI.findDoc (K.pagesIndex db) uid
 --   if null pages
 --     then answer "no page\n"
 --     else answer $ T.intercalate "\n"
@@ -320,7 +320,7 @@ apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
         db <- getRestrictedDB
         paths <- pathsFor
         let backlinks = sortOn (textOrder . K.pageTitle) $
-                          DI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
+                          RDI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
         secs <- pageSections p content
         answer $ note <> AT.outlineText paths p backlinks secs
       whole
@@ -386,7 +386,7 @@ apiPageMeta source uid = withApiPage source uid $ \_ (text, _, offset) ->
 --     db <- getDB
 --     cd <- asksK K.contentDir
 --     let top = cd FP.</> T.unpack source
---         pages = DI.documentsList $ DI.narrow (K.pagesIndex db) (U.qOnly K.FieldSource source)
+--         pages = RDI.documentsList $ RDI.narrow (K.pagesIndex db) (U.qOnly K.FieldSource source)
 --     if null pages then failWith Net.status404 $ "no page in source " <> source
 --     else answer $ AT.foldersText source
 --                     [ FP.makeRelative top (K.pageAbsoluteFSPath p) | p <- pages ]
@@ -441,7 +441,7 @@ apiSearch = withSelection ["q", "limit", "show"] $ \db selected -> withShow ["ke
   allDB <- getDB
   ctx <- asksK (K.context . K.requestState)
   let sources = K.contextSources ctx
-      allSources = [ s | K.KeyText s <- DI.getFieldKeys (K.pagesIndex allDB) K.FieldSource ]
+      allSources = [ s | K.KeyText s <- RDI.getFieldKeys (K.pagesIndex allDB) K.FieldSource ]
       ctxLang = searchLang (fromMaybe K.defaultLangSetting $ K.metaLang $ K.defaultMeta allDB)
                            (K.sourcesConfig allDB) allSources sources
       inSelection = S.fromList (map K.pageUID selected)
