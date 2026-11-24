@@ -270,8 +270,8 @@ tools =
         found, best first (the more words, the better), so add synonyms freely. There is
         no OR nor AND operator (OR is searched as a word). Each result gives the page
         (SOURCE/UID), its title, how many of the words it contains and where, its last
-        change, tags, size (content: size and lines, the characters and lines of its
-        content), its summary (a short description written in its header, if any), its
+        change (modified), tags, content_size (chars=N lines=M: the characters and lines
+        of its content), its summary (a short description written in its header, if any), its
         keywords (the terms that tell it from the other pages, computed by the wiki), and
         up to three passages with their line and section; the first line names the words
         found in no page. Words are matched by their stem. "exact phrase" and -excluded
@@ -305,12 +305,11 @@ tools =
       [prose|
         List the pages matching metadata, the most recently modified first: SOURCE/UID
         alone, and under each page the fields of show (title, tags, summary, keywords,
-        lang, modified, content_size, content_lines, links, backlinks, related, custom
-        fields), written as in a header; title, summary, content_size, content_lines and
-        keywords without show (about 100 tokens by page: to choose the pages to read), the
-        uids alone with show []. summary: a short description of the page, written in its
+        lang, modified, content_size, links, backlinks, related, custom fields), written
+        as in a header; title, summary, content_size and keywords without show (about 100
+        tokens by page: to choose the pages to read), the uids alone with show []. summary: a short description of the page, written in its
         header (not every page has one). keywords: the terms that tell the page from the
-        others, computed by the wiki. content_size and content_lines: the characters and
+        others, computed by the wiki. content_size: chars=N lines=M, the characters and
         lines of its content. links: the uids of the pages it links, "(missing)" after a
         page that does not exist (a broken link); backlinks: the uids of the pages that
         link it; related: SOURCE/UID of the pages closest to it (common keywords, tags and
@@ -322,9 +321,8 @@ tools =
       (selectionProps ++
        [ ("show", stringsProp [prose|
             Fields given under each page: title, tags, summary, keywords, lang, modified
-            (day), content_size, content_lines, links, backlinks, related, custom fields. []
-            for the uids alone; without it, title, summary, content_size, content_lines and
-            keywords.
+            (day), content_size, links, backlinks, related, custom fields. [] for the uids
+            alone; without it, title, summary, content_size and keywords.
           |])
        , ("limit", prop "integer" "Maximum number of pages (100 by default).") ])
       []
@@ -334,7 +332,7 @@ tools =
       [prose|
         Read a page (SOURCE/UID): its header, then its content in CommonMark (a page of
         more than 40000 characters gives its outline instead, unless part whole). search
-        and list_pages give its size and lines. For a long page, read its outline first
+        and list_pages give its content_size. For a long page, read its outline first
         (part: outline: tags, summary, backlinks, sections with their lines), then only
         the section or the lines you need. Line numbers count from the first line of the
         content: the header is not numbered (read it whole, or with list_pages and show).
@@ -512,7 +510,7 @@ listShow o = case KM.lookup "show" o of
   Nothing -> defaults
   Just A.Null -> defaults
   Just _ -> showParam o
-  where defaults = [("show", "title,summary,content_size,content_lines,keywords")]
+  where defaults = [("show", "title,summary,content_size,keywords")]
 
 -- | The "show" parameter of the "show" argument
 showParam :: A.Object -> [(T.Text, T.Text)]

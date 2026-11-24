@@ -16,7 +16,7 @@ only those it can write.
 - Read little: search and list_pages give the summary of each page (a
   short description written in its header, when it has one), its
   keywords (terms that tell it from the others, computed by the wiki)
-  and its size (content_size, or size in search): read only the pages that fit; a long page, its
+  and its content_size (chars and lines): read only the pages that fit; a long page, its
   outline, then a section. For a large selection (an inventory, a
   metadata script), give list_pages only the fields needed in show, or
   show [] for the uids alone, and a limit.

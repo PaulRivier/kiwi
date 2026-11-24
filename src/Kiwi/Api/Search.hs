@@ -163,10 +163,9 @@ searchText query lang terms missing fields total results = T.unlines $ header : 
            , if length (hitTerms h) < n
              then " (" <> T.intercalate ", " (map wordOf $ hitTerms h) <> ")" else ""
            , " in ", T.intercalate "+" (map fieldName $ hitFields h), "]" ]
-         : "  last_change: " <> AT.dayText (pageMTime p)
+         : "  modified: " <> AT.dayText (pageMTime p)
          : "  tags: " <> T.intercalate ", " (map AT.tagText $ pageTags p)
-         : T.concat [ "  content: size=", T.pack (show $ pageContentSize p)
-                    , "  lines=", T.pack (show $ pageContentLines p) ]
+         : "  content_size: " <> AT.sizeText (pageContentSize p) (pageContentLines p)
          : [ "  summary: " <> s | Just s <- [pageSummary p] ]
          ++ [ T.concat ["  ", f, ": ", v] | (f, v) <- fields p ]
          ++ [ T.concat [ "  l.", T.pack (show $ passageLine x)

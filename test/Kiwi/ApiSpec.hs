@@ -103,9 +103,9 @@ apiSpec = do
         [ "1 page, the most recently modified first", "s/p", "  title: Page", "  tags: a > b, c"
         , "  summary: About p" ]
       -- the size of its content, without the header
-      sized <- get (tokenOf "bob") "/api/pages?page=s/p&show=content_size,content_lines"
+      sized <- get (tokenOf "bob") "/api/pages?page=s/p&show=content_size"
       liftIO $ T.lines (body sized) `shouldBe`
-        [ "1 page, the most recently modified first", "s/p", "  content_size: 54", "  content_lines: 11" ]
+        [ "1 page, the most recently modified first", "s/p", "  content_size: chars=54 lines=11" ]
       badShow <- get (tokenOf "bob") "/api/pages?show=nope"
       liftIO $ status badShow `shouldBe` 400
       badPage <- get (tokenOf "bob") "/api/pages?page=nope"
@@ -204,7 +204,7 @@ apiSpec = do
       outline <- get (tokenOf "bob") "/api/page/s/p?part=outline"
       liftIO $ T.lines (body outline) `shouldSatisfy` \ls ->
         L.isSubsequenceOf [ "s/p  Page", "tags: a > b, c", "summary: About p"
-                          , "content_size: 54", "content_lines: 11"
+                          , "content_size: chars=54 lines=11"
                           , "backlinks: s/q Other", "sections (lines):"
                           , "  1-8  # One", "  5-8  ## Two", "  9-11  # Three" ] ls
       -- the lines are those of the content: the same for the admin, who sees
@@ -301,9 +301,9 @@ apiSpec = do
         let hit = dropWhile (not . T.isPrefixOf "s/a  ") r
         liftIO $ take 4 hit `shouldSatisfy` \ls -> case ls of
           [l, day, tags, size] -> l == "s/a  A  [match 1/1 in content]"
-                                       && "  last_change: " `T.isPrefixOf` day
+                                       && "  modified: " `T.isPrefixOf` day
                                        && tags == "  tags: untagged"
-                                       && size == "  content: size=8  lines=1"
+                                       && size == "  content_size: chars=8 lines=1"
           _ -> False
 
   it "gives the keywords of the pages, in lower case, computed on the whole wiki" $ do
@@ -359,9 +359,9 @@ apiSpec = do
           h : p : rest -> h == "1 page for water burns (english)" &&
                           p == "s/aid  First aid  [match 2/2 in content]" &&
                           -- the lines of the content, without the header
-                          map (T.take 15) (take 1 rest) == ["  last_change: "] &&
+                          map (T.take 12) (take 1 rest) == ["  modified: "] &&
                           drop 1 rest == [ "  tags: health"
-                                         , "  content: size=92  lines=7"
+                                         , "  content_size: chars=92 lines=7"
                                          , "  l.3 § Wounds: Clean the wound with water."
                                          , "  l.5: ## Burns"
                                          , "  l.7 § Burns: Cool the burn with water for long minutes."
@@ -373,7 +373,7 @@ apiSpec = do
         liftIO $ map (T.take 7) (filter ("s/" `T.isPrefixOf`) aid) `shouldSatisfy` \ps ->
           L.sort (take 2 ps) == ["s/aid  ", "s/baby "] && drop 2 ps == ["s/snow "]
         phrase <- search "\"aid kit\""
-        liftIO $ map (T.take 7) (drop 1 phrase) `shouldBe` ["s/baby ", "  last_", "  tags:", "  conte", "  l.1: ", ""]
+        liftIO $ map (T.take 7) (drop 1 phrase) `shouldBe` ["s/baby ", "  modif", "  tags:", "  conte", "  l.1: ", ""]
         excluded <- search "first -baby"
         liftIO $ excluded `shouldSatisfy` \ls -> length (filter ("s/" `T.isPrefixOf`) ls) == 2 &&
                                                  not (any ("s/baby" `T.isPrefixOf`) ls)
@@ -489,7 +489,7 @@ apiSpec = do
         u `shouldSatisfy` T.isPrefixOf "uid: "
         u `shouldNotBe` "uid: mine"
         T.lines (body first') `shouldSatisfy` elem ("created s/" <> T.drop 5 u)
-        T.lines (body first') `shouldSatisfy` L.isSubsequenceOf ["content_size: 9", "content_lines: 1"]
+        T.lines (body first') `shouldSatisfy` L.isSubsequenceOf ["content_size: chars=9 lines=1"]
       other -> expectationFailure $ show other
     -- bob gets the page when it gives him the write right
     byBob <- send "POST" (tokenOf "ann") [] "/api/pages/s?path=notes/first"

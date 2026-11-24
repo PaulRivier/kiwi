@@ -29,10 +29,10 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
 * `GET /api/pages` : the pages, the most recently modified first, at most
   `limit` (100 by default): one `SOURCE/UID` by line, and under it the
   fields of `show`
-  (`show=title,tags,summary,keywords,lang,modified,content_size,content_lines,links,backlinks,related`
+  (`show=title,tags,summary,keywords,lang,modified,content_size,links,backlinks,related`
   and custom fields by their name), written as in a header. `summary`:
   the short description written in the header of the page, if any.
-  `content_size` and `content_lines`: the characters and lines of its
+  `content_size`: `chars=N lines=M`, the characters and lines of its
   content, without the header. `keywords`: the terms that tell
   the page from the others (TF-IDF on the whole wiki: occurrences in
   the content, the title, the summary and the headings, rarity in the
@@ -50,7 +50,7 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
 * `GET /api/search?q=QUERY` : full-text search for the agents. The pages
   that contain any of the words, those with the most of them first, each
   one with the words it contains and where (title, tags, summary,
-  content), its last change, tags, size (`content: size=… lines=…`), its
+  content), its last change (`modified`), tags, size (`content_size`), its
   summary and up to three passages (lines with their section, or
   headings); the first line names the words that no page contains.
   `"exact phrase"` and `-excluded` words are allowed, the filters of the

@@ -610,8 +610,7 @@ apiCreatePage source = withBodyText $ \text -> do
           content = drop (AT.headerLength text) (T.lines text)
       saved Net.status201 "created" uid hash $
         [ "path: " <> T.pack path | admin ] ++
-        [ "content_size: " <> T.pack (show $ T.length $ T.unlines content)
-        , "content_lines: " <> T.pack (show $ length content) ]
+        [ "content_size: " <> AT.sizeText (T.length $ T.unlines content) (length content) ]
   where
     contentPath ss (s, _) path = K.contentDir ss FP.</> T.unpack s FP.</> path
 

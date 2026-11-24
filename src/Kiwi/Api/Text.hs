@@ -17,6 +17,7 @@ module Kiwi.Api.Text
   , folderCounts
   , tagText
   , dayText
+  , sizeText
   ) where
 
 import qualified Data.Map.Strict as M
@@ -51,17 +52,22 @@ sourcePath :: FP.FilePath -> Page -> T.Text
 sourcePath contentDir' p =
   T.pack $ FP.makeRelative (contentDir' FP.</> T.unpack (fst $ pageUID p)) (pageAbsoluteFSPath p)
 
+-- | The size of a content, value of the field content_size: "chars=N
+-- lines=M", its characters and lines
+sizeText :: Int -> Int -> T.Text
+sizeText chars nLines = T.concat [ "chars=", T.pack (show chars), " lines=", T.pack (show nLines) ]
+
 -- | The fields of a page that the lists can show, besides its custom
 -- fields (see 'pagesText')
 pageFields :: [T.Text]
 pageFields = [ "title", "tags", "summary", "keywords", "lang", "modified", "content_size"
-             , "content_lines", "links", "backlinks", "related" ]
+             , "links", "backlinks", "related" ]
 
 -- | List of pages, one by line (SOURCE/UID), each one followed by the given
 -- fields that it has, one by line, written as in a header ("  tags: a > b,
--- c"; "modified": the day of the last change; "content_size" and
--- "content_lines": the characters and lines of its content, without the
--- header; "links", "backlinks", "keywords" and "related", given by the function, see
+-- c"; "modified": the day of the last change; "content_size": the
+-- characters and lines of its content, without the header (see
+-- 'sizeText'); "links", "backlinks", "keywords" and "related", given by the function, see
 -- 'Kiwi.Api.extraField'; a custom field by its name).
 -- The first line gives the number of pages found and of pages shown, and
 -- how to see the others when some are cut.
@@ -81,8 +87,7 @@ pagesText linkField fields total pages = T.unlines $ header : concatMap pageLine
       "summary" -> pageSummary p
       "lang" -> Just (showCustomValue $ KeyLang $ pageLang p)
       "modified" -> Just (dayText $ pageMTime p)
-      "content_size" -> Just (T.pack $ show $ pageContentSize p)
-      "content_lines" -> Just (T.pack $ show $ pageContentLines p)
+      "content_size" -> Just (sizeText (pageContentSize p) (pageContentLines p))
       "links" -> linkField p f
       "backlinks" -> linkField p f
       "keywords" -> linkField p f
@@ -160,8 +165,7 @@ outlineText pathsM p backlinks secs = T.unlines $
   , "tags: " <> T.intercalate ", " (map tagText $ pageTags p) ]
   ++ [ "summary: " <> s | Just s <- [pageSummary p] ]
   ++ [ "path: " <> sourcePath cd p | Just cd <- [pathsM] ]
-  ++ [ "content_size: " <> T.pack (show $ pageContentSize p)
-     , "content_lines: " <> T.pack (show $ pageContentLines p) ]
+  ++ [ "content_size: " <> sizeText (pageContentSize p) (pageContentLines p) ]
   ++ [ "backlinks: " <> if null backlinks then "(none)"
                         else T.intercalate "; " [ pageRef b <> " " <> pageTitle b | b <- backlinks ]
      , if null secs then "sections: (none)" else "sections (lines):" ]
