@@ -171,6 +171,7 @@ docIndexSpec = do
               tags = map KeyText ["a", "b", "c", "d", "z"]
           in conjoin
                [ RDI.documentsList view === DI.documentsList ref
+               , DI.index (RDI.visibleIndex view) === DI.index ref
                , RDI.cardinal view === DI.cardinal ref
                , RDI.queryIdSet view q === DI.queryIdSet ref q
                , RDI.query view q === DI.query ref q
@@ -179,10 +180,11 @@ docIndexSpec = do
                , map (RDI.getFieldKeys view) ["tag", "year", "none"]
                  === map (DI.getFieldKeys ref) ["tag", "year", "none"] ]
 
-    it "narrows a view without changing its index" $ do
+    it "narrows a view, and gives the index of the visible documents only" $ do
       let view = RDI.narrowOnSet (RDI.narrow (RDI.whole idx) (DI.Only "tag" (KeyText "a"))) (S.fromList [2, 3, 9])
       map docId (RDI.documentsList view) `shouldBe` [2]
-      DI.index (RDI.docIndex view) `shouldBe` DI.index idx
+      DI.index (RDI.visibleIndex $ RDI.whole idx) `shouldBe` DI.index idx
+      map docId (DI.documentsList $ RDI.visibleIndex view) `shouldBe` [2]
       RDI.getFieldKeys view "tag" `shouldBe` [KeyText "a"]
   where
     narrowRef idx = either (DI.narrow idx) (DI.narrowOnSet idx . S.fromList)

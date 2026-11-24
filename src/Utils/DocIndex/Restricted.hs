@@ -11,14 +11,16 @@ on a view gives the documents of the query on the whole index that are
 visible.
 
 A view is read only: the documents are inserted in and removed from the
-'DocIndex', of which 'whole' gives a new view.
+'DocIndex', of which 'whole' gives a new view. The whole index of a view is
+not exported, so that no read gives a hidden document: 'visibleIndex' gives
+the index of the visible documents only.
 
 Invariant: the visible ids are ids of stored documents.
 -}
 module Utils.DocIndex.Restricted
   ( RestrictedDocIndex
-  , docIndex
   , whole
+  , visibleIndex
   , narrow
   , narrowOnSet
   , query
@@ -46,6 +48,13 @@ data RestrictedDocIndex doc id field key =
 -- | Every document of the index
 whole :: DocIndex doc id field key -> RestrictedDocIndex doc id field key
 whole idx = RestrictedDocIndex idx Nothing
+
+
+-- | The index of the visible documents: the index itself for a whole view
+-- (nothing is copied), else a copy restricted to them (see
+-- 'DI.narrowOnSet'), so that the hidden documents are never given
+visibleIndex :: (Ord id) => RestrictedDocIndex doc id field key -> DocIndex doc id field key
+visibleIndex r = maybe (docIndex r) (DI.narrowOnSet $ docIndex r) (visible r)
 
 
 -- | The visible ids among these

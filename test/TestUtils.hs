@@ -63,7 +63,7 @@ mkPagesDB = mkPagesDBWith []
 -- | 'mkPagesDB', with custom metadata fields
 mkPagesDBWith :: [CustomMetaConfig] -> [Page] -> PagesDB
 mkPagesDBWith cmc pages = let db = DB.emptyPagesDB defMeta cmc []
-                  in db { pagesIndex = RDI.whole $ DI.insertMany (RDI.docIndex $ pagesIndex db) pages }
+                  in db { pagesIndex = RDI.whole $ DI.insertMany (RDI.visibleIndex $ pagesIndex db) pages }
 
 
 -- | Document of a page content, as displayed (see 'pageDoc')

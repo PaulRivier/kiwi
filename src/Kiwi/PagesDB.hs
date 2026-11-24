@@ -109,7 +109,7 @@ updatePagesDB logger' git contentDir' db = do
         -- may give another page id, or no page if it can not be loaded
         removedPages = [ pg | pg <- dbPages, not $ S.member (pageAbsoluteFSPath pg) keptPaths ]
         removedUIDs = map pageUID removedPages
-        pagesIndexClean = DI.removeMany (RDI.docIndex $ pagesIndex db) removedUIDs
+        pagesIndexClean = DI.removeMany (RDI.visibleIndex $ pagesIndex db) removedUIDs
         searchEngineClean = foldr deleteDoc (searchEngine db) removedUIDs
     (loaded, failed) <- loadPages toReload
     -- the pages of the index keep their uid
