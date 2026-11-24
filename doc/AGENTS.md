@@ -49,8 +49,8 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   the same as below a page on the web, after its backlinks.
 * `GET /api/search?q=QUERY` : full-text search for the agents. The pages
   that contain any of the words, those with the most of them first, each
-  one with its size (`content_size`, `content_lines`), the words it
-  contains, where (title, tags, summary, content), its
+  one with the words it contains and where (title, tags, summary,
+  content), its last change, tags, size (`content: size=… lines=…`), its
   summary and up to three passages (lines with their section, or
   headings); the first line names the words that no page contains.
   `"exact phrase"` and `-excluded` words are allowed, the filters of the

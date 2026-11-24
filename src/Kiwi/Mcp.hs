@@ -264,8 +264,8 @@ tools =
       \reading pages. The words are alternatives: the pages containing any of them are found, \
       \best first (the more words, the better), so add synonyms freely. There is no OR nor \
       \AND operator (OR is searched as a word). Each result gives the page (SOURCE/UID), its \
-      \title, tags, size (content_size, content_lines: characters and lines of its content), \
-      \how many of the words it contains and where, its summary (a short description written \
+      \title, how many of the words it contains and where, its last change, tags, size \
+      \(content: size and lines, the characters and lines of its content), its summary (a short description written \
       \in its header, if any), its keywords (the terms \
       \that tell it from the other pages, computed by the wiki), and up to three \
       \passages with their line and section; the first line names the words found in no page. \
@@ -318,7 +318,7 @@ tools =
   , Tool "read_page" "Read a page" ReadOnly
       "Read a page (SOURCE/UID): its header, then its content in CommonMark (a page of more \
       \than 40000 characters gives its outline instead, unless part whole). search and \
-      \list_pages give its content_size and content_lines. For a long page, read its outline first (part: outline: tags, summary, backlinks, \
+      \list_pages give its size and lines. For a long page, read its outline first (part: outline: tags, summary, backlinks, \
       \sections with their lines), then only the section or the lines you need. Line numbers \
       \count from the first line of the content: the header is not numbered (read it whole, \
       \or with list_pages and show). The hash identifies the version of the file."

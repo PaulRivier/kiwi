@@ -299,9 +299,11 @@ apiSpec = do
       \search -> do
         r <- search "link"
         let hit = dropWhile (not . T.isPrefixOf "s/a  ") r
-        liftIO $ take 3 hit `shouldSatisfy` \ls -> case ls of
-          [l, tags, size] -> "  A  1/1 in content" `T.isSuffixOf` l && tags == "  tags: untagged"
-                             && size == "  content_size: 8, content_lines: 1"
+        liftIO $ take 4 hit `shouldSatisfy` \ls -> case ls of
+          [l, day, tags, size] -> l == "s/a  A  [match 1/1 in content]"
+                                       && "  last_change: " `T.isPrefixOf` day
+                                       && tags == "  tags: untagged"
+                                       && size == "  content: size=8  lines=1"
           _ -> False
 
   it "gives the keywords of the pages, in lower case, computed on the whole wiki" $ do
@@ -355,13 +357,15 @@ apiSpec = do
         burns <- search "water burns"
         liftIO $ burns `shouldSatisfy` \ls -> case ls of
           h : p : rest -> h == "1 page for water burns (english)" &&
-                          "s/aid  " `T.isPrefixOf` p && "  2/2 in content" `T.isSuffixOf` p &&
+                          p == "s/aid  First aid  [match 2/2 in content]" &&
                           -- the lines of the content, without the header
-                          rest == [ "  tags: health"
-                                  , "  content_size: 92, content_lines: 7"
-                                  , "  l.3 § Wounds: Clean the wound with water."
-                                  , "  l.5: ## Burns"
-                                  , "  l.7 § Burns: Cool the burn with water for long minutes." ]
+                          map (T.take 15) (take 1 rest) == ["  last_change: "] &&
+                          drop 1 rest == [ "  tags: health"
+                                         , "  content: size=92  lines=7"
+                                         , "  l.3 § Wounds: Clean the wound with water."
+                                         , "  l.5: ## Burns"
+                                         , "  l.7 § Burns: Cool the burn with water for long minutes."
+                                         , "" ]
           _ -> False
         -- the union of the terms, the pages with both first
         aid <- search "first aid"
@@ -369,14 +373,14 @@ apiSpec = do
         liftIO $ map (T.take 7) (filter ("s/" `T.isPrefixOf`) aid) `shouldSatisfy` \ps ->
           L.sort (take 2 ps) == ["s/aid  ", "s/baby "] && drop 2 ps == ["s/snow "]
         phrase <- search "\"aid kit\""
-        liftIO $ map (T.take 7) (drop 1 phrase) `shouldBe` ["s/baby ", "  tags:", "  conte", "  l.1: "]
+        liftIO $ map (T.take 7) (drop 1 phrase) `shouldBe` ["s/baby ", "  last_", "  tags:", "  conte", "  l.1: ", ""]
         excluded <- search "first -baby"
         liftIO $ excluded `shouldSatisfy` \ls -> length (filter ("s/" `T.isPrefixOf`) ls) == 2 &&
                                                  not (any ("s/baby" `T.isPrefixOf`) ls)
         partial <- search "snow burns"
         liftIO $ take 1 partial `shouldBe` ["2 pages for snow burns (english), best first"]
         liftIO $ partial `shouldSatisfy` any (\l -> "s/snow  " `T.isPrefixOf` l &&
-                                                    "  1/2 (snow) in title" `T.isSuffixOf` l)
+                                                    "  [match 1/2 (snow) in title]" `T.isSuffixOf` l)
         -- the words found in no page
         missing <- search "burns volcano"
         liftIO $ take 1 missing `shouldBe` ["1 page for burns volcano (english); not found: volcano"]
