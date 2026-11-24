@@ -298,8 +298,11 @@ apiSpec = do
     searchKiwi [ ("a.md", "title: A\nuid: a\n\nA link.\n"), ("b.md", "title: B\nuid: b\n\nNothing.\n") ] $
       \search -> do
         r <- search "link"
-        liftIO $ r `shouldSatisfy` any (\l -> "s/a  " `T.isPrefixOf` l && "  1/1 in content" `T.isSuffixOf` l
-                                             && "  content_size 8, content_lines 1  " `T.isInfixOf` l)
+        let hit = dropWhile (not . T.isPrefixOf "s/a  ") r
+        liftIO $ take 3 hit `shouldSatisfy` \ls -> case ls of
+          [l, tags, size] -> "  A  1/1 in content" `T.isSuffixOf` l && tags == "  tags: untagged"
+                             && size == "  content_size: 8, content_lines: 1"
+          _ -> False
 
   it "gives the keywords of the pages, in lower case, computed on the whole wiki" $ do
     let docs = [ ("a.md", "title: Ruby\nuid: a\nlang: en\n\nRails and Rails, the Rails migrations.\n")
@@ -354,7 +357,9 @@ apiSpec = do
           h : p : rest -> h == "1 page for water burns (english)" &&
                           "s/aid  " `T.isPrefixOf` p && "  2/2 in content" `T.isSuffixOf` p &&
                           -- the lines of the content, without the header
-                          rest == [ "  l.3 § Wounds: Clean the wound with water."
+                          rest == [ "  tags: health"
+                                  , "  content_size: 92, content_lines: 7"
+                                  , "  l.3 § Wounds: Clean the wound with water."
                                   , "  l.5: ## Burns"
                                   , "  l.7 § Burns: Cool the burn with water for long minutes." ]
           _ -> False
@@ -364,7 +369,7 @@ apiSpec = do
         liftIO $ map (T.take 7) (filter ("s/" `T.isPrefixOf`) aid) `shouldSatisfy` \ps ->
           L.sort (take 2 ps) == ["s/aid  ", "s/baby "] && drop 2 ps == ["s/snow "]
         phrase <- search "\"aid kit\""
-        liftIO $ map (T.take 7) (drop 1 phrase) `shouldBe` ["s/baby ", "  l.1: "]
+        liftIO $ map (T.take 7) (drop 1 phrase) `shouldBe` ["s/baby ", "  tags:", "  conte", "  l.1: "]
         excluded <- search "first -baby"
         liftIO $ excluded `shouldSatisfy` \ls -> length (filter ("s/" `T.isPrefixOf`) ls) == 2 &&
                                                  not (any ("s/baby" `T.isPrefixOf`) ls)

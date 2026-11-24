@@ -136,9 +136,9 @@ passageAfter = 24
 
 -- | Text of the results: a first line with the number of pages found, the
 -- query and its lang (and the words found in no page), then each page (see
--- 'AT.pagesText'), the terms it
--- contains (shown by the words of the query that give them) and where, its
--- summary, the given fields (those of "show") and its passages
+-- 'AT.pagesText'), its day, title, the terms it contains (shown by the
+-- words of the query that give them) and where, then on their own lines its
+-- tags, size, summary, the given fields (those of "show") and its passages
 searchText :: T.Text -> Lang -> [(T.Text, T.Text)] -> [T.Text] -> (Page -> [(T.Text, T.Text)])
            -> Int -> [(Hit, [Passage])] -> T.Text
 searchText query lang terms missing fields total results = T.unlines $ header : concatMap hitLines results
@@ -158,13 +158,13 @@ searchText query lang terms missing fields total results = T.unlines $ header : 
       let p = hitPage h
       in T.intercalate "  "
            [ AT.pageRef p, AT.dayText (pageMTime p), pageTitle p
-           , "[" <> T.intercalate ", " (map AT.tagText $ pageTags p) <> "]"
-           , T.concat [ "content_size ", T.pack (show $ pageContentSize p)
-                      , ", content_lines ", T.pack (show $ pageContentLines p) ]
            , T.concat [ T.pack (show $ length $ hitTerms h), "/", T.pack (show n)
                       , if length (hitTerms h) < n
                         then " (" <> T.intercalate ", " (map wordOf $ hitTerms h) <> ")" else ""
                       , " in ", T.intercalate "+" (map fieldName $ hitFields h) ] ]
+         : "  tags: " <> T.intercalate ", " (map AT.tagText $ pageTags p)
+         : T.concat [ "  content_size: ", T.pack (show $ pageContentSize p)
+                    , ", content_lines: ", T.pack (show $ pageContentLines p) ]
          : [ "  summary: " <> s | Just s <- [pageSummary p] ]
          ++ [ T.concat ["  ", f, ": ", v] | (f, v) <- fields p ]
          ++ [ T.concat [ "  l.", T.pack (show $ passageLine x)
