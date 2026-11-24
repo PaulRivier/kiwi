@@ -23,6 +23,7 @@ import           Kiwi.SearchSpec (searchSpec)
 import           Kiwi.TagsSpec (tagsSpec)
 import           Kiwi.ViewSpec (viewSpec)
 import           Utils.DocIndexSpec (docIndexSpec)
+import           Utils.ProseSpec (proseSpec)
 
 
 main :: IO ()
@@ -39,6 +40,7 @@ main = hspec $ do
   describe "Kiwi.Auth.readableQuery" readableQuerySpec
   describe "Kiwi.Controller.metaIndex" metaIndexSpec
   describe "Utils.DocIndex" docIndexSpec
+  describe "Utils.Prose" proseSpec
   describe "Kiwi.LangDetect" langDetectSpec
   describe "Kiwi.Search" searchSpec
   describe "Kiwi.Keywords" keywordsSpec

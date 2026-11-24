@@ -1,3 +1,4 @@
+{-# LANGUAGE QuasiQuotes #-}
 -- | The Model Context Protocol of the agents (Claude Code, Claude Desktop…),
 -- served by kiwi on POST /mcp (see 'Kiwi.Api.serveMcp'): each tool makes
 -- one request to the API (see "Kiwi.Api"), in memory, and gives its text
@@ -32,6 +33,7 @@ import qualified Network.Wai as Wai
 
 import           Paths_kiwi (version)
 import           Data.Version (showVersion)
+import           Utils.Prose (prose)
 import           Utils.WaiCall (callApp, localRequest)
 
 
@@ -134,9 +136,11 @@ request backend method params = case method of
 -- (of the API and of the user) with the tool guide
 instructions :: T.Text
 instructions =
-  "Kiwi is the wiki of the user: Markdown pages in sources, with tags, links and \
-  \metadata. When the user talks about kiwi, call the tool guide first, before any \
-  \other kiwi tool."
+  [prose|
+    Kiwi is the wiki of the user: Markdown pages in sources, with tags, links and
+    metadata. When the user talks about kiwi, call the tool guide first, before any other
+    kiwi tool.
+  |]
 
 -- The guide given whole as instructions, cut to fit the clients: replaced
 -- by the short 'instructions' (2026-11-22).
@@ -260,17 +264,19 @@ asIs _ body = body
 tools :: [Tool]
 tools =
   [ Tool "search" "Search the wiki" ReadOnly
-      "Full-text search in the wiki. Use it first to find where an information is, before \
-      \reading pages. The words are alternatives: the pages containing any of them are found, \
-      \best first (the more words, the better), so add synonyms freely. There is no OR nor \
-      \AND operator (OR is searched as a word). Each result gives the page (SOURCE/UID), its \
-      \title, how many of the words it contains and where, its last change, tags, size \
-      \(content: size and lines, the characters and lines of its content), its summary (a short description written \
-      \in its header, if any), its keywords (the terms \
-      \that tell it from the other pages, computed by the wiki), and up to three \
-      \passages with their line and section; the first line names the words found in no page. \
-      \Words are matched by their stem. \"exact phrase\" and -excluded words are allowed. \
-      \The filters of list_pages (tags, fields...) narrow the search."
+      [prose|
+        Full-text search in the wiki. Use it first to find where an information is, before
+        reading pages. The words are alternatives: the pages containing any of them are
+        found, best first (the more words, the better), so add synonyms freely. There is
+        no OR nor AND operator (OR is searched as a word). Each result gives the page
+        (SOURCE/UID), its title, how many of the words it contains and where, its last
+        change, tags, size (content: size and lines, the characters and lines of its
+        content), its summary (a short description written in its header, if any), its
+        keywords (the terms that tell it from the other pages, computed by the wiki), and
+        up to three passages with their line and section; the first line names the words
+        found in no page. Words are matched by their stem. "exact phrase" and -excluded
+        words are allowed. The filters of list_pages (tags, fields...) narrow the search.
+      |]
       ([ ("query", prop "string" "The words to search, e.g. burns \"first aid\" -baby") ]
        ++ selectionProps ++
        [ ("limit", prop "integer" "Maximum number of pages (10 by default).") ])
@@ -280,48 +286,60 @@ tools =
                Just q -> Right $ apiGet "/api/search" (("q", q) : ("show", "keywords") : selectionParams o ++ optional o ["limit"]))
       asIs
   , Tool "facets" "Explore the metadata" ReadOnly
-      "Explore the wiki by its metadata, as a person narrowing a selection step by step, \
-      \at a low cost: for the pages matching the filters (all the pages without filter), by \
-      \source, their tags (with their parents, as written in the headers), langs, folders \
-      \(admins only: where a new page can go) and custom fields with their values, each with \
-      \its number of pages. To see what the wiki holds on \
-      \a subject, start without filter, add a tag or a field value at each call, then list the \
-      \pages with list_pages once the selection is small. For a precise information, use \
-      \search instead. Before writing a page, look at the facets to reuse the existing tags \
-      \and values."
+      [prose|
+        Explore the wiki by its metadata, as a person narrowing a selection step by step,
+        at a low cost: for the pages matching the filters (all the pages without filter),
+        by source, their tags (with their parents, as written in the headers), langs,
+        folders (admins only: where a new page can go) and custom fields with their
+        values, each with its number of pages. To see what the wiki holds on a subject,
+        start without filter, add a tag or a field value at each call, then list the pages
+        with list_pages once the selection is small. For a precise information, use search
+        instead. Before writing a page, look at the facets to reuse the existing tags and
+        values.
+      |]
       (selectionProps ++
        [("show", stringsProp "Only these facets: tags, lang, folder (admins), or custom fields; all without it.")])
       [] (\o -> Right $ apiGet "/api/facets" (selectionParams o ++ showParam o))
       asIs
   , Tool "list_pages" "List pages" ReadOnly
-      "List the pages matching metadata, the most recently modified first: SOURCE/UID alone, \
-      \and under each page the fields of show (title, tags, summary, keywords, lang, modified, \
-      \content_size, content_lines, links, backlinks, related, custom fields), written as in a \
-      \header; title, summary, content_size, content_lines and keywords without show (about 100 \
-      \tokens by page: to choose the pages to read), the uids alone with show []. summary: a \
-      \short description of the page, written in its header (not every page has one). \
-      \keywords: the terms that tell the page from the others, computed by the wiki. content_size and \
-      \content_lines: the characters and lines of its content. links: the uids of the \
-      \pages it links, \"(missing)\" after a page that does not exist (a broken link); \
-      \backlinks: the uids of the pages that link it; related: SOURCE/UID of the pages \
-      \closest to it (common keywords, tags and some custom fields), the closest first, \
-      \at most 5. Narrow the selection with facets \
-      \or search first. For a large selection, ask only the fields needed: show [title, tags] \
-      \gives an inventory; has_fields and show with a custom field (or show [] and the uids) \
-      \prepare a metadata script."
+      [prose|
+        List the pages matching metadata, the most recently modified first: SOURCE/UID
+        alone, and under each page the fields of show (title, tags, summary, keywords,
+        lang, modified, content_size, content_lines, links, backlinks, related, custom
+        fields), written as in a header; title, summary, content_size, content_lines and
+        keywords without show (about 100 tokens by page: to choose the pages to read), the
+        uids alone with show []. summary: a short description of the page, written in its
+        header (not every page has one). keywords: the terms that tell the page from the
+        others, computed by the wiki. content_size and content_lines: the characters and
+        lines of its content. links: the uids of the pages it links, "(missing)" after a
+        page that does not exist (a broken link); backlinks: the uids of the pages that
+        link it; related: SOURCE/UID of the pages closest to it (common keywords, tags and
+        some custom fields), the closest first, at most 5. Narrow the selection with
+        facets or search first. For a large selection, ask only the fields needed: show
+        [title, tags] gives an inventory; has_fields and show with a custom field (or show
+        [] and the uids) prepare a metadata script.
+      |]
       (selectionProps ++
-       [ ("show", stringsProp "Fields given under each page: title, tags, summary, keywords, lang, modified (day), content_size, content_lines, links, backlinks, related, custom fields. [] for the uids alone; without it, title, summary, content_size, content_lines and keywords.")
+       [ ("show", stringsProp [prose|
+            Fields given under each page: title, tags, summary, keywords, lang, modified
+            (day), content_size, content_lines, links, backlinks, related, custom fields. []
+            for the uids alone; without it, title, summary, content_size, content_lines and
+            keywords.
+          |])
        , ("limit", prop "integer" "Maximum number of pages (100 by default).") ])
       []
       (\o -> Right $ apiGet "/api/pages" (selectionParams o ++ listShow o ++ optional o ["limit"]))
       asIs
   , Tool "read_page" "Read a page" ReadOnly
-      "Read a page (SOURCE/UID): its header, then its content in CommonMark (a page of more \
-      \than 40000 characters gives its outline instead, unless part whole). search and \
-      \list_pages give its size and lines. For a long page, read its outline first (part: outline: tags, summary, backlinks, \
-      \sections with their lines), then only the section or the lines you need. Line numbers \
-      \count from the first line of the content: the header is not numbered (read it whole, \
-      \or with list_pages and show). The hash identifies the version of the file."
+      [prose|
+        Read a page (SOURCE/UID): its header, then its content in CommonMark (a page of
+        more than 40000 characters gives its outline instead, unless part whole). search
+        and list_pages give its size and lines. For a long page, read its outline first
+        (part: outline: tags, summary, backlinks, sections with their lines), then only
+        the section or the lines you need. Line numbers count from the first line of the
+        content: the header is not numbered (read it whole, or with list_pages and show).
+        The hash identifies the version of the file.
+      |]
       [ ("page", prop "string" "The page, as SOURCE/UID.")
       , ("part", A.object [ "type" .= ("string" :: T.Text)
                           , "enum" .= (["whole", "outline", "section", "lines"] :: [T.Text])
@@ -344,12 +362,15 @@ tools =
                      , if isJust' etag || isJust' range then "---\n" else ""
                      , body ])
   , Tool "edit_page" "Edit a page" Destructive
-      "Call guide first if not done in this session. Change a page by replacing exact passages of its text (as read_page gives it, without \
-      \line numbers): each old text must be found exactly once in the page, copied exactly, \
-      \with enough of the text around it to be unique; it is replaced by the new text. To \
-      \insert, give a line as old text, and this line followed by the new lines as new text. \
-      \All the edits apply, or none. The rest of the page is kept, even if it changed since \
-      \you read it. Prefer it to write_page. The header can be changed the same way."
+      [prose|
+        Call guide first if not done in this session. Change a page by replacing exact
+        passages of its text (as read_page gives it, without line numbers): each old text
+        must be found exactly once in the page, copied exactly, with enough of the text
+        around it to be unique; it is replaced by the new text. To insert, give a line as
+        old text, and this line followed by the new lines as new text. All the edits
+        apply, or none. The rest of the page is kept, even if it changed since you read
+        it. Prefer it to write_page. The header can be changed the same way.
+      |]
       [ ("page", prop "string" "The page, as SOURCE/UID.")
       , ("edits", A.object
           [ "type" .= ("array" :: T.Text)
@@ -369,9 +390,11 @@ tools =
                      (TE.decodeUtf8 $ BL.toStrict $ A.encode $ A.object ["edits" .= edits]))
       asIs
   , Tool "write_page" "Rewrite a page" Destructive
-      "Call guide first if not done in this session. Replace the whole text of a page (header and content). Only for a deep rewrite: \
-      \prefer edit_page. Give the hash that read_page gave: the write is refused if the page \
-      \changed since."
+      [prose|
+        Call guide first if not done in this session. Replace the whole text of a page
+        (header and content). Only for a deep rewrite: prefer edit_page. Give the hash
+        that read_page gave: the write is refused if the page changed since.
+      |]
       [ ("page", prop "string" "The page, as SOURCE/UID.")
       , ("hash", prop "string" "The hash of the page as read.")
       , ("text", prop "string" "The new text: header, blank line, content.")
@@ -385,10 +408,13 @@ tools =
                      [("If-Match", "\"" <> h <> "\"")] t)
       asIs
   , Tool "create_page" "Create a page" Additive
-      "Call guide first if not done in this session. Create a page in a source, from its text: header (title, tags, summary...), a blank \
-      \line, then its content in CommonMark. Kiwi gives it its uid (in the answer, as \
-      \SOURCE/UID). Search before creating: do not duplicate an existing page. The file is \
-      \named after the title; admins may give its path (the folders: facets, show folder)."
+      [prose|
+        Call guide first if not done in this session. Create a page in a source, from its
+        text: header (title, tags, summary...), a blank line, then its content in
+        CommonMark. Kiwi gives it its uid (in the answer, as SOURCE/UID). Search before
+        creating: do not duplicate an existing page. The file is named after the title;
+        admins may give its path (the folders: facets, show folder).
+      |]
       [ ("source", prop "string" "The source of the page.")
       , ("text", prop "string" "The text of the page: header, blank line, content.")
       , ("path", prop "string" "Path of the file from the top of the source, without extension (admins only).")
@@ -400,14 +426,18 @@ tools =
           return $ ApiRequest "POST" ("/api/pages/" <> s) (optional o ["path", "message"]) [] t)
       asIs
   , Tool "edit_metadata" "Apply a metadata script" Destructive
-      "Call guide first if not done in this session. Change the metadata (headers) of many pages at once, with a script: one line by \
-      \directive or command, all of them applied or none, in one commit. A `pages` line chooses \
-      \the pages of the commands after it: `pages SOURCE/*` (a source), `pages SOURCE/UID,SOURCE/UID` \
-      \(pages), `pages *` (everything). Commands: `meta FIELD move OLD NEW`, `meta FIELD delete VALUE` \
-      \(a tag with its sub-tags), `meta FIELD rename-to NEW`, `meta FIELD set VALUE`, \
-      \`meta FIELD add VALUE`, `meta FIELD remove VALUE` (exact values), `meta FIELD unset`. \
-      \The syntax: tool guide, topic metadata-scripts. Check the script with check_metadata \
-      \first, and ask the user before changing the vocabulary of the wiki."
+      [prose|
+        Call guide first if not done in this session. Change the metadata (headers) of
+        many pages at once, with a script: one line by directive or command, all of them
+        applied or none, in one commit. A `pages` line chooses the pages of the commands
+        after it: `pages SOURCE/*` (a source), `pages SOURCE/UID,SOURCE/UID` (pages),
+        `pages *` (everything). Commands: `meta FIELD move OLD NEW`, `meta FIELD delete
+        VALUE` (a tag with its sub-tags), `meta FIELD rename-to NEW`, `meta FIELD set
+        VALUE`, `meta FIELD add VALUE`, `meta FIELD remove VALUE` (exact values), `meta
+        FIELD unset`. The syntax: tool guide, topic metadata-scripts. Check the script
+        with check_metadata first, and ask the user before changing the vocabulary of the
+        wiki.
+      |]
       [ ("script", prop "string" "The lines of the script; # starts a comment.")
       , messageProp ]
       ["script"]
@@ -416,10 +446,12 @@ tools =
           return $ ApiRequest "POST" "/api/metadata" (optional o ["message"]) [] sc)
       asIs
   , Tool "check_metadata" "Check a metadata script" ReadOnly
-      "Check a metadata script of edit_metadata without writing anything: its errors, or \
-      \the pages that each command would change. It also runs on the pages that the account \
-      \can only read, marked \"(read only)\": the user can then apply the script with an \
-      \account that can change them."
+      [prose|
+        Check a metadata script of edit_metadata without writing anything: its errors, or
+        the pages that each command would change. It also runs on the pages that the
+        account can only read, marked "(read only)": the user can then apply the script
+        with an account that can change them.
+      |]
       [ ("script", prop "string" "The lines of the script; # starts a comment.") ]
       ["script"]
       (\o -> do
@@ -427,9 +459,11 @@ tools =
           return $ ApiRequest "POST" "/api/metadata" [("check", "yes")] [] sc)
       asIs
   , Tool "guide" "Guide of the wiki" ReadOnly
-      "Documentation of the wiki for the agents, by topic: wiki (the guide of the wiki and \
-      \the guide of the user: read it first, once in the session), metadata-scripts (the \
-      \syntax of the scripts of edit_metadata, with examples)."
+      [prose|
+        Documentation of the wiki for the agents, by topic: wiki (the guide of the wiki
+        and the guide of the user: read it first, once in the session), metadata-scripts
+        (the syntax of the scripts of edit_metadata, with examples).
+      |]
       [ ("topic", A.object [ "type" .= ("string" :: T.Text)
                            , "enum" .= (["wiki", "metadata-scripts"] :: [T.Text])
                            , "description" .= ("The topic; wiki without it." :: T.Text) ]) ]
@@ -446,10 +480,16 @@ tools =
 selectionProps :: [(T.Text, A.Value)]
 selectionProps =
   [ sourcesProp, archiveProp
-  , ("tags", stringsProp "Tags the pages must all have, written as in the headers (\"a > b\"); a tag includes its sub-tags.")
+  , ("tags", stringsProp [prose|
+      Tags the pages must all have, written as in the headers ("a > b"); a tag includes
+      its sub-tags.
+    |])
   , ("fields", A.object [ "type" .= ("object" :: T.Text)
                         , "additionalProperties" .= A.object ["type" .= ("string" :: T.Text)]
-                        , "description" .= ("Custom fields the pages must have, with this value: {\"author\": \"Smith\"}." :: T.Text) ])
+                        , "description" .= ([prose|
+                            Custom fields the pages must have, with this value:
+                            {"author": "Smith"}.
+                          |] :: T.Text) ])
   , ("has_fields", stringsProp "Custom fields the pages must have, whatever their value.")
   , ("pages", stringsProp "Only these pages, as SOURCE/UID.")
   , ("since", prop "string" "Only the pages modified since this day, YYYY-MM-DD.") ]

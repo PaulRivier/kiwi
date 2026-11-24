@@ -72,6 +72,7 @@ library
     , process
     , scotty
     , snowball-c
+    , template-haskell
     , text
     , time
     , unicode-transforms
@@ -116,6 +117,7 @@ library
       Kiwi.Api.Text
       Utils.DocIndex
       Utils.DocIndex.Restricted
+      Utils.Prose
       Utils.WaiCall
   other-modules: Paths_kiwi
   autogen-modules: Paths_kiwi
@@ -178,4 +180,5 @@ test-suite kiwi-test
       Kiwi.ViewSpec
       TestUtils
       Utils.DocIndexSpec
+      Utils.ProseSpec
   hs-source-dirs: test
