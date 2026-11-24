@@ -30,6 +30,7 @@ module Utils.DocIndex.Restricted
   , cardinal
   , lookupIndex
   , getFieldKeys
+  , docFieldKeys
   ) where
 
 import qualified Data.Map.Strict as M
@@ -120,3 +121,9 @@ getFieldKeys r f = case visible r of
   Nothing -> DI.getFieldKeys (docIndex r) f
   Just v -> [ k | (k, ids) <- M.toList $ DI.lookupFieldMap (DI.index $ docIndex r) f
                 , not (S.disjoint ids v) ]
+
+
+-- | The keys of the field of a document, as the index gives them (see
+-- 'DI.docFieldKeys')
+docFieldKeys :: (Eq field) => RestrictedDocIndex doc id field key -> field -> doc -> [key]
+docFieldKeys r = DI.docFieldKeys (docIndex r)

@@ -18,9 +18,6 @@ module Kiwi.Types
   , PagesDB(..)
   , Keywords(..)
   , Keyword(..)
-  , Feature(..)
-  , Features(..)
-  , RelatedIndex(..)
   , MetaField(..)
   , MetaData(..)
   , AccessLevel(..)
@@ -187,20 +184,17 @@ data PagesDB =
           -- , lastUpdate :: Time.UTCTime
           , pagesIndex :: RDI.RestrictedDocIndex Page PageUID MetaField DocIndexKey
           , searchEngine :: PageSearchEngine
-          -- | the keywords of the pages (see "Kiwi.Keywords")
-          , pageKeywords :: Keywords
-          -- | the features of the pages, for the related pages (see
-          -- "Kiwi.Related")
-          , relatedIndex :: RelatedIndex }
+          -- | what the update of the keywords of the pages needs (see
+          -- "Kiwi.Keywords"; the keywords are in the pages)
+          , dbKeywordsState :: Keywords }
 
--- | The keywords of the pages, and what their update needs (see
+-- | What the update of the keywords of the pages needs (see
 -- 'Kiwi.Keywords.updateKeywords'): a load computes those of the pages read
 -- again, with the number of pages of each term updated; the keywords of the
 -- other pages are computed again only from time to time, as they depend on
 -- the other pages
 data Keywords =
   Keywords { kwDocs :: !(M.Map T.Text Int)          -- ^ number of pages of each term
-           , kwPages :: !(M.Map PageUID [Keyword])  -- ^ keywords of each page, the best first
            , kwChanges :: !Int  -- ^ pages read again or removed since the start (only grows)
            , kwFullAt :: !Int   -- ^ 'kwChanges' at the last computation of every page
            }
@@ -212,23 +206,6 @@ data Keyword = Keyword { keywordStem :: !T.Text, keywordWord :: !T.Text }
   deriving (Eq, Show)
 
 
--- | What brings pages together (see "Kiwi.Related")
-data Feature = FKeyword T.Text             -- ^ stem of a keyword
-             | FTag TagId                  -- ^ a tag or one of its parents
-             | FCustom T.Text DocIndexKey  -- ^ value of a relating custom field
-  deriving (Eq, Ord, Show)
-
--- | The features of a page with their weight, and the sum of the squares of
--- the weights
-data Features = Features { featureWeights :: !(M.Map Feature Double)
-                         , featureNorm :: !Double }
-
--- | The features of every page, and the pages of each feature (see
--- "Kiwi.Related")
-data RelatedIndex =
-  RelatedIndex { riFeatures :: !(M.Map PageUID Features)
-               , riPages :: !(M.Map Feature [PageUID]) }
-
 
 data MetaField = FieldSource
                | FieldTag
@@ -237,6 +214,7 @@ data MetaField = FieldSource
                | FieldLink
                | FieldFile     -- ^ (source, uid) of the files linked
                | FieldArchive  -- ^ every page, archived or not
+               | FieldKeyword  -- ^ stems of the keywords (see 'pageKeywords')
                | FieldCustom T.Text
   deriving (Show, Read, Eq, Ord)
 
@@ -299,6 +277,13 @@ data Page =
        , pageArchive :: !Bool  -- ^ only in the archives navigation
        , pageCustomMeta :: ![CustomMetaData]
        , pagePreviousUids :: ![T.Text]  -- ^ uids replaced by kiwi (previous-uids)
+       -- | its keywords, the best first (see "Kiwi.Keywords"), none when
+       -- read: they are given after the load, with 'pageRelatedNorm' (see
+       -- 'Kiwi.Related.withKeywords')
+       , pageKeywords :: ![Keyword]
+       -- | the sum of the squares of the weights of its features, for the
+       -- related pages (see "Kiwi.Related")
+       , pageRelatedNorm :: !Double
        }
   deriving (Show)
 

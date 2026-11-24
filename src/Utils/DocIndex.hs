@@ -21,6 +21,7 @@ the keys of the last one are indexed.
 module Utils.DocIndex where
 
 import           Data.List (foldl1', sortOn)
+import           Data.Maybe (fromMaybe)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
@@ -83,6 +84,49 @@ insertMany :: (Ord field, Ord id, Ord key) =>
               [doc] ->
               DocIndex doc id field key
 insertMany = foldl' insert
+
+
+-- | Replace a stored document by a new version that differs from it only by
+-- the keys of this field: only the field is indexed again, by the keys that
+-- it lost and those that it gained. The other fields must give the same
+-- keys, else their index would be wrong. A document that is not stored, or
+-- a field that the index does not have, is inserted as by 'insert'.
+updateField :: (Ord field, Ord id, Ord key) =>
+               DocIndex doc id field key ->
+               field ->
+               doc ->
+               DocIndex doc id field key
+updateField docIdx f doc = case (findDoc docIdx docId, docFields docIdx f) of
+  (Just old, _ : _) ->
+    let keysOf d = S.fromList $ docFieldKeys docIdx f d
+        (oldKeys, newKeys) = (keysOf old, keysOf doc)
+        lost fm = S.foldl' (\m k -> M.update (nonEmpty . S.delete docId) k m) fm
+                           (S.difference oldKeys newKeys)
+        gained fm = S.foldl' (\m k -> M.insertWith S.union k (S.singleton docId) m) fm
+                             (S.difference newKeys oldKeys)
+    in docIdx { store = M.insert docId doc (store docIdx)
+              , index = M.alter (nonEmpty . gained . lost . fromMaybe M.empty) f (index docIdx) }
+  _ -> insert docIdx doc
+  where
+    docId = extractId docIdx doc
+
+
+-- | The keys of the field of a document, as the index gives them (none for a
+-- field that the index does not have)
+docFieldKeys :: (Eq field) =>
+                DocIndex doc id field key ->
+                field ->
+                doc ->
+                [key]
+docFieldKeys docIdx f doc = case reverse (docFields docIdx f) of
+  -- the last field of this id, as in 'makeFieldsKeysMap'
+  fld : _ -> fieldExtractKeys fld doc
+  [] -> []
+
+
+-- | The fields of this id
+docFields :: (Eq field) => DocIndex doc id field key -> field -> [Field doc field key]
+docFields docIdx f = [ fld | fld <- fields docIdx, fieldId fld == f ]
 
 
 -- | Remove a document, if it is stored, and the keys only it had

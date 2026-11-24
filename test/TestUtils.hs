@@ -54,6 +54,8 @@ mkPage uid tags access archive day =
        , pageArchive = archive
        , pageCustomMeta = []
        , pagePreviousUids = []
+       , pageKeywords = []
+       , pageRelatedNorm = 0
        }
 
 -- | Database of these pages, indexed as by 'DB.updatePagesDB'

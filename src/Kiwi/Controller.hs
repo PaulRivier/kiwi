@@ -104,7 +104,7 @@ servePage pgId = do
       related <- relatedOf db
       r <- V.renderPage findLinked p (maybe False (>= K.AccessWrite) level) doc
                         backLinkPages (related (S.fromList $ map K.pageUID backLinkPages) p)
-                        (map K.keywordWord $ M.findWithDefault [] (K.pageUID p) (K.kwPages $ K.pageKeywords db))
+                        (map K.keywordWord $ K.pageKeywords p)
       htmlETag db r
     Nothing -> serveNotFound
 
@@ -851,15 +851,14 @@ ifAdmin a = withLogin $ do
 
 
 -- | The pages related to a page (see "Kiwi.Related"), among the pages of the
--- index in the sources of the context, the given ones left out
+-- index (restricted, see 'getRestrictedDB') in the sources of the context,
+-- the given ones left out
 relatedOf :: K.PagesDB -> ActM (S.Set K.PageUID -> K.Page -> [K.Page])
 relatedOf db = do
   ctxSources <- asksK (K.contextSources . K.context . K.requestState)
-  let candidate excluded uid
-        | S.member uid excluded = Nothing
-        | S.null ctxSources || S.member (fst uid) ctxSources = findPage db uid
-        | otherwise = Nothing
-  return $ \excluded -> Related.relatedPages (K.relatedIndex db) (candidate excluded)
+  let kept excluded uid = not (S.member uid excluded)
+                          && (S.null ctxSources || S.member (fst uid) ctxSources)
+  return $ \excluded -> Related.relatedPages (K.customMetaConfig db) (K.pagesIndex db) (kept excluded)
 
 -- | The pages the user can read, archived or not according to the context
 getRestrictedDB :: ActM K.PagesDB

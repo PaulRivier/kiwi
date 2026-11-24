@@ -37,26 +37,25 @@ relativeThreshold = 0.4
 
 -- | No keywords, before the first load
 emptyKeywords :: Keywords
-emptyKeywords = Keywords M.empty M.empty 0 0
+emptyKeywords = Keywords M.empty 0 0
 
 -- | The keywords after a load, given all the pages, the pages removed (old
--- versions of the pages read again included) and the pages inserted. The
--- number of pages of each term is updated, and the keywords of the inserted
--- pages computed with it; the other pages keep theirs, computed with former
--- numbers. When the pages changed since the last computation of every page
--- reach a tenth of the pages (10 at least), every page is computed again
--- (true with the result). The keywords are evaluated.
-updateKeywords :: [Page] -> [Page] -> [Page] -> Keywords -> (Keywords, Bool)
+-- versions of the pages read again included) and the pages inserted: the
+-- state of the update, the keywords of the pages computed, and whether every
+-- page was computed. The number of pages of each term is updated, and the
+-- keywords of the inserted pages computed with it; the other pages keep
+-- theirs, computed with former numbers. When the pages changed since the
+-- last computation of every page reach a tenth of the pages (10 at least),
+-- every page is computed again. The keywords are evaluated.
+updateKeywords :: [Page] -> [Page] -> [Page] -> Keywords
+               -> (Keywords, M.Map PageUID [Keyword], Bool)
 updateKeywords pages removed inserted kw
   | changes - kwFullAt kw >= max 10 (n `div` 10) =
-      ((allKeywords pages) { kwChanges = changes, kwFullAt = changes }, True)
+      let (all', ks) = allKeywords pages
+      in (all' { kwChanges = changes, kwFullAt = changes }, ks, True)
   | otherwise =
-      ( Keywords { kwDocs = docs
-                 , kwPages = M.union (M.fromList [ (pageUID p, keywordsOf n docs t)
-                                                  | (p, t) <- newTables ])
-                                     (foldl' (flip M.delete) (kwPages kw) (map pageUID removed))
-                 , kwChanges = changes
-                 , kwFullAt = kwFullAt kw }
+      ( Keywords { kwDocs = docs, kwChanges = changes, kwFullAt = kwFullAt kw }
+      , M.fromList [ (pageUID p, keywordsOf n docs t) | (p, t) <- newTables ]
       , False )
   where
     n = length pages
@@ -66,12 +65,10 @@ updateKeywords pages removed inserted kw
              addDocs (-1) (map pageTerms removed) (kwDocs kw)
 
 -- | Every page computed (see 'updateKeywords')
-allKeywords :: [Page] -> Keywords
+allKeywords :: [Page] -> (Keywords, M.Map PageUID [Keyword])
 allKeywords pages =
-  Keywords { kwDocs = docs
-           , kwPages = M.fromList [ (pageUID p, keywordsOf n docs t) | (p, t) <- tables ]
-           , kwChanges = 0
-           , kwFullAt = 0 }
+  ( Keywords { kwDocs = docs, kwChanges = 0, kwFullAt = 0 }
+  , M.fromList [ (pageUID p, keywordsOf n docs t) | (p, t) <- tables ] )
   where
     tables = [ (p, pageTerms p) | p <- pages ]
     n = length pages
@@ -79,7 +76,7 @@ allKeywords pages =
 
 -- | Keywords of the pages, the best first, all of them computed
 pagesKeywords :: [Page] -> M.Map PageUID [Keyword]
-pagesKeywords = kwPages . allKeywords
+pagesKeywords = snd . allKeywords
 
 -- | The number of pages of each term, with the terms of the given pages
 -- added (1) or removed (-1)
@@ -166,7 +163,7 @@ stopWordList = S.fromList . map stripAccents . tokenize . TE.decodeUtf8
 
 -- | The keywords of a page as a field of the lists ("a, b, c"), none
 -- without them
-keywordsText :: M.Map PageUID [Keyword] -> Page -> Maybe T.Text
-keywordsText kws p = case M.findWithDefault [] (pageUID p) kws of
+keywordsText :: Page -> Maybe T.Text
+keywordsText p = case pageKeywords p of
   [] -> Nothing
   ks -> Just (T.intercalate ", " $ map keywordWord ks)

@@ -140,24 +140,15 @@ apiPages :: ActM ()
 apiPages = withSelection ["limit", "show"] $ \db pages ->
   withShow (AT.pageFields ++ map K.cmcName (K.customMetaConfig db)) $ \shown ->
     intParam "limit" 100 $ \limit -> do
-      let kws = shownKeywords db shown
       related <- relatedOf db
-      answer $ AT.pagesText (extraField db kws (related S.empty)) shown (length pages)
+      answer $ AT.pagesText (extraField db (related S.empty)) shown (length pages)
                             (take limit $ sortOn (Down . K.pageMTime) pages)
 
--- | The keywords of the pages when they are shown (see 'K.pageKeywords'),
--- none otherwise
-shownKeywords :: K.PagesDB -> [T.Text] -> M.Map K.PageUID [K.Keyword]
-shownKeywords db shown
-  | "keywords" `elem` shown = K.kwPages $ K.pageKeywords db
-  | otherwise = M.empty
-
 -- | The fields of a page that the index gives (see 'apiPages'): "links",
--- "backlinks", "keywords" (see "Kiwi.Keywords", 'shownKeywords') and
--- "related" (given the related pages of a page)
-extraField :: K.PagesDB -> M.Map K.PageUID [K.Keyword] -> (K.Page -> [K.Page]) -> K.Page -> T.Text
-           -> Maybe T.Text
-extraField db kws related p f =
+-- "backlinks", "keywords" (see "Kiwi.Keywords") and "related" (given the
+-- related pages of a page)
+extraField :: K.PagesDB -> (K.Page -> [K.Page]) -> K.Page -> T.Text -> Maybe T.Text
+extraField db related p f =
       let idx = K.pagesIndex db
           exists uid = maybe False (const True) $ RDI.findDoc idx uid
           list vs = if null vs then Nothing else Just (T.intercalate ", " vs)
@@ -166,7 +157,7 @@ extraField db kws related p f =
                            | l <- U.nodup (K.pageLinks p) ]
            "backlinks" -> list $ sortOn textOrder
                             [ snd (K.pageUID b) | b <- RDI.query idx (U.qOnly K.FieldLink (K.pageUID p)) ]
-           "keywords" -> keywordsText kws p
+           "keywords" -> keywordsText p
            "related" -> list [ src <> "/" <> uid | (src, uid) <- map K.pageUID (related p) ]
            _ -> Nothing
 
@@ -481,8 +472,7 @@ apiSearch = withSelection ["q", "limit", "show"] $ \db selected -> withShow ["ke
         then failWith Net.status400 "the query has no word to search"
         else do
           results <- mapM (withPassages (map fst terms)) (take limit hits)
-          let kws = shownKeywords db shown
-          let fields p = [ (f, v) | f <- shown, Just v <- [extraField db kws (const []) p f] ]
+          let fields p = [ (f, v) | f <- shown, Just v <- [extraField db (const []) p f] ]
           answer $ AS.searchText (T.strip raw) lang terms missing fields total results
   where
     -- the passages of a page, from its content as loaded, with the lines of

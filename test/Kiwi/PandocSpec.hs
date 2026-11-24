@@ -211,6 +211,8 @@ loadPageSpec = do
                     , pageArchive = False
                     , pageCustomMeta = []
                     , pagePreviousUids = []
+                    , pageKeywords = []
+                    , pageRelatedNorm = 0
                     }
     pandocBody (load c) `shouldBe` body
     pandocFiles (load c) `shouldBe` ["a.png", "c.ods"]

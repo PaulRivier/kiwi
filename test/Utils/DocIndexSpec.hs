@@ -162,6 +162,12 @@ docIndexSpec = do
       sameIndex (DI.removeMany (docsIndex ds) removed)
                 [ d | d <- storedDocs ds, docId d `notElem` removed ]
 
+  prop "updates a field as if the documents were indexed again" $
+    forAll genDocs $ \ds -> forAll (choose (0, 13)) $ \i -> forAll (listOf genTag) $ \ts ->
+      let y = maybe 2020 (\(_, _, y') -> y') $ DI.findDoc (docsIndex ds) i
+          new = (i, ts, y)
+      in sameIndex (DI.updateField (docsIndex ds) "tag" new) (storedDocs (ds ++ [new]))
+
   describe "Restricted" $ do
     prop "reads a view as the index narrowed again" $
       forAll genDocs $ \ds -> forAll (resize 2 $ listOf1 genRestriction) $ \rs ->

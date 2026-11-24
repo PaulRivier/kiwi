@@ -1,23 +1,24 @@
 -- | Related pages: the pages that look like a page, by their keywords, their
--- tags and the custom metadata marked @relating: yes@ in @kiwi.ini@. Each
--- page is a set of weighted features, and two pages are as close as the
--- cosine of their sets. The features of every page, and the pages of each
--- feature, are computed at each load, the related pages when shown. Design
--- in @CLAUDE/projects/pages-connexes-2026-11-23.md@.
+-- tags and the custom metadata with a @relating: WEIGHT@ in @kiwi.ini@. Each
+-- page is a set of weighted features, the keys of these fields in the index
+-- of the pages, and two pages are as close as the cosine of their sets. The
+-- index gives the pages of each feature; the norm of each page is computed
+-- with its keywords, after each load ('withKeywords'). Design in
+-- @CLAUDE/projects/pages-connexes-2026-11-23.md@ (iteration 7) and
+-- @CLAUDE/projects/docindex-vues-2026-11-24.md@.
 module Kiwi.Related
-  ( relatedIndexOf
-  , emptyRelatedIndex
+  ( withKeywords
   , relatedPages
   , maxRelated      -- exported for tests
   ) where
 
-import           Data.List (sortOn)
+import           Data.List (find, sortOn)
 import qualified Data.Map.Strict as M
 import           Data.Ord (Down (..))
-import qualified Data.Text as T
+import qualified Data.Set as S
 
-import           Kiwi.Tags (segmentsToTag, tagSubSegments)
 import           Kiwi.Types
+import qualified Utils.DocIndex.Restricted as RDI
 
 -- | At most this number of related pages
 maxRelated :: Int
@@ -28,51 +29,51 @@ maxRelated = 5
 minSimilarity :: Double
 minSimilarity = 0.2
 
--- | No page, before the first load
-emptyRelatedIndex :: RelatedIndex
-emptyRelatedIndex = RelatedIndex M.empty M.empty
+-- | The weight of the features of a field: keywords 3, tags (each tag and
+-- its parents) 5, the values of a custom field the weight of its
+-- @relating@; none for the other fields
+fieldWeight :: [CustomMetaConfig] -> MetaField -> Maybe Double
+fieldWeight config f = case f of
+  FieldKeyword -> Just 3
+  FieldTag -> Just 5
+  FieldCustom n -> case find ((== n) . cmcName) config of
+    Just c | cmcRelating c > 0 -> Just (cmcRelating c)
+    _ -> Nothing
+  _ -> Nothing
 
--- | The features of the pages and the pages of each feature, given the
--- custom fields of the config and the keywords of the pages; computed at
--- each load (see 'Kiwi.PagesDB.updatePagesDB'), as they change with the
--- keywords
-relatedIndexOf :: [CustomMetaConfig] -> M.Map PageUID [Keyword] -> [Page] -> RelatedIndex
-relatedIndexOf config kws pages =
-  RelatedIndex { riFeatures = features
-               , riPages = M.fromListWith (++) [ (f, [u]) | (u, fs) <- M.toList features
-                                                         , f <- M.keys (featureWeights fs) ] }
+-- | The features of a page with their weight, given the keys of a field of
+-- a page in the index: those of the weighted fields
+pageFeatures :: [CustomMetaConfig] -> (MetaField -> Page -> [DocIndexKey]) -> Page
+             -> [((MetaField, DocIndexKey), Double)]
+pageFeatures config keys p =
+  [ ((f, k), w) | f <- FieldKeyword : FieldTag : map (FieldCustom . cmcName) config
+                , Just w <- [fieldWeight config f], k <- keys f p ]
+
+-- | The page with these keywords, and the sum of the squares of the weights
+-- of its features ('pageRelatedNorm'), given the keys of a field of a page
+-- in the index: the only way to give a page its keywords, so that its norm
+-- follows them
+withKeywords :: [CustomMetaConfig] -> (MetaField -> Page -> [DocIndexKey]) -> [Keyword] -> Page
+             -> Page
+withKeywords config keys ks p =
+  p' { pageRelatedNorm = sum [ w * w | (_, w) <- pageFeatures config keys p' ] }
+  where p' = p { pageKeywords = ks }
+
+-- | The pages related to a page (itself left out), among the pages of the
+-- index that the predicate keeps, the closest first (then by title), at
+-- most 'maxRelated', at least 'minSimilarity'. The similarity of two pages
+-- is the cosine of their features: only the pages with a common feature
+-- are compared, found by the index for each feature of the page, which
+-- give the products of the weights of the common features (the same weight
+-- in both pages).
+relatedPages :: [CustomMetaConfig] -> RDI.RestrictedDocIndex Page PageUID MetaField DocIndexKey
+             -> (PageUID -> Bool) -> Page -> [Page]
+relatedPages config idx kept p =
+  map snd $ take maxRelated $ sortOn (\(s, q) -> (Down s, pageTitle q, pageUID q))
+    [ (s, q) | (u, d) <- M.toList products, kept u, Just q <- [RDI.findDoc idx u]
+             , let s = d / sqrt (pageRelatedNorm p * pageRelatedNorm q)
+             , s >= minSimilarity ]
   where
-    relating = M.fromList [ (cmcName c, cmcRelating c) | c <- config, cmcRelating c > 0 ]
-    features = M.fromList [ (pageUID p, pageFeatures relating kws p) | p <- pages ]
-
--- | The features of a page with their weight, which depends on the kind of
--- feature only: keywords 3, tags 5 (each tag and its parents: @a > b@ gives
--- @a@ and @a > b@), values of the relating custom fields their weight
--- (given by field name)
-pageFeatures :: M.Map T.Text Double -> M.Map PageUID [Keyword] -> Page -> Features
-pageFeatures relating kws p = Features weights (sum $ map (^ (2 :: Int)) $ M.elems weights)
-  where
-    weights = M.fromList $
-         [ (FKeyword (keywordStem k), 3) | k <- M.findWithDefault [] (pageUID p) kws ]
-      ++ [ (FTag (segmentsToTag s), 5) | t <- pageTags p, s <- tagSubSegments t ]
-      ++ [ (FCustom (cmdName c) k, w) | c <- pageCustomMeta p, Just w <- [M.lookup (cmdName c) relating]
-                                      , k <- cmdKeys c ]
-
--- | The pages related to a page (itself left out), among those that the
--- function gives, the closest first (then by title), at most 'maxRelated',
--- at least 'minSimilarity'. The similarity of two pages is the cosine of
--- their features: only the pages with a common feature are compared, found
--- by the pages of each feature of the page, which give the products of the
--- weights of the common features (the same weight in both pages).
-relatedPages :: RelatedIndex -> (PageUID -> Maybe Page) -> Page -> [Page]
-relatedPages index candidate p = case M.lookup (pageUID p) (riFeatures index) of
-  Nothing -> []
-  Just fp ->
-    let products = M.fromListWith (+)
-          [ (u, w * w) | (f, w) <- M.toList (featureWeights fp)
-                       , u <- M.findWithDefault [] f (riPages index), u /= pageUID p ]
-    in map snd $ take maxRelated $ sortOn (\(s, q) -> (Down s, pageTitle q, pageUID q))
-         [ (s, q) | (u, d) <- M.toList products
-                  , Just q <- [candidate u], Just fq <- [M.lookup u (riFeatures index)]
-                  , let s = d / sqrt (featureNorm fp * featureNorm fq)
-                  , s >= minSimilarity ]
+    products = M.fromListWith (+)
+      [ (u, w * w) | ((f, k), w) <- pageFeatures config (RDI.docFieldKeys idx) p
+                   , u <- S.toList (RDI.lookupIndex idx f k), u /= pageUID p ]

@@ -2,25 +2,61 @@
 module Kiwi.RelatedSpec (relatedSpec) where
 
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import qualified Data.Text as T
 import           Test.Hspec
 
-import           Kiwi.Related (maxRelated, relatedIndexOf, relatedPages)
+import           Kiwi.PagesDB (setKeywords)
+import           Kiwi.Related (maxRelated, relatedPages)
 import           Kiwi.Types
-import           TestUtils (mkPage)
+import qualified Utils.DocIndex.Restricted as RDI
+import           TestUtils (mkPage, mkPagesDBWith)
 
 -- | A page of the source "s" with its tags and custom metadata
 tagged :: T.Text -> [TagId] -> [CustomMetaData] -> Page
 tagged uid tags custom = (mkPage ("s", uid) tags [] False 1) { pageCustomMeta = custom }
 
+-- | The index of these pages with these keywords (none for the others), as
+-- after a load
+indexed :: [CustomMetaConfig] -> M.Map PageUID [Keyword] -> [Page]
+        -> RDI.RestrictedDocIndex Page PageUID MetaField DocIndexKey
+indexed cfg kws pages =
+  RDI.whole $ setKeywords cfg (RDI.visibleIndex $ pagesIndex $ mkPagesDBWith cfg pages) $
+    M.union kws (M.fromList [ (pageUID q, []) | q <- pages ])
+
 -- | The uids of the pages related to a page, with these keywords
 related :: [CustomMetaConfig] -> M.Map PageUID [Keyword] -> Page -> [Page] -> [T.Text]
-related cfg kws p pages =
-  map (snd . pageUID) $ relatedPages (relatedIndexOf cfg kws (p : pages)) (`M.lookup` byUid) p
-  where byUid = M.fromList [ (pageUID q, q) | q <- pages ]
+related cfg kws p pages = case RDI.findDoc idx (pageUID p) of
+  Just p' -> map (snd . pageUID) $ relatedPages cfg idx (const True) p'
+  Nothing -> error "the page is not indexed"
+  where idx = indexed cfg kws (p : pages)
 
 relatedSpec :: Spec
 relatedSpec = do
+  it "gives each page the sum of the squares of the weights of its features" $ do
+    let author = CustomMetaData "author" [KeyText "Dupont"]
+        p = tagged "p" ["a > b"] [author]
+        cfg = [CustomMetaConfig "author" CmtText 1 Nothing 2]
+        kws = M.fromList [ (("s", "p"), [Keyword "recet" "recette", Keyword "menth" "menthe"]) ]
+        norm = fmap pageRelatedNorm . (`RDI.findDoc` ("s", "p"))
+    -- tags "a" and "a > b" (5), two keywords (3), the author (2)
+    norm (indexed cfg kws [p]) `shouldBe` Just (2 * 25 + 2 * 9 + 4)
+    norm (indexed [] kws [p]) `shouldBe` Just (2 * 25 + 2 * 9)
+    fmap (map keywordWord . pageKeywords) (RDI.findDoc (indexed [] kws [p]) ("s", "p"))
+      `shouldBe` Just ["recette", "menthe"]
+
+  it "keeps only the visible pages of the index that the predicate keeps" $ do
+    let idx = indexed [] M.empty [tagged u ["a"] [] | u <- ["p", "q", "r"]]
+        uids = map (snd . pageUID)
+    case RDI.findDoc idx ("s", "p") of
+      Nothing -> expectationFailure "the page is not indexed"
+      Just p -> do
+        uids (relatedPages [] idx (const True) p) `shouldBe` ["q", "r"]
+        uids (relatedPages [] idx (/= ("s", "q")) p) `shouldBe` ["r"]
+        -- "r" is not visible
+        uids (relatedPages [] (RDI.narrowOnSet idx $ S.fromList [("s", "p"), ("s", "q")]) (const True) p)
+          `shouldBe` ["q"]
+
   it "brings the pages with the same tags first, then those with part of them" $ do
     let p = tagged "p" ["cuisine > dessert"] []
         same = tagged "same" ["cuisine > dessert"] []

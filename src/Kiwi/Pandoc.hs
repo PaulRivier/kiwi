@@ -380,6 +380,8 @@ loadPageIO fullPath source md cmc scM = do
                                   , pageArchive = fromMaybe False $ metaArchive meta
                                   , pageCustomMeta = metaCustom meta
                                   , pagePreviousUids = fromMaybe [] $ metaPreviousUids header
+                                  , pageKeywords = []
+                                  , pageRelatedNorm = 0
                                   }
         in Right $ Loaded page header unknown invalid
 

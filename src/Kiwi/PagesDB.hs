@@ -7,6 +7,7 @@ module Kiwi.PagesDB
   , warmUpSearchEngine
   , emptyPagesDB
   , brokenLinks
+  , setKeywords      -- exported for tests
   ) where
 
 import           Control.Concurrent (forkIO, getNumCapabilities)
@@ -34,7 +35,7 @@ import           Kiwi.Edit (writePageFile)
 import qualified Kiwi.Files as Files
 import qualified Kiwi.Git as Git
 import           Kiwi.Keywords (emptyKeywords, updateKeywords)
-import           Kiwi.Related (emptyRelatedIndex, relatedIndexOf)
+import           Kiwi.Related (withKeywords)
 import qualified Kiwi.Log as L
 import           Kiwi.Meta (isValidUid, uidFromBytes, writePage)
 import           Kiwi.Search
@@ -130,7 +131,7 @@ updatePagesDB logger' git contentDir' db = do
         Just (Right ()) -> do
           mtE <- try $ D.getModificationTime (pageAbsoluteFSPath pg)
           return [either (\(_ :: IOException) -> pg) (\mt -> pg { pageMTime = mt }) mtE]
-    let newIndex = DI.insertMany pagesIndexClean inserted
+    let indexRead = DI.insertMany pagesIndexClean inserted
         -- a file that is not loaded has no page in the index: it is loaded
         -- again at each reload, so these are all the errors
         errors = [ loadError p (T.pack e) | (p, e) <- failed ]
@@ -140,26 +141,23 @@ updatePagesDB logger' git contentDir' db = do
     -- they are an issue of the content, not of the server
         newEngine = insertDocs inserted searchEngineClean
     -- the keywords of the pages read again, or of every page from time to
-    -- time, as they depend on the other pages
-    ((keywords, full), t) <- timeIO $ do
-      let r@(kw, _) = updateKeywords (DI.documentsList newIndex) removedPages inserted
-                                     (pageKeywords db)
+    -- time, as they depend on the other pages; given to these pages in the
+    -- index, with the norm of their features for the related pages (see
+    -- "Kiwi.Related")
+    ((keywords, newIndex, full), t) <- timeIO $ do
+      let (kw, computed, full') = updateKeywords (DI.documentsList indexRead) removedPages
+                                                 inserted (dbKeywordsState db)
+          idx = setKeywords cmc indexRead computed
       _ <- evaluate kw
-      return r
+      _ <- evaluate idx
+      return (kw, idx, full')
     when full $ logger' L.Info $ T.pack $ "TF-IDF finished in " ++ printf "%.2f" t ++ "s"
-    -- the features of every page for the related pages, as they change
-    -- with the keywords (see "Kiwi.Related")
-    let related = relatedIndexOf (customMetaConfig db) (kwPages keywords)
-                                 (DI.documentsList newIndex)
-    _ <- evaluate $ M.foldl' (\n f -> n + featureNorm f) 0 (riFeatures related)
-                  + fromIntegral (M.foldl' (\n us -> n + length us) 0 (riPages related))
     return db { dbGeneration = dbGeneration db + 1
               , loadErrors = sortOn (\(src, p, _) -> (src, p)) (errors ++ fileErrors)
               , sourceFiles = files
               , pagesIndex = RDI.whole newIndex
               , searchEngine = newEngine
-              , pageKeywords = keywords
-              , relatedIndex = related }
+              , dbKeywordsState = keywords }
   where
     -- TODO : gérer des conditions de rechargement
     -- getCondition = return False
@@ -380,8 +378,7 @@ emptyPagesDB md cmc sc =
             -- , lastUpdate = oldDate
             , pagesIndex = RDI.whole $ DI.empty pageUID (pageExtractKeys cmc)
             , searchEngine = initPageSearchEngine
-            , pageKeywords = emptyKeywords
-            , relatedIndex = emptyRelatedIndex }
+            , dbKeywordsState = emptyKeywords }
 
 
 pageExtractKeys :: [CustomMetaConfig] -> [DI.Field Page MetaField DocIndexKey]
@@ -392,6 +389,7 @@ pageExtractKeys cmc = [ mkField FieldSource KeyText ((:[]) . fst . pageUID)
                       , mkField FieldFile KeyPairText (\p -> map (fst (pageUID p),) (pageFiles p))
                       , mkField FieldLang KeyLang ((:[]) . pageLang)
                       , mkField FieldArchive KeyBool ((:[]) . pageArchive)
+                      , mkField FieldKeyword KeyText (map keywordStem . pageKeywords)
                       ] ++
                       map mkCustomField cmc
   where
@@ -400,6 +398,17 @@ pageExtractKeys cmc = [ mkField FieldSource KeyText ((:[]) . fst . pageUID)
           keys = \p -> fromMaybe [] $ findCmv (cmcName c) p
       in DI.Field fld keys
     findCmv n p = cmdKeys <$> find (\cmd -> cmdName cmd == n) (pageCustomMeta p)
+
+-- | The pages of the index with these keywords (by page), and the norm of
+-- their features for the related pages (see 'withKeywords'): only the
+-- keywords are indexed again
+setKeywords :: [CustomMetaConfig] -> DI.DocIndex Page PageUID MetaField DocIndexKey
+            -> M.Map PageUID [Keyword] -> DI.DocIndex Page PageUID MetaField DocIndexKey
+setKeywords cmc idx0 = M.foldlWithKey' set idx0
+  where
+    set idx uid ks = case DI.findDoc idx uid of
+      Just p -> DI.updateField idx FieldKeyword (withKeywords cmc (DI.docFieldKeys idx) ks p)
+      Nothing -> idx
 
 extractTags :: Page -> [TagId]
 extractTags p = concatMap expandSubTags $ pageTags p
