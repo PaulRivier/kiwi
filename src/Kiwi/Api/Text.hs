@@ -68,7 +68,8 @@ pageFields = [ "title", "tags", "summary", "keywords", "lang", "modified", "cont
 -- c"; "modified": the day of the last change; "content_size": the
 -- characters and lines of its content, without the header (see
 -- 'sizeText'); "links", "backlinks", "keywords" and "related", given by the function, see
--- 'Kiwi.Api.extraField'; a custom field by its name).
+-- 'Kiwi.Api.extraField'; a custom field by its name), and a blank line
+-- when fields are asked.
 -- The first line gives the number of pages found and of pages shown, and
 -- how to see the others when some are cut.
 pagesText :: (Page -> T.Text -> Maybe T.Text) -> [T.Text] -> Int -> [Page] -> T.Text
@@ -81,6 +82,7 @@ pagesText linkField fields total pages = T.unlines $ header : concatMap pageLine
     count n = T.concat [T.pack (show n), if n == 1 then " page" else " pages"
                        , ", the most recently modified first"]
     pageLines p = pageRef p : [ T.concat ["  ", f, ": ", v] | f <- fields, Just v <- [field p f] ]
+                  ++ [ "" | not (null fields) ]
     field p f = case f of
       "title" -> Just (pageTitle p)
       "tags" -> list (map tagText $ pageTags p)

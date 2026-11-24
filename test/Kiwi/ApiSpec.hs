@@ -101,11 +101,11 @@ apiSpec = do
       shownP <- get (tokenOf "bob") "/api/pages?page=s/p&show=title,tags&show=summary,zone"
       liftIO $ T.lines (body shownP) `shouldBe`
         [ "1 page, the most recently modified first", "s/p", "  title: Page", "  tags: a > b, c"
-        , "  summary: About p" ]
+        , "  summary: About p", "" ]
       -- the size of its content, without the header
       sized <- get (tokenOf "bob") "/api/pages?page=s/p&show=content_size"
       liftIO $ T.lines (body sized) `shouldBe`
-        [ "1 page, the most recently modified first", "s/p", "  content_size: chars=54 lines=11" ]
+        [ "1 page, the most recently modified first", "s/p", "  content_size: chars=54 lines=11", "" ]
       badShow <- get (tokenOf "bob") "/api/pages?show=nope"
       liftIO $ status badShow `shouldBe` 400
       badPage <- get (tokenOf "bob") "/api/pages?page=nope"
@@ -117,10 +117,11 @@ apiSpec = do
       -- the values of the fields asked, under the pages that have them
       shown <- get (tokenOf "bob") "/api/pages?has=zone&show=zone"
       liftIO $ case T.lines (body shown) of
-        [h, q, z] -> do
+        [h, q, z, end] -> do
           h `shouldBe` "1 page, the most recently modified first"
           q `shouldBe` "s/q"
           z `shouldBe` "  zone: north"
+          end `shouldBe` ""
         other -> expectationFailure (show other)
       limited <- get (tokenOf "ann") "/api/pages?limit=1"
       liftIO $ take 1 (T.lines $ body limited)
@@ -162,9 +163,9 @@ apiSpec = do
                       , ("s.md", "title: S\nuid: s\naccess: nobody\n\nS\n") ] $ \get' -> do
       r <- get' "/api/pages?page=s/a&page=s/b&page=s/c&show=links,backlinks"
       liftIO $ L.sort (drop 1 $ T.lines (body r)) `shouldBe` L.sort
-        [ "s/a", "  links: b, s (missing), z (missing)", "  backlinks: b"
-        , "s/b", "  links: a", "  backlinks: a"
-        , "s/c" ]
+        [ "s/a", "  links: b, s (missing), z (missing)", "  backlinks: b", ""
+        , "s/b", "  links: a", "  backlinks: a", ""
+        , "s/c", "" ]
 
   it "gives the related pages as a field of the list, in the sources of the context" $
     withKiwiAccounts' [ ("a.md", "title: A\nuid: a\ntags: cuisine > dessert\n\nA\n")
@@ -174,7 +175,7 @@ apiSpec = do
                       , ("s.md", "title: S\nuid: s\naccess: nobody\ntags: cuisine > dessert\n\nS\n") ] $ \get' -> do
       r <- get' "/api/pages?page=s/a&page=s/d&show=related"
       liftIO $ L.sort (drop 1 $ T.lines (body r)) `shouldBe` L.sort
-        [ "s/a", "  related: s/b, s/c", "s/d" ]
+        [ "s/a", "  related: s/b, s/c", "", "s/d", "" ]
 
   it "gives the outline of a page too long to be given whole, and its lines on demand" $
     withKiwiAccounts' [ ("big.md", "title: Big\nuid: big\n\n# Start\n\n"
@@ -327,7 +328,7 @@ apiSpec = do
         listed <- get' "/api/pages?page=s/a&page=s/b&show=keywords"
         liftIO $ L.sort listed `shouldBe`
           L.sort [ "2 pages, the most recently modified first"
-                 , "s/a", "  keywords: rails, ruby", "s/b", "  keywords: soup, carrot" ]
+                 , "s/a", "  keywords: rails, ruby", "", "s/b", "  keywords: soup, carrot", "" ]
         found <- get' "/api/search?q=carrot&show=keywords"
         liftIO $ found `shouldSatisfy` elem "  keywords: soup, carrot"
         -- only with show
