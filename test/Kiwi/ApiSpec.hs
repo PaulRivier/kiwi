@@ -301,7 +301,7 @@ apiSpec = do
         liftIO $ r `shouldSatisfy` any (\l -> "s/a  " `T.isPrefixOf` l && "  1/1 in content" `T.isSuffixOf` l
                                              && "  content_size 8, content_lines 1  " `T.isInfixOf` l)
 
-  it "gives the keywords of the pages, as written, computed on the whole wiki" $ do
+  it "gives the keywords of the pages, in lower case, computed on the whole wiki" $ do
     let docs = [ ("a.md", "title: Ruby\nuid: a\nlang: en\n\nRails and Rails, the Rails migrations.\n")
                , ("b.md", "title: Soup\nuid: b\nlang: en\n\nA carrot soup, the carrot.\n") ]
     withKiwiConfig [] [("bob", "secret", ["family"])] docs $ \_ ss app -> do
@@ -322,9 +322,9 @@ apiSpec = do
         listed <- get' "/api/pages?page=s/a&page=s/b&show=keywords"
         liftIO $ L.sort listed `shouldBe`
           L.sort [ "2 pages, the most recently modified first"
-                 , "s/a", "  keywords: Rails, Ruby", "s/b", "  keywords: Soup, carrot" ]
+                 , "s/a", "  keywords: rails, ruby", "s/b", "  keywords: soup, carrot" ]
         found <- get' "/api/search?q=carrot&show=keywords"
-        liftIO $ found `shouldSatisfy` elem "  keywords: Soup, carrot"
+        liftIO $ found `shouldSatisfy` elem "  keywords: soup, carrot"
         -- only with show
         plain <- get' "/api/search?q=carrot"
         liftIO $ plain `shouldSatisfy` all (not . T.isPrefixOf "  keywords:")

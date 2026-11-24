@@ -21,25 +21,26 @@ keywordsSpec = do
   it "weighs the terms of a page by their occurrences and their rarity in the wiki" $ do
     -- 10 pages: (term, number of pages)
     let docs = M.fromList [ ("menth", 1), ("glac", 2), ("beaucoup", 1), ("350g", 1)
-                          , ("la", 9), ("sucr", 3), ("titr", 2) ]
+                          , ("tres", 9), ("sucr", 3), ("titr", 2), ("uv", 1) ]
         weights = M.fromList
-          [ ("menth", 3)       -- (1 + log 3) × log 10: the best
-          , ("glac", 5)
+          [ ("menth", 3)       -- √3 × log 10: the best
+          , ("glac", 5)        -- √5 × log 5
           , ("beaucoup", 1)    -- seen once: left out
           , ("350g", 3)        -- a quantity: left out
-          , ("la", 4)          -- in most pages: under the threshold
+          , ("uv", 4)          -- 2 letters: left out
+          , ("tres", 4)        -- in most pages: under the threshold
           , ("sucr", 2)
           , ("titr", 3) ]      -- once, but also in a heading
     bestTerms 10 docs weights `shouldBe` ["menth", "glac", "titr", "sucr"]
 
   it "gives at most maxKeywords terms, by text on a tie, none for a page without terms" $ do
-    let same = M.fromList [ (T.pack [c], 2) | c <- reverse ['a' .. 'z'] ]
+    let same = M.fromList [ (T.replicate 3 (T.singleton c), 2) | c <- reverse ['a' .. 'z'] ]
         docs = M.map (const 1) same
-    bestTerms 10 docs same `shouldBe` map (T.pack . (: [])) (take maxKeywords ['a' .. 'z'])
+    bestTerms 10 docs same `shouldBe` [ T.replicate 3 (T.singleton c) | c <- take maxKeywords ['a' .. 'z'] ]
     bestTerms 10 M.empty M.empty `shouldBe` []
-    bestTerms 10 (M.fromList [("x", 1)]) (M.fromList [("x", 1)]) `shouldBe` []
+    bestTerms 10 (M.fromList [("xxx", 1)]) (M.fromList [("xxx", 1)]) `shouldBe` []
 
-  it "leaves out the stop words of the lang of the page, and gives the words as written" $ do
+  it "leaves out the stop words of the lang of the page, and gives the words as written, in lower case" $ do
     let fr = textPage "fr" French "Glaces"
                "Cependant la glace à la menthe, toutefois la glace et les Glaces. Menthe. The the the."
                []
@@ -49,22 +50,22 @@ keywordsSpec = do
         others = [ textPage (T.pack (show i)) English "Other" "Something else entirely" [] | i <- [1 .. 8 :: Int] ]
         kws = M.map (map keywordWord) $ pagesKeywords (fr : en : others)
     -- French stop words out, English ones kept in a French page; "glace" and
-    -- "the" are the most frequent forms, "Menthe" the first in order of a tie
-    M.lookup ("s", "fr") kws `shouldBe` Just ["glace", "the", "Menthe"]
+    -- "the" are the most frequent forms, "menthe" and "Menthe" one form
+    M.lookup ("s", "fr") kws `shouldBe` Just ["glace", "the", "menthe"]
     M.lookup ("s", "en") kws `shouldBe` Just ["soup", "carrot"]
 
   it "weighs the title and the headings, the words taken from the content" $ do
     let p = textPage "p" English "Notes" "rails and ruby, rails" ["Ruby"]
         others = [ textPage (T.pack (show i)) English "Other" "Something else entirely" [] | i <- [1 .. 8 :: Int] ]
-    fmap (map keywordWord) (M.lookup ("s", "p") (pagesKeywords (p : others))) `shouldBe` Just ["Notes", "ruby", "rails"]
+    fmap (map keywordWord) (M.lookup ("s", "p") (pagesKeywords (p : others))) `shouldBe` Just ["notes", "ruby", "rails"]
 
-  it "weighs the summary, its words written as in the content" $ do
+  it "weighs the summary, its words written in lower case" $ do
     let p = (textPage "p" English "Notes" "rails and ruby, ruby rails, gems" [])
               { pageSummary = Just "About Ruby" }
         others = [ textPage (T.pack (show i)) English "Other" "Something else entirely" [] | i <- [1 .. 8 :: Int] ]
     -- "ruby": 2 in the content, 2 in the summary, over the title (3) and
-    -- "rails" (2); written as in the content, more often than "Ruby"
-    fmap (map keywordWord) (M.lookup ("s", "p") (pagesKeywords (p : others))) `shouldBe` Just ["ruby", "Notes", "rails"]
+    -- "rails" (2); "Ruby" of the summary written in lower case
+    fmap (map keywordWord) (M.lookup ("s", "p") (pagesKeywords (p : others))) `shouldBe` Just ["ruby", "notes", "rails"]
 
   it "updates the number of pages of each term as a computation of every page would" $ do
     let (kw0, _, full0) = updateKeywords pages0 [] pages0 emptyKeywords

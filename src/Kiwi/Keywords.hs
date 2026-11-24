@@ -27,7 +27,7 @@ import           Kiwi.Types
 
 -- | At most this number of keywords by page
 maxKeywords :: Int
-maxKeywords = 20
+maxKeywords = 10
 
 -- | A term is a keyword when its score is at least this part of the best
 -- score of the page: a short page has fewer keywords, rather than common
@@ -98,10 +98,10 @@ type Terms = (M.Map T.Text Int, M.Map T.Text T.Text)
 -- | Terms of a page, stop words of its lang left out, with their weight:
 -- those of its content (weight 1), of its title (3), of its summary (2) and
 -- of its headings (2 more, as they are also in the content); and the word
--- written for each term: the one that gives it the most often in the
--- content, the title and the summary (the shortest one, then the first in
--- order, on a tie; none for a term of the headings alone). Each distinct
--- word is stemmed once.
+-- written for each term, in lower case: the one that gives it the most often
+-- in the content, the title and the summary (the shortest one, then the
+-- first in order, on a tie; none for a term of the headings alone). Each
+-- distinct word is stemmed once (the stems are in lower case anyway).
 pageTerms :: Page -> Terms
 pageTerms p = (M.fromListWith (+) [ (t, w * c) | (w, _, ws) <- texts, (t, _, c) <- ws ], forms)
   where
@@ -109,7 +109,7 @@ pageTerms p = (M.fromListWith (+) [ (t, w * c) | (w, _, ws) <- texts, (t, _, c) 
     texts = [ (1 :: Int, True, terms (pagePlainText p)), (3, True, terms (pageTitle p))
             , (2, True, maybe [] terms (pageSummary p))
             , (2, False, terms (T.unlines $ pageHeadings p)) ]
-    written = M.fromListWith (+) [ ((t, x), c) | (_, True, ws) <- texts, (t, x, c) <- ws ]
+    written = M.fromListWith (+) [ ((t, T.toLower x), c) | (_, True, ws) <- texts, (t, x, c) <- ws ]
     forms = M.map fst $ M.fromListWith better [ (t, (x, c)) | ((t, x), c) <- M.toList written ]
     better new old = if rank new < rank old then new else old
     rank (x, c) = (Down c, T.length x, x)
@@ -120,21 +120,22 @@ pageTerms p = (M.fromListWith (+) [ (t, w * c) | (w, _, ws) <- texts, (t, _, c) 
           kept = [ wc | wc@(x, _) <- counts, stripAccents (T.toLower x) `S.notMember` stops ]
       in [ (t, x, c) | (t, (x, c)) <- zip (wordStems (alg lg) (map fst kept)) kept ]
 
--- | The best terms of a page, the best first, by their score: the weight of
--- the term in the page (see 'pageTerms'), sublinear, times its inverse
--- document frequency (n pages, the number of pages of each term). Left out:
--- the terms of weight 1 (seen once, not in a title), numbers and quantities
--- (a number followed by lower case letters: 350g, 15min), and the terms
--- under the relative threshold.
+-- | The best terms of a page, the best first, by their score: the square
+-- root of the weight of the term in the page (see 'pageTerms'), times its
+-- inverse document frequency (n pages, the number of pages of each term).
+-- Left out: the terms of weight 1 (seen once, not in a title), of 2
+-- letters or less, numbers and quantities (a number followed by lower case
+-- letters: 350g, 15min), and the terms under the relative threshold.
 bestTerms :: Int -> M.Map T.Text Int -> M.Map T.Text Int -> [T.Text]
 bestTerms n docs weights = case scored of
   [] -> []
   (_, top) : _ -> take maxKeywords [ t | (t, s) <- scored, s >= relativeThreshold * top ]
   where
     scored = sortOn (\(t, s) -> (Down s, t))
-      [ (t, (1 + log (fromIntegral w)) * idf t)
+      [ (t, sqrt (fromIntegral w) * idf t)
       | (t, w) <- M.toList weights
       , w >= 2
+      , T.length t > 2
       , not (quantity t) ]
     idf t = log (fromIntegral n / fromIntegral (max 1 $ M.findWithDefault 1 t docs)) :: Double
     quantity t = case T.uncons t of

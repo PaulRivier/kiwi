@@ -11,6 +11,9 @@
   tags and the content), `/api/search` names it among the fields found,
   and the exact phrases are also looked for in it.
 - The keywords count the summary of the page.
+- At most 10 keywords by page instead of 20, the words repeated in the
+  page weighing more against the rare ones, in lower case, without the
+  words of 1 or 2 letters.
 - The keywords are updated at each load for the pages that changed only,
   all of them being computed again once a tenth of the pages changed: a
   reload no longer computes them for the whole wiki, and they are always
