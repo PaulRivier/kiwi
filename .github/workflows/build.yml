@@ -1,41 +1,88 @@
-# Builds the release binary, on demand only: Actions tab → "Build binaries"
-# → "Run workflow" (or: gh workflow run build.yml).
+# Builds the release binary, and publishes it as a draft release when a tag
+# is pushed.
+#
+# - Push of a tag v* (git tag v0.4.6.0 && git push github v0.4.6.0): the tag
+#   must be "v" followed by the version of kiwi.cabal, and ChangeLog.md must
+#   have a section "## vVERSION ..." (the notes of the release); both are
+#   checked before the build. The binaries, their checksums and the update
+#   script (scripts/update-kiwi-linux.sh of the tagged commit, run by
+#   "kiwi update") go to a draft release: check it on the Releases page, edit
+#   the notes if needed, then click "Publish release" ("kiwi update" only sees
+#   published releases).
+# - On demand (Actions tab → "Build binaries" → "Run workflow", or
+#   gh workflow run build.yml): build only, the package is attached to the run
+#   as an artifact (Summary page of the run).
 #
 # Linux only: static binary (musl, GHC with native bignum), in an Alpine
 # image, with cabal.project.musl. The binary (theme embedded) is packaged
-# with the documentation.
-#
-# The package is attached to the run as an artifact (Summary page of the
-# run), publish it with release.yml. The compiled dependencies are cached
-# between runs, so only the first run compiles everything.
+# with the documentation. The compiled dependencies are cached between runs,
+# so only the first run compiles everything (a tag run reads the cache of the
+# default branch).
 
 name: Build binaries
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   GHC_VERSION: 9.10.3
   EXE: kiwi
 
 jobs:
+  # Version of the package; for a tag, the checks of the release and its notes
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read version
+        id: version
+        run: echo "version=$(awk 'tolower($1) == "version:" { print $2; exit }' "$EXE.cabal")" >> "$GITHUB_OUTPUT"
+
+      - name: Check the tag and read the notes
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the version of $EXE.cabal ($VERSION): expected v$VERSION"; exit 1
+          fi
+          mkdir notes
+          awk -v v="v$VERSION" '$1 == "##" && $2 == v { f = 1; next } f && /^## / { exit } f' ChangeLog.md > notes/release-notes.md
+          if ! grep -q '[^[:space:]]' notes/release-notes.md; then
+            echo "::error::no section \"## v$VERSION\" (or an empty one) in ChangeLog.md"; exit 1
+          fi
+          cat notes/release-notes.md
+
+      - uses: actions/upload-artifact@v7
+        if: github.ref_type == 'tag'
+        with:
+          name: release-notes
+          path: notes/release-notes.md
+          if-no-files-found: error
+
   linux:
+    needs: check
     runs-on: ubuntu-latest
     container: docker.io/benz0li/ghc-musl:9.10.3-int-native
     env:
       CABAL_DIR: /cabal
       PROJECT_FILE: cabal.project.musl
       BUILD_DIR: dist-musl
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
       # git for checkout, GNU tar and zstd for actions/cache, file for the check
       - name: Install tools
         run: apk add --no-cache git tar zstd file
 
       - uses: actions/checkout@v7
-
-      - name: Read version
-        id: version
-        run: echo "version=$(awk 'tolower($1) == "version:" { print $2; exit }' "$EXE.cabal")" >> "$GITHUB_OUTPUT"
 
       - name: Restore cabal store
         uses: actions/cache@v6
@@ -56,7 +103,7 @@ jobs:
       - name: Package
         id: package
         run: |
-          name="$EXE-${{ steps.version.outputs.version }}-linux-x86_64"
+          name="$EXE-$VERSION-linux-x86_64"
           mkdir -p "pkg/$name" out
           bin="pkg/$name/$EXE"
           cp "$(cabal list-bin --project-file="$PROJECT_FILE" --builddir="$BUILD_DIR" "exe:$EXE")" "$bin"
@@ -72,3 +119,47 @@ jobs:
           name: ${{ steps.package.outputs.name }}
           path: out/*
           if-no-files-found: error
+
+  # Draft release of the tag, with the binaries of the run
+  release:
+    if: github.ref_type == 'tag'
+    needs: [check, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download the binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: ${{ env.EXE }}-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download the notes
+        uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: notes
+
+      - name: Create the draft release
+        run: |
+          # the update script run by "kiwi update", from the tagged commit
+          cp scripts/update-kiwi-linux.sh dist/
+          cd dist
+          # one checksum file for all the platforms
+          cat SHA256SUMS-* > SHA256SUMS
+          rm SHA256SUMS-*
+          sha256sum update-kiwi-linux.sh >> SHA256SUMS
+          sha256sum --check SHA256SUMS
+          ls -l
+          gh release create "$TAG" ./* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$TAG" \
+            --notes-file ../notes/release-notes.md \
+            --draft
