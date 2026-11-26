@@ -640,6 +640,38 @@ instead, without extension (its folders are made). As in the editor, the
 metadata that the user can not change are ignored, the message of the
 change is added to the commit, and a draft is kept in the browser.
 
+## Delete pages in the browser
+
+The users with the admin right on a page (see [Accounts and
+access](#accounts-and-access)) find a link *Delete the page…* in its
+editor. It opens a confirmation, which shows the pages linking to it
+(their links will be broken, see `/doctor`) and the files that only this
+page links (whatever the access of the other pages, archives included):
+they are kept unless the box *Delete these files too* is checked, but
+they are no longer served.
+
+A page can only be deleted when its file is in a git repository and not
+ignored there, and when the pages are committed (no `git-commit: no`):
+the deleted files stay in the history. When the file of the page, or one
+of the files deleted with it, differs from its last commit (or is not
+tracked yet), Kiwi first commits it as it is, with *Kiwi* as author and
+the message `Pre-delete commit of SOURCE:UID (kiwi NAME)`; a failure of
+git stops the deletion. The deletion is then committed by *LOGIN via
+Kiwi*, with the message `Delete SOURCE:UID TITLE (kiwi NAME)`, the
+message of the user, if any, and the list of the files deleted with the
+page. The deletion is refused when the page or its files changed since
+the confirmation was shown (another file, a file now linked by another
+page): the confirmation is shown again.
+
+To restore a deleted page, find the commit that deleted it, and take its
+file back from the commit before, in the repository:
+
+    git log --diff-filter=D --format='%h %s' -- 'path/of/the/source/*.md'
+    git checkout COMMIT^ -- 'path/of/the/source/Title of the page.md'
+
+then reload the pages: the page comes back with its uid, so the links to
+it work again. The files deleted with it are restored the same way.
+
 # Edit file with your local editor
 
 If you have set your editor in kiwi.ini, you can click on the open

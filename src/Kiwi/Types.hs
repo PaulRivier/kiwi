@@ -572,6 +572,24 @@ data Locales = Locales
   , loc_NewPageIn :: T.Text      -- ^ before the source, in the form of a new page
   , loc_NewPageSource :: T.Text  -- ^ heading of the choice of the source
   , loc_PagePath :: T.Text       -- ^ placeholder of the path of a new page (admins)
+  -- | deletion of a page: link of the editor, before the title of the page,
+  -- what happens, the pages linking to it, the files that only it links,
+  -- the box to delete them, the button, the reasons that make it
+  -- impossible, a conflict
+  , loc_DeletePage :: T.Text
+  , loc_Deleting :: T.Text
+  , loc_DeleteHelp :: T.Text
+  , loc_DeleteBacklinks :: T.Text
+  , loc_DeleteFiles :: T.Text
+  , loc_DeleteFilesToo :: T.Text
+  , loc_Delete :: T.Text
+  , loc_DeleteImpossible :: T.Text
+  , loc_FilesNotDeletable :: T.Text
+  , loc_NotCommitted :: T.Text
+  , loc_NotInGit :: T.Text
+  , loc_IgnoredByGit :: T.Text
+  , loc_GitFailed :: T.Text
+  , loc_DeleteConflict :: T.Text
   -- | save failures: the page changed meanwhile, the text can not be saved
   -- (followed by the reason), metadata that the user can not change (followed
   -- by their keys)

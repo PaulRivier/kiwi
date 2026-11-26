@@ -1223,6 +1223,30 @@ form.page-editor input.page-path {
   color: rgb(var(--kiwi-text));
 }
 
+/* the deletion of the page, apart from the other actions */
+.editor-actions a.delete-page {
+  margin-left: auto;
+  color: rgba(var(--kiwi-error), 0.8);
+}
+
+.editor-actions a.delete-page:hover {
+  color: rgb(var(--kiwi-error));
+}
+
+/* the confirmation of the deletion of a page */
+form.delete-page .page-title .editing {
+  color: rgba(var(--kiwi-text), 0.5);
+}
+
+form.delete-page .delete-error,
+form.delete-page ul.delete-refused {
+  color: rgb(var(--kiwi-error));
+}
+
+form.delete-page button.delete {
+  border-color: rgb(var(--kiwi-error));
+}
+
 .editor-actions button:disabled {
   cursor: wait;
   opacity: 0.5;

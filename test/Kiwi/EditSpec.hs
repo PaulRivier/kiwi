@@ -4,6 +4,7 @@ import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.List as L
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
@@ -12,6 +13,7 @@ import qualified Network.HTTP.Types as Net
 import qualified Network.HTTP.Types.URI as URI
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Test as WT
+import qualified System.Directory as D
 import qualified System.FilePath as FP
 import           Test.Hspec
 
@@ -329,3 +331,140 @@ editSpec = do
         liftIO $ gitOut cd ["log", "-1", "--format=%an|%B"] `shouldReturn`
           T.unpack ("bob via Kiwi|Create s:" <> uidOf (body created) <> " (kiwi kiwi)\n\nFrom the web\n\n")
         liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""
+
+  -- deletion of pages: carl has the admin right on the pages d and e, bob the
+  -- write right; d links two files, pic only by it, doc also by e
+  let delPages = [ ("d.md", "title: Doomed\nuid: d\naccess: family:w, editors:a, public\n\n\
+                            \![p](file:ABCDEFGH12) [doc](file:ABCDEFGH13)")
+                 , ("e.md", "title: Linking\nuid: e\naccess: editors:a, public\n\n\
+                            \[d](page:d) [doc](file:ABCDEFGH13)")
+                 , ("pic__ABCDEFGH12.png", "png")
+                 , ("doc__ABCDEFGH13.txt", "doc") ]
+      delAccounts = [ ("ann", "secret", ["admin"]), ("bob", "secret", ["family"])
+                    , ("carl", "secret", ["editors"]) ]
+      onDelKiwi kiwiLines withRepo test = withGit $
+        withKiwiConfig kiwiLines delAccounts delPages $ \cd _ app -> do
+          if withRepo then do
+            git cd ["init", "-q"]
+            git cd ["add", "."]
+            git cd ["commit", "-q", "-m", "init"]
+          else return ()
+          WT.runSession (test cd) app
+      deletion h params = post "/delete-page" ([("source", "s"), ("id", "d"), ("hash", h)] ++ params)
+      exists cd name = liftIO $ D.doesFileExist (pagePath cd name)
+
+  it "asks the users with the admin right on a page to confirm its deletion" $
+    onDelKiwi [] True $ \_ -> do
+      anonymous <- get "/delete/s/d"
+      liftIO $ status anonymous `shouldBe` 401
+      _ <- login "bob"
+      writer <- get "/delete/s/d"
+      liftIO $ status writer `shouldBe` 403
+      writerEditor <- body <$> get "/edit/s/d"
+      liftIO $ writerEditor `shouldSatisfy` (not . T.isInfixOf "/delete/s/d")
+      _ <- login "carl"
+      editor <- body <$> get "/edit/s/d"
+      liftIO $ editor `shouldSatisfy` T.isInfixOf "href=\"/delete/s/d\""
+      confirm <- get "/delete/s/d"
+      liftIO $ status confirm `shouldBe` 200
+      let page = body confirm
+      -- the page linking to it, the file only it links (by its name), the box
+      liftIO $ page `shouldSatisfy` T.isInfixOf "href=\"/page/s/e\">Linking</a>"
+      liftIO $ page `shouldSatisfy` T.isInfixOf "<code>pic.png</code>"
+      liftIO $ page `shouldSatisfy` (not . T.isInfixOf "doc.txt")
+      liftIO $ page `shouldSatisfy` T.isInfixOf "name=\"delete-files\""
+      liftIO $ page `shouldSatisfy` T.isInfixOf "value=\"ABCDEFGH12\""
+      liftIO $ page `shouldSatisfy` T.isInfixOf "action=\"/delete-page\""
+      -- the paths for the admins only
+      liftIO $ page `shouldSatisfy` (not . T.isInfixOf "s/d.md")
+      _ <- login "ann"
+      adminPage <- body <$> get "/delete/s/d"
+      liftIO $ adminPage `shouldSatisfy` T.isInfixOf "<code>s/d.md</code>"
+      liftIO $ adminPage `shouldSatisfy` T.isInfixOf "<code>pic__ABCDEFGH12.png</code>"
+
+  it "deletes a page and the files only it links, in git, then goes home" $
+    onDelKiwi [] True $ \cd -> do
+      _ <- login "carl"
+      liftIO $ appendFile (pagePath cd "d.md") "\n\nOutside"
+      h <- hashOf cd "d.md"
+      deleted <- deletion h [ ("message", "Obsolete"), ("delete-files", "yes")
+                            , ("file", "ABCDEFGH12") ]
+      liftIO $ status deleted `shouldBe` 303
+      liftIO $ lookup "Location" (WT.simpleHeaders deleted) `shouldBe` Just "/"
+      exists cd "d.md" >>= liftIO . (`shouldBe` False)
+      exists cd "pic__ABCDEFGH12.png" >>= liftIO . (`shouldBe` False)
+      exists cd "doc__ABCDEFGH13.txt" >>= liftIO . (`shouldBe` True)
+      liftIO $ gitOut cd ["log", "-2", "--format=%an|%B"] `shouldReturn`
+        "carl via Kiwi|Delete s:d Doomed (kiwi kiwi)\n\nObsolete\n\n\
+        \Files deleted:\n- pic__ABCDEFGH12.png\n\n\
+        \Kiwi|Pre-delete commit of s:d (kiwi kiwi)\n\n"
+      -- the change made outside of kiwi is in the history
+      liftIO $ gitOut cd ["show", "HEAD~1:s/d.md"] >>= (`shouldSatisfy` ("Outside" `L.isInfixOf`))
+      liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""
+      gone <- get "/page/s/d"
+      liftIO $ status gone `shouldBe` 404
+
+  it "keeps the files of a deleted page unless asked" $ onDelKiwi [] True $ \cd -> do
+    _ <- login "carl"
+    h <- hashOf cd "d.md"
+    deleted <- deletion h [("file", "ABCDEFGH12")]
+    liftIO $ status deleted `shouldBe` 303
+    exists cd "pic__ABCDEFGH12.png" >>= liftIO . (`shouldBe` True)
+    liftIO $ gitOut cd ["log", "-1", "--format=%B"] `shouldReturn` "Delete s:d Doomed (kiwi kiwi)\n\n"
+
+  it "refuses a deletion when the page or its files changed" $ onDelKiwi [] True $ \cd -> do
+    _ <- login "carl"
+    conflict <- deletion "0000" []
+    liftIO $ status conflict `shouldBe` 409
+    liftIO $ body conflict `shouldSatisfy` T.isInfixOf "check again what will be deleted"
+    -- the confirmation again, with the hash of the file
+    h <- hashOf cd "d.md"
+    liftIO $ body conflict `shouldSatisfy` T.isInfixOf ("value=\"" <> h <> "\"")
+    -- a file that another page links
+    linked <- deletion h [("delete-files", "yes"), ("file", "ABCDEFGH13")]
+    liftIO $ status linked `shouldBe` 409
+    exists cd "d.md" >>= liftIO . (`shouldBe` True)
+    exists cd "doc__ABCDEFGH13.txt" >>= liftIO . (`shouldBe` True)
+    other <- request "POST" [("Origin", "https://evil.example"), ("Host", "kiwi.example")]
+                     "/delete-page" (encode [("source", "s"), ("id", "d"), ("hash", h)])
+    liftIO $ status other `shouldBe` 403
+    _ <- login "bob"
+    writer <- deletion h []
+    liftIO $ status writer `shouldBe` 403
+    exists cd "d.md" >>= liftIO . (`shouldBe` True)
+
+  it "deletes no page outside of git" $ do
+    onDelKiwi [] False $ \cd -> do
+      _ <- login "carl"
+      confirm <- body <$> get "/delete/s/d"
+      liftIO $ confirm `shouldSatisfy` T.isInfixOf "not in a git repository: Doomed"
+      liftIO $ confirm `shouldSatisfy` (not . T.isInfixOf "name=\"hash\"")
+      h <- hashOf cd "d.md"
+      refused <- deletion h []
+      liftIO $ status refused `shouldBe` 403
+      exists cd "d.md" >>= liftIO . (`shouldBe` True)
+    onDelKiwi ["git-commit: no"] True $ \cd -> do
+      _ <- login "carl"
+      editor <- body <$> get "/edit/s/d"
+      liftIO $ editor `shouldSatisfy` (not . T.isInfixOf "/delete/s/d")
+      confirm <- body <$> get "/delete/s/d"
+      liftIO $ confirm `shouldSatisfy` T.isInfixOf "git-commit: no"
+      h <- hashOf cd "d.md"
+      refused <- deletion h []
+      liftIO $ status refused `shouldBe` 403
+      exists cd "d.md" >>= liftIO . (`shouldBe` True)
+
+  it "deletes no file ignored by git" $ onDelKiwi [] True $ \cd -> do
+    liftIO $ writeFile (cd FP.</> ".gitignore") "*.png\n"
+    liftIO $ git cd ["rm", "-q", "--cached", "s/pic__ABCDEFGH12.png"]
+    liftIO $ git cd ["add", ".gitignore"]
+    liftIO $ git cd ["commit", "-q", "-m", "ignore"]
+    _ <- login "carl"
+    confirm <- body <$> get "/delete/s/d"
+    liftIO $ confirm `shouldSatisfy` T.isInfixOf "ignored by git: pic.png"
+    liftIO $ confirm `shouldSatisfy` (not . T.isInfixOf "name=\"delete-files\"")
+    h <- hashOf cd "d.md"
+    refused <- deletion h [("delete-files", "yes"), ("file", "ABCDEFGH12")]
+    liftIO $ status refused `shouldBe` 403
+    exists cd "d.md" >>= liftIO . (`shouldBe` True)
+    exists cd "pic__ABCDEFGH12.png" >>= liftIO . (`shouldBe` True)

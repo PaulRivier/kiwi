@@ -8,6 +8,8 @@ module Kiwi.Git
   ( CommitResult (..)
   , commitFile
   , commitFiles
+  , FileState (..)
+  , fileStates
   ) where
 
 import           Control.Exception (IOException, try)
@@ -99,6 +101,31 @@ commitFiles paths author message = do
     splitOn str = case break (== '\0') str of
       (a, [])     -> [a]
       (a, _ : bs) -> a : splitOn bs
+
+-- | Where a file is for git
+data FileState = InRepository       -- ^ in a git repository, not ignored
+               | OutsideRepository  -- ^ not in a git repository (or no git)
+               | IgnoredFile        -- ^ ignored by its repository (.gitignore)
+  deriving (Eq, Show)
+
+-- | Where these files are for git, without changing anything; a failure is
+-- the error of git, or the time limit (see 'gitTimeout')
+fileStates :: [FilePath] -> IO [(FilePath, Either String FileState)]
+fileStates paths = do
+  env <- gitEnvironment "Kiwi"
+  r <- timeout gitTimeout $ mapM (\p -> (p,) <$> stateOf env p) paths
+  return $ fromMaybe [ (p, Left "git: time limit reached") | p <- paths ] r
+  where
+    stateOf env p = do
+      c <- D.canonicalizePath p
+      repositoryRoot env (FP.takeDirectory c) >>= \case
+        Nothing -> return $ Right OutsideRepository
+        Just root -> gitIn env root ["check-ignore", "-q", c] "" >>= \case
+          Left e -> return $ Left $ "git: " ++ show e
+          Right (ExitSuccess, _, _) -> return $ Right IgnoredFile
+          Right (ExitFailure 1, _, _) -> return $ Right InRepository
+          Right (ExitFailure _, _, err) -> return $ Left $ "git check-ignore: " ++ short err
+    short = take 500 . trimEnd
 
 -- | Top folder of the git repository of this folder, if any (or no git)
 repositoryRoot :: [(String, String)] -> FilePath -> IO (Maybe FilePath)

@@ -16,6 +16,8 @@ module Kiwi.Controller
   , serveNewPageSources
   , serveNewPage
   , serveCreatePage
+  , serveDeletePage
+  , serveDeleteRequest
   , servePreview
   , serveLogin
   , logUserIn
@@ -73,6 +75,7 @@ import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
+import qualified Kiwi.Git as Git
 import           Kiwi.Meta (splitPage)
 import           Kiwi.Files (servedName)
 import           Kiwi.Pandoc (pageDoc, newPageDoc, embeddedDoc)
@@ -540,10 +543,105 @@ serveEditor uid lineM = withEditablePage uid $ \p level -> do
   case fileE >>= \(bytes, t) -> (,) (Edit.fileHash bytes) <$> Edit.editorText cmc level t of
     Left e -> serveFailure $ T.pack e
     Right (hash, (text, offset)) -> do
-      r <- V.renderEditor p text hash (maybe 1 (+ offset) lineM)
+      r <- V.renderEditor p (level >= K.AccessAdmin) text hash (maybe 1 (+ offset) lineM)
       -- the text of the file is not kept by the browser
       setHeader "Cache-Control" "no-store"
       html r
+
+-- | Runs the action on the page when the user can delete it (admin right
+-- on the page; see 'withEditablePage' for the other cases)
+withDeletablePage :: K.PageUID -> (K.Page -> ActM ()) -> ActM ()
+withDeletablePage uid run = withEditablePage uid $ \p level ->
+  if level >= K.AccessAdmin then run p else serveForbidden
+
+-- | Confirmation of the deletion of a page, for a user with the admin right
+-- on it (see 'deleteForm')
+serveDeletePage :: K.PageUID -> ActM ()
+serveDeletePage uid = withDeletablePage uid $ \p -> do
+  fileE <- liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
+  case fileE of
+    Left e -> serveFailure $ T.pack e
+    Right (bytes, _) -> do
+      r <- deleteForm p (Edit.fileHash bytes) Nothing "" False >>= V.renderDeletePage
+      setHeader "Cache-Control" "no-store"
+      html r
+
+-- | What the confirmation of the deletion of a page shows (see
+-- 'V.DeleteForm'), from the hash of its file, the failure of the previous
+-- request, the message and the box of the files sent: the pages linking to
+-- it that the user can read (archives included), the files that only it
+-- links (see 'Write.orphanFiles'), and why they can not be deleted: pages
+-- not committed, files outside of a git repository or ignored by git
+deleteForm :: K.Page -> T.Text -> Maybe T.Text -> T.Text -> Bool -> ActM V.DeleteForm
+deleteForm p hash errorM message filesToo = do
+  full <- getDB
+  loginM <- asksK (K.login . K.requestState)
+  admin <- Auth.isAdmin
+  commits <- asksK K.gitCommit
+  loc <- V.getLocales
+  cd <- asksK K.contentDir
+  let (source, _) = K.pageUID p
+      top = cd FP.</> T.unpack source
+      path = K.pageAbsoluteFSPath p
+      backlinks = sortOn (textOrder . K.pageTitle) $ RDI.query (K.pagesIndex full) $
+                    DI.And [ U.qOnly K.FieldLink (K.pageUID p), Auth.readableAnyArchiveQuery loginM ]
+      orphans = Write.orphanFiles full p
+      -- the paths for the admins only, the names of the files for the others
+      fileName f = T.pack $ if admin then f else servedName (FP.takeFileName f)
+      files = [ (u, fileName f) | (u, f) <- orphans ]
+  states <- if commits then liftIO $ Git.fileStates (path : [ top FP.</> f | (_, f) <- orphans ])
+            else return []
+  let named = zip (K.pageTitle p : map snd files) (map snd states)
+      refusal (name, st) = case st of
+        Left e -> Just $ K.loc_GitFailed loc <> " " <> T.pack e
+        Right Git.OutsideRepository -> Just $ K.loc_NotInGit loc <> " " <> name
+        Right Git.IgnoredFile -> Just $ K.loc_IgnoredByGit loc <> " " <> name
+        Right Git.InRepository -> Nothing
+  return V.DeleteForm
+    { V.dfPage = p
+    , V.dfHash = hash
+    , V.dfPath = if admin then Just (FP.makeRelative top path) else Nothing
+    , V.dfBacklinks = filter ((/= K.pageUID p) . K.pageUID) backlinks
+    , V.dfFiles = files
+    , V.dfRefused = [ K.loc_NotCommitted loc | not commits ] ++ mapMaybe refusal (take 1 named)
+    , V.dfFilesRefused = mapMaybe refusal (drop 1 named)
+    , V.dfError = errorM
+    , V.dfMessage = message
+    , V.dfDeleteFiles = filesToo }
+
+-- | Deletes a page (see 'Write.deletePage'), with the files that only it
+-- links when asked (their uids as shown by the confirmation), and redirects
+-- to the home page (303); on a failure, the confirmation is shown again,
+-- with the reason (409 when the page or its files changed meanwhile)
+serveDeleteRequest :: K.PageUID -> T.Text -> Maybe T.Text -> Bool -> [T.Text] -> ActM ()
+serveDeleteRequest uid hash messageM filesToo fileUids = withDeletablePage uid $ \p ->
+  withEditRequest "" $ do
+    ss <- asksK id
+    loginM <- asksK (K.login . K.requestState)
+    result <- liftIO $ Write.deletePage ss loginM messageM uid hash (if filesToo then fileUids else [])
+    case result of
+      Right () -> do
+        status Net.status303
+        setHeader "Location" "/"
+      Left f -> do
+        loc <- V.getLocales
+        let (code, reason) = case f of
+              Edit.SaveConflict -> (Net.status409, K.loc_DeleteConflict loc)
+              Edit.SaveNotApplied e -> (Net.status409, T.pack e)
+              Edit.SaveInvalid e -> (Net.status400, T.pack e)
+              Edit.SaveForbidden e -> (Net.status403, T.pack e)
+              Edit.SaveFailed e -> (Net.status500, T.pack e)
+        case f of
+          Edit.SaveFailed e -> logMsg L.Error $ T.pack $ "deletion failed: " ++ e
+          _ -> return ()
+        -- the page as it is now, to confirm again
+        db <- getDB
+        let current = fromMaybe p (findPage db uid)
+        fileE <- liftIO $ Write.readPageFile (K.pageAbsoluteFSPath current)
+        let hash' = either (const hash) (Edit.fileHash . fst) fileE
+        r <- deleteForm current hash' (Just reason) (fromMaybe "" messageM) filesToo >>= V.renderDeletePage
+        status code
+        html r
 
 -- | Largest text of a page that can be saved or previewed, in characters
 maxPageLength :: Int

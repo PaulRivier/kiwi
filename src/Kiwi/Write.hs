@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 -- | Writing of the page files changed by a user: the browser editor, and
 -- the API. A change (see 'Kiwi.Edit.Change') is checked and written under the
 -- lock of the reloads, with git commits, then the pages are reloaded.
@@ -7,6 +9,8 @@ module Kiwi.Write
   , createPage
   , creatableSources
   , canCreateIn
+  , deletePage
+  , orphanFiles
   , ScriptRun (..)
   , runMetaScript
   , metaScriptResult
@@ -157,6 +161,76 @@ canCreateIn db loginM source =
   maybe False (>= AccessWrite) (Auth.accessLevel loginM $ fromMaybe [] $ metaAccess $
                                   sourceMeta scM (defaultMeta db))
   where scM = L.find ((== source) . scSourceName) (sourcesConfig db)
+
+-- | Deletes the file of a page for a user with the admin right on the page,
+-- when it has not changed since it was read (this hash), with the files of
+-- these uids, which only this page must link (see 'orphanFiles'). The pages
+-- must be committed (git-commit), and the files in a git repository, not
+-- ignored: their changes made outside of kiwi, if any, and those not
+-- tracked yet are first committed by Kiwi (a failure stops the deletion), so
+-- that they stay in its history; the deletion is then committed by the user
+-- (a failure is only logged), with the message, if any (see
+-- 'commitMessage'), and the files deleted with the page. The pages are then
+-- reloaded. All of it holds the lock of the reloads. A page or a file that
+-- changed meanwhile (other hash, page gone, file linked by another page) is
+-- a conflict.
+deletePage :: ServerState -> Maybe Login -> Maybe T.Text -> PageUID -> T.Text -> [T.Text] ->
+              IO (Either Edit.SaveFailure ())
+deletePage ss loginM messageM uid@(source, pId) hash fileUids =
+  withMVar (pagesDBLock ss) $ \_ -> runExceptT $ do
+    unless (gitCommit ss) $ throwError $ Edit.SaveForbidden
+      "the pages are not committed (git-commit: no): they can not be deleted"
+    db <- liftIO $ readIORef (pagesDB ss)
+    p <- maybe (throwError Edit.SaveConflict) return $ RDI.findDoc (pagesIndex db) uid
+    unless (maybe False (>= AccessAdmin) $ Auth.pageAccessLevel loginM p) $
+      throwError $ Edit.SaveForbidden "the account can not delete this page"
+    let path = pageAbsoluteFSPath p
+        top = contentDir ss FP.</> T.unpack source
+        orphans = M.fromList (orphanFiles db p)
+    (bytes, _) <- withExceptT Edit.SaveFailed $ ExceptT $ readPageFile path
+    when (Edit.fileHash bytes /= hash) $ throwError Edit.SaveConflict
+    files <- forM (U.nodup fileUids) $ \u ->
+      maybe (throwError Edit.SaveConflict) (return . (top FP.</>)) (M.lookup u orphans)
+    let paths = path : files
+        ref = T.concat [source, ":", pId]
+        user = maybe "" loginUser loginM
+        rel = FP.makeRelative top
+    pre <- liftIO $ Git.commitFiles paths "Kiwi" $
+             T.concat ["Pre-delete commit of ", ref, " (kiwi ", kiwiName ss, ")"]
+    forM_ pre $ \(f, r) -> case r of
+      Left e -> throwError $ Edit.SaveFailed e
+      Right Git.NotInRepository -> throwError $ Edit.SaveForbidden $
+        rel f ++ " is not in a git repository: it can not be deleted"
+      Right Git.Ignored -> throwError $ Edit.SaveForbidden $
+        rel f ++ " is ignored by git: it can not be deleted"
+      Right _ -> return ()
+    -- the files first: a failure keeps the page, which links them
+    (removed, failure) <- liftIO $ removeAll (files ++ [path])
+    liftIO $ do
+      forM_ removed $ \f -> logger ss L.Info $ T.pack $ concat [ "deleted by ", T.unpack user, ": ", f ]
+      let message = commitMessage (T.concat ["Delete ", ref, " ", pageTitle p, " (kiwi ", kiwiName ss, ")"])
+                                  messageM <>
+                    T.concat [ "\n\nFiles deleted:\n" <> T.unlines [ "- " <> T.pack (rel f) | f <- deletedFiles ]
+                             | let deletedFiles = filter (/= path) removed, not (null deletedFiles) ]
+      unless (null removed) $ commitPaths ss (user <> " via Kiwi") message removed
+      DB.reloadPages ss
+    maybe (return ()) (throwError . Edit.SaveFailed) failure
+  where
+    -- the files removed, until a failure
+    removeAll [] = return ([], Nothing)
+    removeAll (f : fs) = try (D.removeFile f) >>= \case
+      Left e -> return ([], Just $ "unable to delete " ++ f ++ ": " ++ show (e :: IOException))
+      Right () -> (\(done, failure) -> (f : done, failure)) <$> removeAll fs
+
+-- | The files that this page links, and that no other page links (whatever
+-- their access, archives included): uid, and path from the top of the source
+orphanFiles :: PagesDB -> Page -> [(T.Text, FilePath)]
+orphanFiles db p =
+  [ (u, path) | u <- U.nodup (pageFiles p)
+              , Just path <- [M.lookup (source, u) (sourceFiles db)]
+              , all ((== pageUID p) . pageUID) $
+                  RDI.query (pagesIndex db) (U.qOnly FieldFile (source, u)) ]
+  where source = fst (pageUID p)
 
 -- | Applies the commands of a metadata script (see "Kiwi.MetaScript") to the
 -- headers of the pages of their "pages" lines that the user can write,

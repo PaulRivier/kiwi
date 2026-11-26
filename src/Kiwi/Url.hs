@@ -4,6 +4,7 @@ module Kiwi.Url
   , pageUIDUrl
   , editUrl
   , newPageUrl
+  , deleteUrl
   , urlEncodeText
   , urlDecodeText
   , contextParams
@@ -31,6 +32,10 @@ pageUIDUrl (s, i) = T.concat ["/page/", urlEncodeText s, "/", urlEncodeText i]
 -- | URL of the editor of a page (see 'pageUIDUrl')
 editUrl :: PageUID -> T.Text
 editUrl (s, i) = T.concat ["/edit/", urlEncodeText s, "/", urlEncodeText i]
+
+-- | URL of the confirmation of the deletion of a page (see 'pageUIDUrl')
+deleteUrl :: PageUID -> T.Text
+deleteUrl (s, i) = T.concat ["/delete/", urlEncodeText s, "/", urlEncodeText i]
 
 -- | URL of the form of a new page in this source
 newPageUrl :: T.Text -> T.Text

@@ -143,6 +143,19 @@ kiwiRoute ss api = do
     message <- formParamMaybe "message"
     serveSavePage uid hash message sent
   post "/preview" $ withLogin $ editParams >>= uncurry servePreview
+  -- deletion of a page in the browser, with the admin right on it
+  get "/delete/:source/:pId" $ withLogin $ do
+    source <- pathParam "source"
+    pId <- pathParam "pId"
+    serveDeletePage (source, pId)
+  post "/delete-page" $ withLogin $ do
+    source <- formParam "source"
+    pId <- formParam "id"
+    hash <- formParam "hash"
+    message <- formParamMaybe "message"
+    filesToo <- (== Just ("yes" :: T.Text)) <$> formParamMaybe "delete-files"
+    fileUids <- map snd . filter ((== "file") . fst) <$> formParams
+    serveDeleteRequest (source, pId) hash message filesToo fileUids
   -- creation of a page in the browser, in a source where the user can write
   get "/new" $ withLogin serveNewPageSources
   get "/new/:source" $ withLogin $ pathParam "source" >>= serveNewPage
