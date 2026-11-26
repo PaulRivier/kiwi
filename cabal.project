@@ -2,7 +2,7 @@
 packages: .
           vendor/snowball-c
 
-import: stackage/lts-24.56.config
+import: stackage/lts-24.68.config
 with-compiler: ghc-9.10.3
 
 -- Packages not in the Stackage snapshot.
