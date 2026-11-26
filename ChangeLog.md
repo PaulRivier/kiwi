@@ -1,6 +1,6 @@
 # ChangeLog for Kiwi
 
-## Unreleased
+## v0.4.6.0 - 2026-11-25
 
 - The browser editor has a field for the message of the change, added to
   the one of the commit (not shown with `git-commit: no`).
