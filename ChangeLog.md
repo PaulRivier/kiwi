@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The browser editor has a field for the message of the change, added to
+  the one of the commit (not shown with `git-commit: no`).
+- Logging out forgets the drafts of the browser editor kept by the
+  browser.
 - The page view shows the summary of the page below its title, in the
   frame of the metadata, and its keywords after the backlinks, each one a
   search of the pages that have it.

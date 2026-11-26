@@ -610,10 +610,13 @@ the file has changed since the editor was opened (by another editor or
 another user): keep a copy of your text, and open the editor again. It
 is also refused when the page could not be loaded (an invalid header).
 Until it is saved, the
-text is kept as a draft in your browser, for this version of the file.
+text is kept as a draft in your browser, for this version of the file;
+logging out forgets the drafts.
 
 When the saved file is in a git repository, Kiwi commits it: see
-[Content versioning and backup](#content-versioning-and-backup).
+[Content versioning and backup](#content-versioning-and-backup). The
+message written next to the Save button, if any, is added to the one of
+the commit (the field is not shown with `git-commit: no`).
 
 The save and preview requests from the pages of another site are
 refused: behind a reverse proxy, keep the `Host` header of the requests

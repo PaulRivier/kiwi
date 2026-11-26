@@ -140,7 +140,8 @@ kiwiRoute ss api = do
   post "/save-page" $ withLogin $ do
     (uid, sent) <- editParams
     hash <- formParam "hash"
-    serveSavePage uid hash sent
+    message <- formParamMaybe "message"
+    serveSavePage uid hash message sent
   post "/preview" $ withLogin $ editParams >>= uncurry servePreview
   get  "/login" $ withLogin serveLogin
   post "/login" $ logUserIn

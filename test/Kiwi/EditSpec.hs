@@ -92,6 +92,7 @@ editSpec = do
     liftIO $ body editor `shouldSatisfy` T.isInfixOf "data-line=\"5\""
     liftIO $ body editor `shouldSatisfy` (not . T.isInfixOf "access:")
     liftIO $ lookup "Cache-Control" (WT.simpleHeaders editor) `shouldBe` Just "no-store"
+    liftIO $ body editor `shouldSatisfy` T.isInfixOf "name=\"message\""
     -- a page that bob can not read is not found
     secret <- get "/edit/s/secret"
     liftIO $ status secret `shouldBe` 404
@@ -198,8 +199,25 @@ editSpec = do
     liftIO $ status saved `shouldBe` 200
     liftIO $ logOf cd 2 `shouldReturn` saveCommits
 
+  it "adds the message of the editor to the commit" $ onRepo [] $ \cd -> do
+    _ <- login "bob"
+    h <- hashOf cd "p.md"
+    saved <- post "/save-page" [ ("source", "s"), ("id", "p"), ("hash", h)
+                               , ("message", "Typo fixed"), ("text", "title: New\n\nBye") ]
+    liftIO $ status saved `shouldBe` 200
+    liftIO $ gitOut cd ["log", "-1", "--format=%B"]
+      `shouldReturn` "Edit s:p (kiwi kiwi)\n\nTypo fixed\n\n"
+    -- an empty message adds nothing
+    h' <- hashOf cd "p.md"
+    again <- post "/save-page" [ ("source", "s"), ("id", "p"), ("hash", h')
+                               , ("message", " "), ("text", "title: New\n\nBye again") ]
+    liftIO $ status again `shouldBe` 200
+    liftIO $ gitOut cd ["log", "-1", "--format=%B"] `shouldReturn` "Edit s:p (kiwi kiwi)\n\n"
+
   it "does not commit a saved page with git-commit: no" $ onRepo ["git-commit: no"] $ \cd -> do
     _ <- login "bob"
+    editor <- get "/edit/s/p"
+    liftIO $ body editor `shouldSatisfy` (not . T.isInfixOf "name=\"message\"")
     h <- hashOf cd "p.md"
     saved <- save h "title: New\n\nBye"
     liftIO $ status saved `shouldBe` 200

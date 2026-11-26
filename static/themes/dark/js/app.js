@@ -33,6 +33,17 @@ async function adminAction(button, url, params) {
   else alert(`${errorFailed} (HTTP ${response.status})`);
 }
 
+// Logging out forgets the drafts of the editors that this browser keeps
+// (EasyMDE autosave: "smde_" + uniqueId, see the editor below)
+$("form[action='/logout']")?.addEventListener("submit", () => {
+  try {
+    for (const key of Object.keys(localStorage))
+      if (key.startsWith("smde_kiwi-")) localStorage.removeItem(key);
+  } catch {
+    // no local storage: no draft
+  }
+});
+
 $(".top-nav .reload")?.addEventListener("click", (e) =>
   adminAction(e.currentTarget, "/reload"));
 
@@ -161,7 +172,8 @@ if (editorForm && window.EasyMDE) {
     save.disabled = true;
     let response;
     try {
-      response = await post("/save-page", { source, id, hash, text: editor.value() });
+      const message = editorForm.elements.message?.value ?? "";
+      response = await post("/save-page", { source, id, hash, message, text: editor.value() });
     } catch {
       save.disabled = false;
       alert(data.errorFailed);

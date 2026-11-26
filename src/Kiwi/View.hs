@@ -100,15 +100,17 @@ renderPage findPage p canWrite doc backlinks related keywords = do
              (pageView loc ctx findPage p canWrite doc backlinks related keywords)
 
 -- | Editor of a page: the text of its file, its hash, and the line where
--- the editor starts (from 1)
+-- the editor starts (from 1); with a field for the message of the commit,
+-- unless the pages are not committed (git-commit: no)
 renderEditor :: K.Page -> T.Text -> T.Text -> Int -> ActM TL.Text
 renderEditor p text hash line = do
   vctx <- getViewCtx
+  commits <- asksK K.gitCommit
   let loc = ctxLocales vctx
   return $ renderText $
     layout vctx { ctxEditor = True } (K.loc_Editing loc <> " : " <> K.pageTitle p)
            NoActions Nothing $
-      editorView loc p text hash line
+      editorView loc commits p text hash line
 
 -- | HTML of a document previewed in the editor, with the links to the pages
 -- that do not exist (according to the predicate) marked as broken
@@ -470,9 +472,10 @@ pageView loc ctx findPage p canWrite doc backlinks related keywords = div_ [clas
 
 
 -- | The editor of a page (see 'renderEditor'): a form, turned into a
--- markdown editor by app.js, with the texts of its buttons and messages.
-editorView :: K.Locales -> K.Page -> T.Text -> T.Text -> Int -> Html ()
-editorView loc p text hash line =
+-- markdown editor by app.js, with the texts of its buttons and messages, and
+-- the field of the message of the commit if the pages are committed.
+editorView :: K.Locales -> Bool -> K.Page -> T.Text -> T.Text -> Int -> Html ()
+editorView loc commits p text hash line =
   form_ ([ class_ "page-editor", method_ "post", action_ "/save-page"
          , data_ "page-url" (Url.pageUrl p), data_ "line" (T.pack $ show line)
          , data_ "error-session" (K.loc_ActionSession loc)
@@ -491,6 +494,9 @@ editorView loc p text hash line =
     -- the browser drops a newline at the start of a textarea
     textarea_ [name_ "text", class_ "editor-text", rows_ "30"] $ toHtml ("\n" <> text)
     div_ [class_ "editor-actions"] $ do
+      when commits $
+        input_ [ type_ "text", name_ "message", class_ "commit-message", maxlength_ "2000"
+               , placeholder_ (K.loc_CommitMessage loc), title_ (K.loc_CommitMessage loc) ]
       button_ [type_ "submit", class_ "save"] $ toHtml $ K.loc_Save loc
       a_ [href_ (Url.pageUrl p), class_ "cancel"] $ toHtml $ K.loc_Cancel loc
   where (source, pId) = K.pageUID p

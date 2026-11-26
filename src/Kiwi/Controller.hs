@@ -573,12 +573,13 @@ sameOrigin = do
 -- page can be loaded (its uid is kept, see 'Kiwi.Meta.kiwiKeys'), with git
 -- commits (see 'Write.updatePage'). The answer is the URL of the page, with
 -- the keys that the user can not change in the Kiwi-Ignored-Keys header, if
--- any; 409 when the file changed, 400 when the text can not be saved.
-serveSavePage :: K.PageUID -> T.Text -> T.Text -> ActM ()
-serveSavePage uid hash sent = withEditablePage uid $ \p level -> withEditRequest sent $ do
+-- any; 409 when the file changed, 400 when the text can not be saved. The
+-- message, if any, is added to the one of the commit.
+serveSavePage :: K.PageUID -> T.Text -> Maybe T.Text -> T.Text -> ActM ()
+serveSavePage uid hash messageM sent = withEditablePage uid $ \p level -> withEditRequest sent $ do
   ss <- asksK id
   user <- maybe "" K.loginUser <$> asksK (K.login . K.requestState)
-  result <- liftIO $ Write.updatePage ss user Nothing p (Edit.sentText level hash sent)
+  result <- liftIO $ Write.updatePage ss user messageM p (Edit.sentText level hash sent)
   case result of
     Right (_, ignored) -> do
       unless (null ignored) $

@@ -1202,6 +1202,12 @@ form.page-editor textarea.editor-text {
   margin: 12px 0 24px;
 }
 
+/* the message of the commit takes the room left by the buttons */
+.editor-actions input.commit-message {
+  flex: 1;
+  min-width: 0;
+}
+
 .editor-actions a.cancel {
   color: rgba(var(--kiwi-text), 0.7);
 }

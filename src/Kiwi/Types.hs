@@ -564,6 +564,7 @@ data Locales = Locales
   , loc_Editing :: T.Text       -- ^ before the title of the page, in the editor
   , loc_Save :: T.Text
   , loc_Cancel :: T.Text
+  , loc_CommitMessage :: T.Text  -- ^ placeholder of the message of the commit, in the editor
   -- | save failures: the page changed meanwhile, the text can not be saved
   -- (followed by the reason), metadata that the user can not change (followed
   -- by their keys)
