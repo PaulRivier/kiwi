@@ -70,8 +70,10 @@ loadDoc :: Bool -> FP.FilePath -> T.Text -> (T.Text -> Maybe FP.FilePath) ->
            T.Text -> Either String (PD.Pandoc, [PageUID], [T.Text])
 loadDoc withLines path source files content =
     -- the last row of a table is not read as a row without a newline after
-    -- it. An extra newline only changes an unclosed fenced code block at the
-    -- end, which gets one more empty line.
+    -- it (commonmark before 0.3.2, issue #179: from 0.3.2 the tokens always
+    -- end with a line end, and this can go once the 'data-line' of the last
+    -- block is checked). An extra newline only changes an unclosed fenced
+    -- code block at the end, which gets one more empty line.
     let parsed = if withLines
                  then topLevelLines . CmP.unCm <$> parseCm @BlockLines path (content <> "\n")
                  else PB.toList . CmP.unCm <$> parseCm @() path (content <> "\n")
@@ -343,7 +345,10 @@ loadPageIO fullPath source md cmc scM = do
      Right c -> case (loadPage fullPath c source (sourceMeta scM md) cmc) of
       Left e -> Left $ "unable to load the page : " ++ e
       -- the page, the plain text of its content and the issues of its
-      -- header are evaluated here, so that the document can be freed
+      -- header are evaluated here, so that the document can be freed. The
+      -- texts kept from the document must not be slices of its texts (see
+      -- 'docHeadings'); those of the header are slices of the text of the
+      -- file, which 'pageBody' keeps anyway
       Right p -> let meta = pandocMeta p
                      header = pandocHeader p
                      pId = fromMaybe "" $ metaUid header
@@ -386,11 +391,15 @@ loadPageIO fullPath source md cmc scM = do
         in Right $ Loaded page header unknown invalid
 
 
--- | Plain text of the headings of a document, all levels, in their order
+-- | Plain text of the headings of a document, all levels, in their order.
+-- Copied: the texts of the document are slices of the copy of the whole
+-- content that commonmark makes (NFC normalization of 'Cm.tokenize'), and a
+-- heading of one word would be such a slice, keeping that copy alive with
+-- the page.
 docHeadings :: PD.Pandoc -> [T.Text]
 docHeadings = PW.query heading
   where
     heading :: PD.Block -> [T.Text]
     heading b = case b of
-      PD.Header _ _ ils -> [T.unwords $ T.words $ U.inlinesText ils]
+      PD.Header _ _ ils -> [T.copy $ T.unwords $ T.words $ U.inlinesText ils]
       _ -> []

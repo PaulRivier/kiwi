@@ -82,6 +82,9 @@ parseLangSetting t = case map T.strip $ T.splitOn "/" $ T.toLower t of
 -- | Text of the page content, for indexing and search excerpts. The blocks
 -- (paragraphs, headers, table cells, lines…) are separated by a space, so
 -- that the last word of a block is not stuck to the first one of the next.
+-- A new text, never a slice of the texts of the document (those of
+-- commonmark are slices of a copy of the whole content): 'inlinesText'
+-- joins several pieces, since every block is between two spaces.
 pageContent :: PD.Pandoc -> T.Text
 pageContent = T.unwords . T.words . inlinesText . PW.walk spaced
   where
