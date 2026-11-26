@@ -23,9 +23,6 @@ toc: on
 # the session cookie will then only be sent over HTTPS connections.
 # Keep to no if you access kiwi with plain HTTP, or login will not work.
 secure-cookie: no
-# When a page saved from the browser is in a git repository (and not ignored
-# there), kiwi commits it: yes (default) | no
-git-commit: yes
 # File holding your guide for the agents (Claude…) using the API (relative
 # to the folder of this file, or absolute): where to put what, tone,
 # requests left in the pages… It is given to them after the documentation
@@ -72,7 +69,14 @@ lang: english
 #   (the access set in a page header still takes precedence)
 # lang: default lang of the pages, instead of the one of [metadata-default]
 #   (french, auto/french...), also used for the searches in this source
+# read-only: yes | no (default). Kiwi writes in a source only when its
+#   folder is the top of a git repository (git init in that folder), and
+#   commits each change there. With read-only: yes, or without a git
+#   repository at its top, kiwi changes no file of the source: no edition,
+#   creation or deletion of pages, and the pages without a valid uid in
+#   their header (and the files without a uid in their name) are left out.
 
 # [source dad-botanic]
 # access: family
 # lang: english
+# read-only: no

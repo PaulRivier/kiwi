@@ -1238,8 +1238,7 @@ form.delete-page .page-title .editing {
   color: rgba(var(--kiwi-text), 0.5);
 }
 
-form.delete-page .delete-error,
-form.delete-page ul.delete-refused {
+form.delete-page .delete-error {
   color: rgb(var(--kiwi-error));
 }
 

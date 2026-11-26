@@ -2,6 +2,7 @@ module Kiwi.Utils
   ( -- * Server state access
     asksK
   , getDB
+  , isWritableSource
     -- * Metadata
   , parseLangSetting
   , pageContent
@@ -34,6 +35,7 @@ import           Control.Monad (forM)
 import           Control.Monad.Reader
 import           Data.Char (isAlphaNum)
 import           Data.IORef
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.IO as TSIO
@@ -59,6 +61,11 @@ getDB = do
 
 asksK :: (ServerState -> a) -> ActM a
 asksK = serverM . asks
+
+-- | Whether kiwi writes in this source (see 'SourceMode'); a source unknown
+-- at the last load is read-only
+isWritableSource :: PagesDB -> T.Text -> Bool
+isWritableSource db source = M.lookup source (dbSources db) == Just WriteAllowed
 
 
 nodup :: Ord a => [a] -> [a]

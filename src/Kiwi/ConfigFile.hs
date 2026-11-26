@@ -36,7 +36,6 @@ data KiwiConfig = KiwiConfig
   , sourcesConfig :: [K.SourceConfig]
   , toc :: K.TocSetting
   , secureCookie :: Bool
-  , gitCommit :: Bool  -- ^ commit the pages saved in a git repository
   , agentGuide :: Maybe FP.FilePath  -- ^ file of the guide of the user for
                                      -- the agents, as written (see 'agentGuideFile')
   }
@@ -68,8 +67,6 @@ configParser = do
     lang'  <- fieldDefOf "ui-lang" K.parseUILang K.UI_English
     toc' <- fieldDefOf "toc" K.parseTocSetting K.TocOn
     secureCookie' <- fieldFlagDef "secure-cookie" False
-    -- empty: the default
-    gitCommit' <- fieldDefOf "git-commit" (flagOr True "git-commit") True
     -- without it (or empty), no guide of the user
     agentGuide' <- fieldMbOf "agent-guide" string
     return KiwiConfig
@@ -84,7 +81,6 @@ configParser = do
       , sourcesConfig = toList sourcesConfig'
       , toc = toc'
       , secureCookie = secureCookie'
-      , gitCommit = gitCommit'
       , agentGuide = mfilter (not . null) (trim <$> agentGuide')
       }
 
@@ -107,10 +103,13 @@ sourceConfigParser :: T.Text -> SectionParser K.SourceConfig
 sourceConfigParser source = do
   access <- fieldDefOf "access" accessList []
   lang <- fieldMbOf "lang" U.parseLangSetting
+  -- empty: the default
+  readOnly <- fieldDefOf "read-only" (flagOr False "read-only") False
   return K.SourceConfig { K.scSourceName = source
                         -- without any group, the global default is used
                         , K.scAccess = if null access then Nothing else Just access
                         , K.scLang = lang
+                        , K.scReadOnly = readOnly
                         }
 
 

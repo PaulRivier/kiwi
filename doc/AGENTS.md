@@ -89,8 +89,9 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   your guide can also tell the agents to read pages of the wiki.
 
 The writes need the write right on the page, as in the browser editor,
-and are committed when the file is in a git repository (author
-`LOGIN via Kiwi`; `message=…` adds a message to the one of the commit):
+in a source where Kiwi writes (not read-only, see the README), and are
+committed in the git repository of the source (author `LOGIN via Kiwi`;
+`message=…` adds a message to the one of the commit):
 
 * `PATCH /api/page/SOURCE/UID` : replaces exact passages of the text of
   the page, with a JSON body `{"edits": [{"old": "…", "new": "…"}]}`. Each

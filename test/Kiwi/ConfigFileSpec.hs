@@ -40,11 +40,8 @@ configSpec = do
     U.parseLangSetting "auto/french/x" `shouldBe`
       Left "invalid lang \"auto/french/x\", expected LANG, auto or auto/LANG"
 
-  it "has default values for ui-lang, toc, editor, git-commit and access" $ do
+  it "has default values for ui-lang, toc, editor and access" $ do
     let c = Conf.parseConfig $ ini []
-    fmap Conf.gitCommit c `shouldBe` Right True
-    fmap Conf.gitCommit (Conf.parseConfig $ ini ["git-commit:"]) `shouldBe` Right True
-    fmap Conf.gitCommit (Conf.parseConfig $ ini ["git-commit: No"]) `shouldBe` Right False
     fmap Conf.uiLang c `shouldBe` Right UI_English
     fmap Conf.toc c `shouldBe` Right TocOn
     fmap Conf.editor c `shouldBe` Right Nothing
@@ -68,7 +65,7 @@ configSpec = do
   it "refuses invalid values, with the allowed ones" $ do
     failsWith "allowed values: english, french" $ Conf.parseConfig $ ini ["ui-lang: german"]
     failsWith "allowed values: on, off, auto" $ Conf.parseConfig $ ini ["toc: yes"]
-    failsWith "allowed values: yes, no" $ Conf.parseConfig $ ini ["git-commit: maybe"]
+    failsWith "allowed values: yes, no" $ Conf.parseConfig $ ini [] <> "[source s]\nread-only: maybe\n"
     failsWith "allowed values: text, int, date, bool" $ Conf.parseConfig $
       ini [] <> "[metadata year]\ntype: float\n"
     failsWith "expected a weight" $ Conf.parseConfig $
@@ -81,7 +78,15 @@ configSpec = do
     fmap Conf.uiLang c `shouldBe` Right UI_English
     fmap (metaAccess . Conf.defaultMeta) c `shouldBe` Right (Just [("admin", AccessRead)])
     fmap Conf.bind c `shouldBe` Right (Just "127.0.0.1")
-    fmap Conf.gitCommit c `shouldBe` Right True
+
+  it "reads read-only in the source sections, no by default" $ do
+    let c = Conf.parseConfig $ ini [] <> "[source a]\nread-only: Yes\n[source b]\nread-only:\n\
+                                         \[source c]\naccess: family\n"
+    fmap (map (\sc -> (scSourceName sc, scReadOnly sc)) . Conf.sourcesConfig) c
+      `shouldBe` Right [("a", True), ("b", False), ("c", False)]
+
+  it "ignores git-commit, which is no longer read" $
+    fmap Conf.port (Conf.parseConfig $ ini ["git-commit: no"]) `shouldBe` Right 3456
 
   it "reads the address to listen on, all of them without it" $ do
     fmap Conf.bind (Conf.parseConfig $ ini []) `shouldBe` Right Nothing

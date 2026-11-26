@@ -244,7 +244,7 @@ metaDataSpec = do
       Right [Just [("family", AccessRead)]]
 
   it "uses the access of the source config, unless the page has one" $ do
-    let sc = SourceConfig "src" (Just [("family", AccessWrite)]) Nothing
+    let sc = SourceConfig "src" (Just [("family", AccessWrite)]) Nothing False
         access sM c = case loadPage "test.md" c "src" (sourceMeta sM defMeta) [] of
           Left e -> error e
           Right p -> map fst <$> metaAccess (pandocMeta p)
@@ -332,7 +332,7 @@ metaDataSpec = do
       `shouldBe` True
 
   it "uses the lang of the source config, unless the page has one" $ do
-    let sc = SourceConfig "src" Nothing (Just (LangAuto Spanish))
+    let sc = SourceConfig "src" Nothing (Just (LangAuto Spanish)) False
         lang c = case loadPage "test.md" c "src" (sourceMeta (Just sc) defMeta) [] of
           Left e -> error e
           Right p -> metaLang $ pandocMeta p

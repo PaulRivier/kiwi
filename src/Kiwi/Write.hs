@@ -58,29 +58,29 @@ readPageFile path = do
 
 -- | Writes the file of a page changed by a user (login), when the change
 -- applies to the current file and the page of the new text loads (see
--- 'Edit.checkSave'). When the file is in a git repository (unless git-commit
--- is no; a failure of git is only logged), its changes made outside of kiwi,
--- if any, are first committed by Kiwi, and the new file is committed by the
--- user. The pages are then reloaded. The check, the commits, the write and
--- the reload hold the lock of the reloads. The message, if any, is added to
--- the one of the commit (see 'commitMessage'). The result is the hash of the
--- written file, and the keys of the change that are ignored.
+-- 'Edit.checkSave'), in a source where kiwi writes (see 'SourceMode'): its
+-- changes made outside of kiwi, if any, are first committed by Kiwi (a
+-- failure stops the save, see 'preCommit'), and the new file is committed by
+-- the user (a failure is only logged). The pages are then reloaded. The
+-- check, the commits, the write and the reload hold the lock of the reloads.
+-- The message, if any, is added to the one of the commit (see
+-- 'commitMessage'). The result is the hash of the written file, and the keys
+-- of the change that are ignored.
 updatePage :: ServerState -> T.Text -> Maybe T.Text -> Page -> Edit.Change ->
               IO (Either Edit.SaveFailure (T.Text, [T.Text]))
 updatePage ss user messageM p change = withMVar (pagesDBLock ss) $ \_ -> runExceptT $ do
   let path = pageAbsoluteFSPath p
       uid = pageUID p
   db <- liftIO $ readIORef (pagesDB ss)
+  writableSource db (fst uid)
   file <- withExceptT Edit.SaveFailed $ ExceptT $ readPageFile path
   (text, ignored) <- liftEither $ Edit.checkSave (contentDir ss) db change path file
-  liftIO $ when (gitCommit ss) $
-    commitPage ss "Kiwi" "pre-update commit" "Pre-update commit of " Nothing path uid
+  preCommit ss (fst uid) (pageMessage ss "Pre-update commit of " uid Nothing) [path]
   withExceptT (\e -> Edit.SaveFailed $ show (e :: IOException)) $ ExceptT $ try $
     Edit.writePageFile path text
   liftIO $ do
     logger ss L.Info $ T.pack $ concat [ "page saved by ", T.unpack user, ": ", path ]
-    when (gitCommit ss) $
-      commitPage ss (user <> " via Kiwi") "page" "Edit " messageM path uid
+    commitPaths ss (fst uid) (user <> " via Kiwi") (pageMessage ss "Edit " uid messageM) [path]
     DB.reloadPages ss
   return (Edit.fileHash $ TE.encodeUtf8 text, ignored)
 
@@ -92,11 +92,11 @@ updatePage ss user messageM p change = withMVar (pagesDBLock ss) $ \_ -> runExce
 -- file named after its title (see 'Edit.titleFileName') at the top of the
 -- source. When the name is taken, " (2)", " (3)"... is added to it. The user
 -- must have the write right on the page, by its access (the one of the
--- source, or of the header for an admin). The page is committed (unless
--- git-commit is no) and the pages are reloaded, under the lock of the
--- reloads. The message, if any, is added to the one of the commit. The
--- result is the uid of the page and the path of its file, from the top of
--- the source.
+-- source, or of the header for an admin), and kiwi must write in the source
+-- (see 'SourceMode'). The page is committed (a failure is only logged) and
+-- the pages are reloaded, under the lock of the reloads. The message, if
+-- any, is added to the one of the commit. The result is the uid of the page
+-- and the path of its file, from the top of the source.
 createPage :: ServerState -> Maybe Login -> Maybe T.Text -> T.Text -> Maybe FilePath -> T.Text ->
               IO (Either Edit.SaveFailure (PageUID, FilePath))
 createPage ss loginM messageM source pathM sent = withMVar (pagesDBLock ss) $ \_ -> runExceptT $ do
@@ -108,6 +108,7 @@ createPage ss loginM messageM source pathM sent = withMVar (pagesDBLock ss) $ \_
       scM = L.find ((== source) . scSourceName) (sourcesConfig db)
   exists <- liftIO $ D.doesDirectoryExist top
   unless exists $ throwError $ Edit.SaveInvalid $ "no source " ++ T.unpack source
+  writableSource db source
   (sentHeader, content) <- liftEither $ first Edit.SaveInvalid $ splitPage cmc sent
   uid <- liftIO $ newUid db
   let level = if admin then AccessAdmin else AccessWrite
@@ -132,8 +133,7 @@ createPage ss loginM messageM source pathM sent = withMVar (pagesDBLock ss) $ \_
     Edit.writeNewPageFile path text
   liftIO $ do
     logger ss L.Info $ T.pack $ concat [ "page created by ", T.unpack user, ": ", path ]
-    when (gitCommit ss) $
-      commitPage ss (user <> " via Kiwi") "page" "Create " messageM path (source, uid)
+    commitPaths ss source (user <> " via Kiwi") (pageMessage ss "Create " (source, uid) messageM) [path]
     DB.reloadPages ss
   return ((source, uid), FP.makeRelative top path)
   where
@@ -149,26 +149,27 @@ createPage ss loginM messageM source pathM sent = withMVar (pagesDBLock ss) $ \_
 
 -- | The sources where the user can create a page (see 'canCreateIn')
 creatableSources :: PagesDB -> Maybe Login -> [T.Text]
-creatableSources db loginM = filter (canCreateIn db loginM) (dbSources db)
+creatableSources db loginM = filter (canCreateIn db loginM) (M.keys $ dbSources db)
 
--- | Whether the user can create a page in this source: when a page without
--- header would get there an access (default of the config and of the
--- source) that gives the user the write right; every source for the admins
--- (see 'createPage', which checks the access of the page created)
+-- | Whether the user can create a page in this source: when kiwi writes in
+-- the source (see 'SourceMode'), and a page without header would get there
+-- an access (default of the config and of the source) that gives the user
+-- the write right; every source where kiwi writes for the admins (see
+-- 'createPage', which checks the access of the page created)
 canCreateIn :: PagesDB -> Maybe Login -> T.Text -> Bool
 canCreateIn db loginM source =
-  source `elem` dbSources db &&
+  U.isWritableSource db source &&
   maybe False (>= AccessWrite) (Auth.accessLevel loginM $ fromMaybe [] $ metaAccess $
                                   sourceMeta scM (defaultMeta db))
   where scM = L.find ((== source) . scSourceName) (sourcesConfig db)
 
 -- | Deletes the file of a page for a user with the admin right on the page,
 -- when it has not changed since it was read (this hash), with the files of
--- these uids, which only this page must link (see 'orphanFiles'). The pages
--- must be committed (git-commit), and the files in a git repository, not
--- ignored: their changes made outside of kiwi, if any, and those not
--- tracked yet are first committed by Kiwi (a failure stops the deletion), so
--- that they stay in its history; the deletion is then committed by the user
+-- these uids, which only this page must link (see 'orphanFiles'), in a
+-- source where kiwi writes (see 'SourceMode'): their changes made outside of
+-- kiwi, if any, and those not tracked yet are first committed by Kiwi (a
+-- failure stops the deletion, see 'preCommit'), so that they stay in its
+-- history; the deletion is then committed by the user
 -- (a failure is only logged), with the message, if any (see
 -- 'commitMessage'), and the files deleted with the page. The pages are then
 -- reloaded. All of it holds the lock of the reloads. A page or a file that
@@ -178,11 +179,10 @@ deletePage :: ServerState -> Maybe Login -> Maybe T.Text -> PageUID -> T.Text ->
               IO (Either Edit.SaveFailure ())
 deletePage ss loginM messageM uid@(source, pId) hash fileUids =
   withMVar (pagesDBLock ss) $ \_ -> runExceptT $ do
-    unless (gitCommit ss) $ throwError $ Edit.SaveForbidden
-      "the pages are not committed (git-commit: no): they can not be deleted"
     db <- liftIO $ readIORef (pagesDB ss)
+    writableSource db source
     p <- maybe (throwError Edit.SaveConflict) return $ RDI.findDoc (pagesIndex db) uid
-    unless (maybe False (>= AccessAdmin) $ Auth.pageAccessLevel loginM p) $
+    unless (maybe False (>= AccessAdmin) $ Auth.pageAccessLevel db loginM p) $
       throwError $ Edit.SaveForbidden "the account can not delete this page"
     let path = pageAbsoluteFSPath p
         top = contentDir ss FP.</> T.unpack source
@@ -195,15 +195,7 @@ deletePage ss loginM messageM uid@(source, pId) hash fileUids =
         ref = T.concat [source, ":", pId]
         user = maybe "" loginUser loginM
         rel = FP.makeRelative top
-    pre <- liftIO $ Git.commitFiles paths "Kiwi" $
-             T.concat ["Pre-delete commit of ", ref, " (kiwi ", kiwiName ss, ")"]
-    forM_ pre $ \(f, r) -> case r of
-      Left e -> throwError $ Edit.SaveFailed e
-      Right Git.NotInRepository -> throwError $ Edit.SaveForbidden $
-        rel f ++ " is not in a git repository: it can not be deleted"
-      Right Git.Ignored -> throwError $ Edit.SaveForbidden $
-        rel f ++ " is ignored by git: it can not be deleted"
-      Right _ -> return ()
+    preCommit ss source (pageMessage ss "Pre-delete commit of " uid Nothing) paths
     -- the files first: a failure keeps the page, which links them
     (removed, failure) <- liftIO $ removeAll (files ++ [path])
     liftIO $ do
@@ -212,7 +204,7 @@ deletePage ss loginM messageM uid@(source, pId) hash fileUids =
                                   messageM <>
                     T.concat [ "\n\nFiles deleted:\n" <> T.unlines [ "- " <> T.pack (rel f) | f <- deletedFiles ]
                              | let deletedFiles = filter (/= path) removed, not (null deletedFiles) ]
-      unless (null removed) $ commitPaths ss (user <> " via Kiwi") message removed
+      unless (null removed) $ commitPaths ss source (user <> " via Kiwi") message removed
       DB.reloadPages ss
     maybe (return ()) (throwError . Edit.SaveFailed) failure
   where
@@ -252,7 +244,7 @@ runMetaScript ss loginM messageM check cmds = withMVar (pagesDBLock ss) $ \_ -> 
   let cmc = customMetaConfig db
       readable = RDI.query (pagesIndex db) (Auth.readableAnyArchiveQuery loginM)
       byUid = M.fromList [ (pageUID p, p) | p <- readable ]
-      canWrite p = maybe False (>= AccessWrite) (Auth.pageAccessLevel loginM p)
+      canWrite p = maybe False (>= AccessWrite) (Auth.pageAccessLevel db loginM p)
       writable = filter canWrite readable
       -- the pages of the "pages" lines: those that the account can change,
       -- or, when checked, those that it can read
@@ -320,27 +312,30 @@ runMetaScript ss loginM messageM check cmds = withMVar (pagesDBLock ss) $ \_ -> 
                 , Just h <- [M.lookup k final]
                 , writeHeader cmc h /= writeHeader cmc original ]
       refused = [ ref (pageUID p) | (p, _) <- changed, pageUID p `elem` admins
-                , not (maybe False (>= AccessAdmin) $ Auth.pageAccessLevel loginM p) ]
+                , not (maybe False (>= AccessAdmin) $ Auth.pageAccessLevel db loginM p) ]
   unless (check || null refused) $ throwError $ Edit.SaveForbidden $
     "the account can not change the access of these pages: " ++ L.intercalate ", " refused
   forM_ changed $ \(p, text) ->
     liftEither $ first (\e -> Edit.SaveInvalid $ ref (pageUID p) ++ ": " ++ e) $
       checkPageText (contentDir ss) db (pageAbsoluteFSPath p) text
   unless (check || null changed) $ do
-    let paths = map (pageAbsoluteFSPath . fst) changed
-        changedSources = T.intercalate ", " $ L.sort $ L.nub $ map (fst . pageUID . fst) changed
+    let changedSources = T.intercalate ", " $ L.sort $ L.nub $ map (fst . pageUID . fst) changed
         count = T.pack (show $ length changed) <> " pages"
         message = commitMessage (T.concat [ "Metadata of ", changedSources, ": ", count
                                           , " (kiwi ", kiwiName ss, ")" ]) messageM
                   <> "\n\n" <> T.unlines (MS.scriptText cmds)
-    liftIO $ when (gitCommit ss) $
-      commitPaths ss "Kiwi" ("Pre-update commit of " <> count <> " (kiwi " <> kiwiName ss <> ")") paths
+        bySource = M.toList $ M.fromListWith (flip (++))
+                     [ (fst (pageUID p), [pageAbsoluteFSPath p]) | (p, _) <- changed ]
+    forM_ bySource $ writableSource db . fst
+    forM_ bySource $ \(source, ps) ->
+      preCommit ss source (T.concat [ "Pre-update commit of ", T.pack (show $ length ps)
+                                    , " pages (kiwi ", kiwiName ss, ")" ]) ps
     forM_ changed $ \(p, text) ->
       withExceptT (\e -> Edit.SaveFailed $ show (e :: IOException)) $ ExceptT $ try $
         Edit.writePageFile (pageAbsoluteFSPath p) text
     liftIO $ do
       logger ss L.Info $ T.concat [ "metadata of ", count, " changed by ", user, " in ", changedSources ]
-      when (gitCommit ss) $ commitPaths ss (user <> " via Kiwi") message paths
+      forM_ bySource $ \(source, ps) -> commitPaths ss source (user <> " via Kiwi") message ps
       DB.reloadPages ss
   return ScriptRun { runChanged = length changed
                    , runCommands = reverse done
@@ -379,12 +374,33 @@ metaScriptResult check r =
                 | p <- take 20 ps, let (s, u) = pageUID p ]
                 ++ [ T.concat ["  ... and ", tshow (length ps - 20), " more"] | length ps > 20 ]
 
--- | Commits these files (see 'Git.commitFiles'); the failures are logged
-commitPaths :: ServerState -> T.Text -> T.Text -> [FilePath] -> IO ()
-commitPaths ss author message paths = do
-  rs <- Git.commitFiles paths author message
-  forM_ (L.nub [ e | (_, Left e) <- rs ]) $ \e ->
-    logger ss L.Warn $ T.pack $ "files not committed: " ++ e
+-- | Stops a write in a read-only source (see 'SourceMode'): the rights of
+-- the users already forbid it (see 'Auth.pageAccessLevel'), this is the last
+-- check
+writableSource :: PagesDB -> T.Text -> ExceptT Edit.SaveFailure IO ()
+writableSource db source = unless (U.isWritableSource db source) $ throwError $
+  Edit.SaveForbidden $ "the source " ++ T.unpack source ++ " is read-only"
+
+-- | Commits by Kiwi these files of a source before their write: their
+-- changes made outside of kiwi, if any, and those not tracked yet (see
+-- 'Git.commitFiles'), so that they stay in its history. A failure stops the
+-- write.
+preCommit :: ServerState -> T.Text -> T.Text -> [FilePath] -> ExceptT Edit.SaveFailure IO ()
+preCommit ss source message paths =
+  liftIO (Git.commitFiles (contentDir ss FP.</> T.unpack source) paths "Kiwi" message) >>= \case
+    Left e -> do
+      liftIO $ logger ss L.Warn $ T.pack $ "files not committed before their write: " ++ e
+      throwError $ Edit.SaveFailed $ "the files could not be committed before their write: " ++ e
+    Right committed -> liftIO $ forM_ committed $ \f ->
+      logger ss L.Info $ T.pack $ "pre-update commit: " ++ f
+
+-- | Commits these files of a source, written by kiwi, with this author and
+-- message (see 'Git.commitFiles'); the commit and the failure are logged
+commitPaths :: ServerState -> T.Text -> T.Text -> T.Text -> [FilePath] -> IO ()
+commitPaths ss source author message paths =
+  Git.commitFiles (contentDir ss FP.</> T.unpack source) paths author message >>= \case
+    Left e -> logger ss L.Warn $ T.pack $ "files not committed: " ++ e
+    Right committed -> forM_ committed $ \f -> logger ss L.Info $ T.pack $ "committed: " ++ f
 
 -- | Message of a commit: the line of Kiwi, then the message of the user (if
 -- any, its CR removed, at most 2000 characters) after a blank line
@@ -393,15 +409,8 @@ commitMessage line messageM = case T.strip . T.take 2000 . T.filter (/= '\r') <$
   Just m | not (T.null m) -> line <> "\n\n" <> m
   _ -> line
 
--- | Commits the file of a page, when it is in a git repository and differs
--- from its last commit, with this author and the message "PREFIX SOURCE:ID
--- (kiwi NAME)", followed by the message of the user (see 'commitMessage');
--- the commit (named by what in the log) or its failure is logged
-commitPage :: ServerState -> T.Text -> String -> T.Text -> Maybe T.Text -> FilePath -> PageUID -> IO ()
-commitPage ss author what prefix messageM path (source, pid) = do
-  let message = commitMessage (T.concat [ prefix, source, ":", pid, " (kiwi ", kiwiName ss, ")" ]) messageM
-  r <- Git.commitFile path author message
-  case r of
-    Right Git.Committed -> logger ss L.Info $ T.pack $ concat [ what, " committed: ", path ]
-    Right _ -> return ()
-    Left e -> logger ss L.Warn $ T.pack $ concat [ what, " not committed: ", path, ": ", e ]
+-- | Message of the commit of a page: "PREFIX SOURCE:ID (kiwi NAME)",
+-- followed by the message of the user, if any (see 'commitMessage')
+pageMessage :: ServerState -> T.Text -> PageUID -> Maybe T.Text -> T.Text
+pageMessage ss prefix (source, pid) =
+  commitMessage (T.concat [ prefix, source, ":", pid, " (kiwi ", kiwiName ss, ")" ])

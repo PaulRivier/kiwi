@@ -279,7 +279,7 @@ withApiPage source uid run = do
   db <- getDB
   loginM <- asksK (K.login . K.requestState)
   case findPage db (source, uid) of
-    Just p | Just level <- Auth.pageAccessLevel loginM p -> do
+    Just p | Just level <- Auth.pageAccessLevel db loginM p -> do
       fileE <- Scotty.liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
       case fileE >>= \(bytes, t) -> (,) (Edit.fileHash bytes) <$>
                                     Edit.editorText (K.customMetaConfig db) level t of
@@ -504,7 +504,7 @@ withWritablePage source uid run = do
   db <- getDB
   loginM <- asksK (K.login . K.requestState)
   case findPage db (source, uid) of
-    Just p | Just level <- Auth.pageAccessLevel loginM p ->
+    Just p | Just level <- Auth.pageAccessLevel db loginM p ->
       if level >= K.AccessWrite then run p level
       else failWith Net.status403 $ "the account can not write the page " <> source <> "/" <> uid
     _ -> failWith Net.status404 $ "no page " <> source <> "/" <> uid

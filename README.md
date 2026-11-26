@@ -178,6 +178,12 @@ folder in *content* :
   for the searches in this source, see [Full-text
   search](#full-text-search). It replaces the lang of the
   `[metadata-default]` section.
+* **read-only** : `yes` or `no` (default). Kiwi writes in a source only
+  when its folder is the top of a git repository (`git init` in the
+  folder of the source), and commits each change there (see [Content
+  versioning and backup](#content-versioning-and-backup)). With
+  `read-only: yes`, or without a git repository at its top, Kiwi changes
+  no file of the source: see [read-only sources](#read-only-sources).
 
 All these settings are optional.
 
@@ -208,8 +214,9 @@ to a page whose uid is not valid, or is already the one of another page
 of the source (a copied file, for example), and keeps the former one in
 its *previous-uids* metadata. The file is then written again, its
 metadata header in a normalized form (see [Edit pages in the
-browser](#edit-pages-in-the-browser)), and committed when it is in a git
-repository (see [Content versioning and backup](#content-versioning-and-backup)).
+browser](#edit-pages-in-the-browser)), and committed (see [Content
+versioning and backup](#content-versioning-and-backup)); Kiwi writes no
+uid in a [read-only source](#read-only-sources).
 You may choose a uid yourself (`uid: cake`): from 1 to 64 letters,
 digits, `-` or `_`. The address of a page is `/page/SOURCE/UID`, and the
 links to a page use its uid: they stay valid when its file is renamed
@@ -376,7 +383,7 @@ file already known keeps it (else the first one by path), the other
 one gets a new uid, written in place of the former. The renamed files
 are committed, as the pages whose uid is written (see [content
 versioning](#content-versioning-and-backup)), first as they are, then
-renamed.
+renamed. Kiwi renames no file in a [read-only source](#read-only-sources).
 
 Kiwi serves a file (`/file/SOURCE/UID`, with its name without its uid)
 only when a page links to it with a `file:` link, and only to the
@@ -588,7 +595,8 @@ can read:
 # Edit pages in the browser
 
 The users with the write right on a page (see [Accounts and
-access](#accounts-and-access)) see a pen in the navigation bar: it
+access](#accounts-and-access)), in a source where Kiwi writes (see
+[read-only sources](#read-only-sources)), see a pen in the navigation bar: it
 opens the page in a markdown editor, with a toolbar, a preview and a
 side by side view. On a computer, a small pen also appears in the right
 margin of the block under the mouse: it opens the editor at the line of
@@ -613,10 +621,9 @@ Until it is saved, the
 text is kept as a draft in your browser, for this version of the file;
 logging out forgets the drafts.
 
-When the saved file is in a git repository, Kiwi commits it: see
-[Content versioning and backup](#content-versioning-and-backup). The
-message written next to the Save button, if any, is added to the one of
-the commit (the field is not shown with `git-commit: no`).
+Kiwi commits the saved file: see [Content versioning and
+backup](#content-versioning-and-backup). The message written next to the
+Save button, if any, is added to the one of the commit.
 
 The save and preview requests from the pages of another site are
 refused: behind a reverse proxy, keep the `Host` header of the requests
@@ -650,13 +657,12 @@ page links (whatever the access of the other pages, archives included):
 they are kept unless the box *Delete these files too* is checked, but
 they are no longer served.
 
-A page can only be deleted when its file is in a git repository and not
-ignored there, and when the pages are committed (no `git-commit: no`):
-the deleted files stay in the history. When the file of the page, or one
+The deleted files stay in the history of the git repository of the
+source. When the file of the page, or one
 of the files deleted with it, differs from its last commit (or is not
 tracked yet), Kiwi first commits it as it is, with *Kiwi* as author and
 the message `Pre-delete commit of SOURCE:UID (kiwi NAME)`; a failure of
-git stops the deletion. The deletion is then committed by *LOGIN via
+git (a file ignored by git, for example) stops the deletion. The deletion is then committed by *LOGIN via
 Kiwi*, with the message `Delete SOURCE:UID TITLE (kiwi NAME)`, the
 message of the user, if any, and the list of the files deleted with the
 page. The deletion is refused when the page or its files changed since
@@ -749,39 +755,66 @@ the scripts, with the rights of an account and its API token: see
 
 # Content versioning and backup
 
-You are strongly encouraged to keep your content in a git repository
-(one by source, the whole content folder, or the kiwi folder).
+Kiwi writes in a source only when the folder of the source is the top of
+a git repository (one repository by source: a repository of the whole
+content folder, or of the kiwi folder, does not count), and commits each
+file it writes there. Kiwi does not push: push from a cron job or a git
+hook to keep a backup elsewhere.
 
-When a page saved from the browser is in a git repository, and not
-ignored there (`.gitignore`), Kiwi commits this file alone: a file not
-tracked yet is added, and what you have staged for other files stays
-staged, out of the commit. The author of the commit is *LOGIN via
-Kiwi* (without email), its committer is *Kiwi*, and its message is
-`Edit SOURCE:UID (kiwi NAME)`. When the file differed from its last
-commit before the save (changes not committed, or a file not tracked
-yet), Kiwi first commits it as it was, with *Kiwi* as author and the
-message `Pre-update commit of SOURCE:UID (kiwi NAME)`: the changes made
-outside of Kiwi are not attributed to the user of the browser.
+When a page is saved from the browser or the API, Kiwi commits this file
+alone: a file not tracked yet is added, and what you have staged for
+other files stays staged, out of the commit. The author of the commit is
+*LOGIN via Kiwi* (without email), its committer is *Kiwi*, and its
+message is `Edit SOURCE:UID (kiwi NAME)`. When the file differed from
+its last commit before the save (changes not committed, or a file not
+tracked yet), Kiwi first commits it as it was, with *Kiwi* as author and
+the message `Pre-update commit of SOURCE:UID (kiwi NAME)`: the changes
+made outside of Kiwi are not attributed to the user of the browser.
 
 Kiwi commits the files it writes when it loads the pages (the uids it
-writes, see [pages](#pages)) the same way: one commit by repository,
-with *Kiwi* as author and the message `Kiwi: uid assigned to N pages`,
-after a commit `Kiwi: pre-update commit of N pages` of those that
-differed from their last commit. The files of the sources that it
-renames to give them a uid (see [images and files](#images-and-files))
-are committed the same way, with the messages `Kiwi: pre-update commit
-of N files` and `Kiwi: uid assigned to N files`: git sees the renames.
+writes, see [pages](#pages)) the same way: one commit by source, with
+*Kiwi* as author and the message `Kiwi: uid assigned to N pages`, after
+a commit `Kiwi: pre-update commit of N pages` of those that differed
+from their last commit. The files of the sources that it renames to give
+them a uid (see [images and files](#images-and-files)) are committed the
+same way, with the messages `Kiwi: pre-update commit of N files` and
+`Kiwi: uid assigned to N files`: git sees the renames.
 
-Set `git-commit: no` in the `[kiwi]` section of kiwi.ini to disable these
-commits. Kiwi does not push, and the files changed with your local
-editor are not committed.
+The commits are made with the `git` program, within 60 seconds. When the
+first commit fails (a file ignored by git, a hook that refuses the
+commit, a merge in progress…), nothing is written: the save, the
+creation, the deletion or the metadata script is refused, and the error
+is logged. When the commit after the write fails, the file is written
+anyway, the error is logged, and the next pre-update commit of the file
+takes the change, with *Kiwi* as author. The files changed with your
+local editor are not committed by Kiwi.
 
-The commit is made with the `git` program; when it fails (git not
-installed, a hook that refuses the commit, a merge in progress, more
-than 60 seconds), the page is saved anyway and the error is logged. If
-Kiwi runs as another user than the owner of the repository, git refuses
-to work in it until the repository is added to the `safe.directory`
-setting of this user, for example
+## read-only sources
+
+A source is read-only when its section in *kiwi.ini* says
+`read-only: yes`, or when its folder is not the top of a git repository
+(a warning in the log; git not installed, or a repository that git
+refuses, count as none). Kiwi checks it at each load of the pages (at
+startup, and at each reload).
+
+Kiwi changes no file of a read-only source, for no reason:
+
+* nobody can edit, create or delete its pages, in the browser or with the
+  API: every right on its pages is the read right at most, for the
+  admins too (who then read the header of the pages, in the API, without
+  the *access* and *archive* metadata);
+* a page without a valid uid, or whose uid is already the one of another
+  page of the source, is not loaded, and a file without a uid in its name
+  (or whose uid is already used) is not served: Kiwi would have to write
+  them;
+* the *Doctor* page lists nothing of these sources.
+
+The admins can still open its pages in their local editor (see [Edit file
+with your local editor](#edit-file-with-your-local-editor)).
+
+If Kiwi runs as another user than the owner of the repository, git
+refuses to work in it, and the source is read-only, until the repository
+is added to the `safe.directory` setting of this user, for example
 `git config --global --add safe.directory /path/to/repository`.
 
 Don't put *_accounts* and *_sessions* under version control: they hold

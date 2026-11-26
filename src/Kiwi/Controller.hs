@@ -75,7 +75,6 @@ import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
-import qualified Kiwi.Git as Git
 import           Kiwi.Meta (splitPage)
 import           Kiwi.Files (servedName)
 import           Kiwi.Pandoc (pageDoc, newPageDoc, embeddedDoc)
@@ -126,17 +125,21 @@ orRenderError path (Left e) = do
 -- according to the context (not in the sources context): the links to pages
 -- that the user can not read (missing, or not readable), and the links to
 -- files that are not in the source ("file:" followed by the target), as
--- displayed with the class kiwi-link-broken.
+-- displayed with the class kiwi-link-broken. Only in the sources where kiwi
+-- writes (see 'K.SourceMode'), as the others can not be changed.
 serveDoctor :: ActM ()
 serveDoctor = do
   db <- getRestrictedDB
   let brokenPages = M.fromListWith (flip (++))
                       [ (K.pageUID pg, [snd uid]) | (pg, uid) <- brokenLinks $ K.pagesIndex db ]
       -- page by page, in the order of the file paths, so source by source
+      -- the sources where kiwi writes only: the others can not be changed
+      writable = U.isWritableSource db
       byPage = [ (pg, targets)
                | pg <- sortOn K.pageAbsoluteFSPath $ RDI.documentsList $ K.pagesIndex db
                , let source = fst $ K.pageUID pg
-                     targets = M.findWithDefault [] (K.pageUID pg) brokenPages ++
+               , writable source
+               , let targets = M.findWithDefault [] (K.pageUID pg) brokenPages ++
                                [ "file:" <> f | f <- K.pageFiles pg
                                               , M.notMember (source, f) (K.sourceFiles db) ]
                , not (null targets) ]
@@ -146,7 +149,8 @@ serveDoctor = do
       -- unknown, and they are in the archives or not
       errors = [ (s, [ (p, e) | (_, p, e) <- es ])
                | es@((s, _, _) : _) <- groupBy ((==) `on` (\(src, _, _) -> src))
-                                               (K.loadErrors db) ]
+                                               (K.loadErrors db)
+               , writable s ]
   admin <- Auth.isAdmin
   -- the files that no page links, for admins only (the others can not know
   -- the pages that they can not read), archives included: they are not served
@@ -157,7 +161,7 @@ serveDoctor = do
     return [ (s, map snd fs)
            | fs@((s, _) : _) <- groupBy ((==) `on` fst)
                [ (s, (p, u)) | ((s, u), p) <- M.toList $ K.sourceFiles full
-                        , S.notMember (s, u) linked ] ]
+                        , writable s, S.notMember (s, u) linked ] ]
   r <- V.renderDoctor (if admin then sortOn (textOrder . fst) errors else [])
                       (sortOn (textOrder . fst) bySource)
                       (sortOn (textOrder . fst) [ (s, sort ps) | (s, ps) <- unlinked ])
@@ -516,7 +520,9 @@ serveEditPage (cmd, args) pgId = do
 
 -- | Right of the user of the request on the page, if any
 accessLevel :: K.Page -> ActM (Maybe K.AccessLevel)
-accessLevel p = (`Auth.pageAccessLevel` p) <$> asksK (K.login . K.requestState)
+accessLevel p = do
+  db <- getDB
+  (\loginM -> Auth.pageAccessLevel db loginM p) <$> asksK (K.login . K.requestState)
 
 -- | Runs the action on the page and the right of the user, when the user can
 -- edit it (write right). A page that the user can not read is not found,
@@ -570,15 +576,12 @@ serveDeletePage uid = withDeletablePage uid $ \p -> do
 -- 'V.DeleteForm'), from the hash of its file, the failure of the previous
 -- request, the message and the box of the files sent: the pages linking to
 -- it that the user can read (archives included), the files that only it
--- links (see 'Write.orphanFiles'), and why they can not be deleted: pages
--- not committed, files outside of a git repository or ignored by git
+-- links (see 'Write.orphanFiles')
 deleteForm :: K.Page -> T.Text -> Maybe T.Text -> T.Text -> Bool -> ActM V.DeleteForm
 deleteForm p hash errorM message filesToo = do
   full <- getDB
   loginM <- asksK (K.login . K.requestState)
   admin <- Auth.isAdmin
-  commits <- asksK K.gitCommit
-  loc <- V.getLocales
   cd <- asksK K.contentDir
   let (source, _) = K.pageUID p
       top = cd FP.</> T.unpack source
@@ -589,22 +592,12 @@ deleteForm p hash errorM message filesToo = do
       -- the paths for the admins only, the names of the files for the others
       fileName f = T.pack $ if admin then f else servedName (FP.takeFileName f)
       files = [ (u, fileName f) | (u, f) <- orphans ]
-  states <- if commits then liftIO $ Git.fileStates (path : [ top FP.</> f | (_, f) <- orphans ])
-            else return []
-  let named = zip (K.pageTitle p : map snd files) (map snd states)
-      refusal (name, st) = case st of
-        Left e -> Just $ K.loc_GitFailed loc <> " " <> T.pack e
-        Right Git.OutsideRepository -> Just $ K.loc_NotInGit loc <> " " <> name
-        Right Git.IgnoredFile -> Just $ K.loc_IgnoredByGit loc <> " " <> name
-        Right Git.InRepository -> Nothing
   return V.DeleteForm
     { V.dfPage = p
     , V.dfHash = hash
     , V.dfPath = if admin then Just (FP.makeRelative top path) else Nothing
     , V.dfBacklinks = filter ((/= K.pageUID p) . K.pageUID) backlinks
     , V.dfFiles = files
-    , V.dfRefused = [ K.loc_NotCommitted loc | not commits ] ++ mapMaybe refusal (take 1 named)
-    , V.dfFilesRefused = mapMaybe refusal (drop 1 named)
     , V.dfError = errorM
     , V.dfMessage = message
     , V.dfDeleteFiles = filesToo }
@@ -713,7 +706,7 @@ withCreatableSource :: T.Text -> ActM () -> ActM ()
 withCreatableSource source run = do
   db <- getDB
   loginM <- asksK (K.login . K.requestState)
-  if | source `notElem` K.dbSources db -> serveNotFound
+  if | M.notMember source (K.dbSources db) -> serveNotFound
      | Write.canCreateIn db loginM source -> run
      | otherwise -> serveForbidden
 

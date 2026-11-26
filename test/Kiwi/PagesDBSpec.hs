@@ -5,7 +5,7 @@ import           Data.Either (isRight)
 import qualified Data.ByteString as BS
 import           Control.Monad (forM_, when)
 import           Data.IORef (atomicModifyIORef', newIORef, readIORef)
-import           Data.List (find, sort)
+import           Data.List (find, isPrefixOf, sort)
 import qualified Data.Map.Strict as M
 import qualified Data.SearchEngine as SE
 import qualified Data.Text as T
@@ -39,12 +39,12 @@ writeFileAt p sec c = do
   D.setModificationTime p (Time.UTCTime (Time.fromGregorian 2026 1 1)
                                         (Time.secondsToDiffTime sec))
 
--- | The database updated by 'DB.updatePagesDB' (without git), and the
+-- | The database updated by 'DB.updatePagesDB', and the
 -- messages logged (that of the keywords, with its time, left out)
 reloadDB :: FilePath -> PagesDB -> IO (PagesDB, [(L.LogLevel, T.Text)])
 reloadDB cd db = do
   logR <- newIORef []
-  db' <- DB.updatePagesDB (\lvl msg -> atomicModifyIORef' logR (\ms -> ((lvl, msg) : ms, ()))) False cd db
+  db' <- DB.updatePagesDB (\lvl msg -> atomicModifyIORef' logR (\ms -> ((lvl, msg) : ms, ()))) cd db
   msgs <- reverse <$> readIORef logR
   return (db', filter (not . T.isPrefixOf "TF-IDF finished" . snd) msgs)
 
@@ -251,9 +251,47 @@ pagesDBSpec = do
     withContentDir $ \cd -> do
       writeFileAt (pageFile cd "a.md") 0 "uid: x\n\nkiwiword"
       writeFileAt (cd FP.</> "t" FP.</> "a.md") 0 "uid: x\n\nkiwiword"
+      git (cd FP.</> "t") ["init", "-q"]
       (db, msgs) <- loadDB cd
       sort (map pageUID $ RDI.documentsList $ pagesIndex db) `shouldBe` [("s", "x"), ("t", "x")]
       warnings msgs `shouldBe` []
+
+  it "gives each source its mode: read-only when configured, or without git at its top" $
+    withGit $ withContentDir $ \cd -> do
+      forM_ ["s", "conf", "nogit"] $ \src ->
+        writeFileAt (cd FP.</> src FP.</> "a.md") 0 "uid: a\n\nkiwiword"
+      git (cd FP.</> "conf") ["init", "-q"]
+      -- a repository above a source does not count
+      git cd ["init", "-q"]
+      let conf = SourceConfig "conf" Nothing Nothing True
+      (db, msgs) <- reloadDB cd (DB.emptyPagesDB defMeta [] [conf])
+      dbSources db `shouldBe` M.fromList [ ("conf", ReadOnly), ("nogit", ReadOnly)
+                                         , ("s", WriteAllowed) ]
+      warnings msgs `shouldBe`
+        [ "source nogit : its folder is not the top of a git repository, read-only" ]
+      -- the pages with a uid are loaded
+      length (RDI.documentsList $ pagesIndex db) `shouldBe` 3
+
+  it "writes no file of a read-only source, and leaves out what needs a write" $
+    withContentDir $ \cd -> do
+      let ro name = cd FP.</> "ro" FP.</> name
+          files = [ ("ok.md", "uid: ok\n\n[f](file:ABCDEFGH12) kiwiword")
+                  , ("none.md", "title: None\n\nkiwiword")
+                  , ("bad.md", "uid: x/y\n\nkiwiword")
+                  , ("dup.md", "uid: ok\n\nkiwiword")
+                  , ("pic__ABCDEFGH12.png", "png")
+                  , ("copy__ABCDEFGH12.png", "png")
+                  , ("plain.png", "png") ]
+      forM_ files $ \(name, c) -> writeFileAt (ro name) 0 c
+      (db, msgs) <- loadDB cd
+      dbSources db `shouldBe` M.fromList [("ro", ReadOnly), ("s", WriteAllowed)]
+      map pageUID (RDI.documentsList $ pagesIndex db) `shouldBe` [("ro", "ok")]
+      M.toList (sourceFiles db) `shouldBe` [(("ro", "ABCDEFGH12"), "copy__ABCDEFGH12.png")]
+      -- nothing on the doctor page, nothing written
+      loadErrors db `shouldBe` []
+      warnings msgs `shouldBe` [ "source ro : its folder is not the top of a git repository, read-only" ]
+      forM_ files $ \(name, c) -> readFile (ro name) `shouldReturn` c
+      D.listDirectory (cd FP.</> "ro") >>= (`shouldMatchList` map fst files)
 
   it "replaces an invalid uid" $
     withContentDir $ \cd -> do
@@ -347,7 +385,7 @@ pagesDBSpec = do
             , "x.tmp", "_y.png", "p.md~", ".hidden.png" ] $ \name ->
         writeFileAt (pageFile cd name) 0 name
       (db, msgs) <- loadDB cd
-      files <- sort <$> traverseFiles (cd FP.</> "s")
+      files <- sort . filter (not . (".git/" `isPrefixOf`)) <$> traverseFiles (cd FP.</> "s")
       let named prefix = [ f | f <- files, prefix `T.isPrefixOf` T.pack f ]
           uidOf f = maybe (error f) T.pack $ Files.fileUid (FP.takeFileName f)
       [a] <- return $ named "img/a__"
@@ -371,7 +409,7 @@ pagesDBSpec = do
       (db', msgs') <- reloadDB cd db
       sourceFiles db' `shouldBe` sourceFiles db
       warnings msgs' `shouldBe` []
-      sort <$> traverseFiles (cd FP.</> "s") `shouldReturn` files
+      sort . filter (not . (".git/" `isPrefixOf`)) <$> traverseFiles (cd FP.</> "s") `shouldReturn` files
 
   it "keeps the uid of a known file, a new copy of it gets another one" $
     withContentDir $ \cd -> do
@@ -385,21 +423,20 @@ pagesDBSpec = do
 
   it "commits the files renamed to get their uid" $ withGit $
     withContentDir $ \cd -> do
-      git cd ["init", "-q"]
+      let repo = cd FP.</> "s"
       writeFileAt (pageFile cd "p.md") 0 "uid: p\n\n![a](file:a.png) kiwiword"
       writeFileAt (pageFile cd "a.png") 0 "PNG"
-      git cd ["add", "."]
-      git cd ["commit", "-q", "-m", "init"]
+      git repo ["add", "."]
+      git repo ["commit", "-q", "-m", "init"]
       writeFileAt (pageFile cd "new.png") 0 "NEW"
-      db <- DB.updatePagesDB (\_ _ -> return ()) True cd (DB.emptyPagesDB defMeta [] [])
-      gitOut cd ["log", "--format=%an|%s"] `shouldReturn`
+      db <- DB.updatePagesDB (\_ _ -> return ()) cd (DB.emptyPagesDB defMeta [] [])
+      gitOut repo ["log", "--format=%an|%s"] `shouldReturn`
         "Kiwi|Kiwi: uid assigned to 2 files\nKiwi|Kiwi: pre-update commit of 2 files\n\
         \test|init\n"
       [a] <- return [ p | p <- M.elems (sourceFiles db), "a__" `T.isPrefixOf` T.pack p ]
-      gitOut cd ["show", "-M", "--name-status", "--format=", "HEAD", "--", "s/a.png"
-                , "s/" ++ a ]
-        `shouldReturn` ("R100\ts/a.png\ts/" ++ a ++ "\n")
-      gitOut cd ["status", "--porcelain"] `shouldReturn` ""
+      gitOut repo ["show", "-M", "--name-status", "--format=", "HEAD", "--", "a.png", a ]
+        `shouldReturn` ("R100\ta.png\t" ++ a ++ "\n")
+      gitOut repo ["status", "--porcelain"] `shouldReturn` ""
 
   it "lists the files that are not loaded, until they are fixed" $
     withContentDir $ \cd -> do
@@ -420,16 +457,16 @@ pagesDBSpec = do
 
   it "commits the files whose uid is written, after their changes" $ withGit $
     withContentDir $ \cd -> do
-      git cd ["init", "-q"]
+      let repo = cd FP.</> "s"
       writeFileAt (pageFile cd "a.md") 0 "title: A\n\nkiwiword"
       writeFileAt (pageFile cd "b.md") 0 "uid: b\n\nkiwiword"
-      git cd ["add", "."]
-      git cd ["commit", "-q", "-m", "init"]
+      git repo ["add", "."]
+      git repo ["commit", "-q", "-m", "init"]
       writeFileAt (pageFile cd "a.md") 0 "title: A2\n\nkiwiword"
       writeFileAt (pageFile cd "c.md") 0 "title: C\n\nkiwiword"
-      _ <- DB.updatePagesDB (\_ _ -> return ()) True cd (DB.emptyPagesDB defMeta [] [])
-      gitOut cd ["log", "--format=%an|%s"] `shouldReturn`
+      _ <- DB.updatePagesDB (\_ _ -> return ()) cd (DB.emptyPagesDB defMeta [] [])
+      gitOut repo ["log", "--format=%an|%s"] `shouldReturn`
         "Kiwi|Kiwi: uid assigned to 2 pages\nKiwi|Kiwi: pre-update commit of 2 pages\ntest|init\n"
-      gitOut cd ["show", "--name-only", "--format=", "HEAD~1"]
-        `shouldReturn` "s/a.md\ns/c.md\n"
-      gitOut cd ["status", "--porcelain"] `shouldReturn` ""
+      gitOut repo ["show", "--name-only", "--format=", "HEAD~1"]
+        `shouldReturn` "a.md\nc.md\n"
+      gitOut repo ["status", "--porcelain"] `shouldReturn` ""

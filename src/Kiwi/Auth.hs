@@ -354,9 +354,12 @@ loginIsAdmin loginM = case loginM of
   Just l -> elem "admin" (loginGroups l)
 
 -- | Right of the user on the page, if any: the highest one of their groups
--- in the access of the page ("public" for everyone), every right for admins
-pageAccessLevel :: Maybe Login -> Page -> Maybe AccessLevel
-pageAccessLevel loginM = accessLevel loginM . pageAccess
+-- in the access of the page ("public" for everyone), every right for
+-- admins; the read right at most in a read-only source (see 'SourceMode')
+pageAccessLevel :: PagesDB -> Maybe Login -> Page -> Maybe AccessLevel
+pageAccessLevel db loginM p = cap <$> accessLevel loginM (pageAccess p)
+  where cap | U.isWritableSource db (fst $ pageUID p) = id
+            | otherwise = min AccessRead
 
 -- | Right of the user on a page of this access (see 'pageAccessLevel')
 accessLevel :: Maybe Login -> Access -> Maybe AccessLevel

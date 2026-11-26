@@ -31,6 +31,7 @@ module Kiwi.Types
   , CustomMetaData(..)
   , CustomMetaConfig(..)
   , SourceConfig(..)
+  , SourceMode(..)
   , CustomMetaType(..)
   , parseCustomMetaType
   , DocIndexKey(..)
@@ -93,8 +94,6 @@ data ServerState =
               , etags         :: MVar ETags
               , tocSetting    :: TocSetting
               , secureCookie  :: Bool
-              , gitCommit     :: Bool  -- ^ commit the pages saved in a
-                                       -- git repository
               , agentGuide    :: Maybe FP.FilePath  -- ^ file of the guide of
                                                     -- the user for the agents (API)
               , logger        :: Logger
@@ -175,8 +174,8 @@ data PagesDB =
           , customMetaConfig :: [CustomMetaConfig]
           , sourcesConfig :: [SourceConfig]
           -- | the sources: the folders of the content folder (not hidden)
-          -- at the last load, sorted, those without page included
-          , dbSources :: [T.Text]
+          -- at the last load, those without page included, with their mode
+          , dbSources :: M.Map T.Text SourceMode
           , dbGeneration :: Int  -- ^ number of loads (see 'Kiwi.PagesDB.updatePagesDB')
           -- | files that are not loaded: (source, path in its pages folder,
           -- reason), by source then path
@@ -332,7 +331,14 @@ data SourceConfig =
   SourceConfig { scSourceName :: T.Text
                , scAccess :: Maybe Access  -- ^ default access of the pages
                , scLang :: Maybe LangSetting  -- ^ default lang of the pages
+               , scReadOnly :: Bool  -- ^ read-only: kiwi writes no file there
                }
+
+-- | Whether kiwi writes in a source (see 'Kiwi.PagesDB.updatePagesDB'): a
+-- source is read-only when its config says so, or when its folder is not
+-- the top of a git repository; kiwi then writes none of its files
+data SourceMode = ReadOnly | WriteAllowed
+  deriving (Eq, Show)
 
 data CustomMetaType = CmtText | CmtInt | CmtDate | CmtBool
   deriving (Eq, Show)
@@ -583,12 +589,6 @@ data Locales = Locales
   , loc_DeleteFiles :: T.Text
   , loc_DeleteFilesToo :: T.Text
   , loc_Delete :: T.Text
-  , loc_DeleteImpossible :: T.Text
-  , loc_FilesNotDeletable :: T.Text
-  , loc_NotCommitted :: T.Text
-  , loc_NotInGit :: T.Text
-  , loc_IgnoredByGit :: T.Text
-  , loc_GitFailed :: T.Text
   , loc_DeleteConflict :: T.Text
   -- | save failures: the page changed meanwhile, the text can not be saved
   -- (followed by the reason), metadata that the user can not change (followed

@@ -77,6 +77,8 @@ editSpec = do
       body = TL.toStrict . TLE.decodeUtf8 . WT.simpleBody
       status = Net.statusCode . WT.simpleStatus
       pagePath cd name = cd FP.</> "s" FP.</> name
+      -- the git repository of the source s
+      repoOf cd = cd FP.</> "s"
       hashOf cd name = fileHash <$> liftIO (BS.readFile $ pagePath cd name)
       save h text = post "/save-page" [("source", "s"), ("id", "p"), ("hash", h), ("text", text)]
 
@@ -161,9 +163,8 @@ editSpec = do
 
   let onRepo kiwiLines test = withGit $
         withKiwiConfig kiwiLines [("bob", "secret", ["family"])] pages $ \cd _ app -> do
-          git cd ["init", "-q"]
-          git cd ["add", "."]
-          git cd ["commit", "-q", "-m", "init"]
+          git (repoOf cd) ["add", "."]
+          git (repoOf cd) ["commit", "-q", "-m", "init"]
           WT.runSession (test cd) app
 
   it "commits a saved page in its git repository" $ onRepo [] $ \cd -> do
@@ -171,13 +172,13 @@ editSpec = do
     h <- hashOf cd "p.md"
     saved <- save h "title: New\n\nBye"
     liftIO $ status saved `shouldBe` 200
-    liftIO $ gitOut cd ["log", "-1", "--format=%an <%ae>|%cn <%ce>|%s"]
+    liftIO $ gitOut (repoOf cd) ["log", "-1", "--format=%an <%ae>|%cn <%ce>|%s"]
       `shouldReturn` "bob via Kiwi <>|Kiwi <>|Edit s:p (kiwi kiwi)\n"
     -- no pre-update commit: the file was not changed outside of kiwi
-    liftIO $ gitOut cd ["rev-list", "--count", "HEAD"] `shouldReturn` "2\n"
-    liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""
+    liftIO $ gitOut (repoOf cd) ["rev-list", "--count", "HEAD"] `shouldReturn` "2\n"
+    liftIO $ gitOut (repoOf cd) ["status", "--porcelain"] `shouldReturn` ""
 
-  let logOf cd n = gitOut cd ["log", "-" ++ show (n :: Int), "--format=%an <%ae>|%cn <%ce>|%s"]
+  let logOf cd n = gitOut (repoOf cd) ["log", "-" ++ show (n :: Int), "--format=%an <%ae>|%cn <%ce>|%s"]
       saveCommits = "bob via Kiwi <>|Kiwi <>|Edit s:p (kiwi kiwi)\n\
                     \Kiwi <>|Kiwi <>|Pre-update commit of s:p (kiwi kiwi)\n"
 
@@ -189,13 +190,13 @@ editSpec = do
     saved <- save h "title: New\n\nBye"
     liftIO $ status saved `shouldBe` 200
     liftIO $ logOf cd 3 `shouldReturn` (saveCommits ++ "test <test@test>|test <test@test>|init\n")
-    liftIO $ gitOut cd ["show", "HEAD~1:s/p.md"] `shouldReturn` outside
-    liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""
+    liftIO $ gitOut (repoOf cd) ["show", "HEAD~1:p.md"] `shouldReturn` outside
+    liftIO $ gitOut (repoOf cd) ["status", "--porcelain"] `shouldReturn` ""
 
   it "first commits a page file that is not tracked yet, as Kiwi" $ onRepo [] $ \cd -> do
     _ <- login "bob"
-    liftIO $ git cd ["rm", "-q", "--cached", "s/p.md"]
-    liftIO $ git cd ["commit", "-q", "-m", "untrack"]
+    liftIO $ git (repoOf cd) ["rm", "-q", "--cached", "p.md"]
+    liftIO $ git (repoOf cd) ["commit", "-q", "-m", "untrack"]
     h <- hashOf cd "p.md"
     saved <- save h "title: New\n\nBye"
     liftIO $ status saved `shouldBe` 200
@@ -207,24 +208,47 @@ editSpec = do
     saved <- post "/save-page" [ ("source", "s"), ("id", "p"), ("hash", h)
                                , ("message", "Typo fixed"), ("text", "title: New\n\nBye") ]
     liftIO $ status saved `shouldBe` 200
-    liftIO $ gitOut cd ["log", "-1", "--format=%B"]
+    liftIO $ gitOut (repoOf cd) ["log", "-1", "--format=%B"]
       `shouldReturn` "Edit s:p (kiwi kiwi)\n\nTypo fixed\n\n"
     -- an empty message adds nothing
     h' <- hashOf cd "p.md"
     again <- post "/save-page" [ ("source", "s"), ("id", "p"), ("hash", h')
                                , ("message", " "), ("text", "title: New\n\nBye again") ]
     liftIO $ status again `shouldBe` 200
-    liftIO $ gitOut cd ["log", "-1", "--format=%B"] `shouldReturn` "Edit s:p (kiwi kiwi)\n\n"
+    liftIO $ gitOut (repoOf cd) ["log", "-1", "--format=%B"] `shouldReturn` "Edit s:p (kiwi kiwi)\n\n"
 
-  it "does not commit a saved page with git-commit: no" $ onRepo ["git-commit: no"] $ \cd -> do
-    _ <- login "bob"
-    editor <- get "/edit/s/p"
-    liftIO $ body editor `shouldSatisfy` (not . T.isInfixOf "name=\"message\"")
-    h <- hashOf cd "p.md"
-    saved <- save h "title: New\n\nBye"
-    liftIO $ status saved `shouldBe` 200
-    liftIO $ gitOut cd ["rev-list", "--count", "HEAD"] `shouldReturn` "1\n"
-    liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` " M s/p.md\n"
+  it "writes nothing in a read-only source" $
+    onRepo ["[source s]", "read-only: yes"] $ \cd -> do
+      _ <- login "bob"
+      page <- body <$> get "/page/s/p"
+      liftIO $ page `shouldSatisfy` (not . T.isInfixOf "/edit/s/p")
+      editor <- get "/edit/s/p"
+      liftIO $ status editor `shouldBe` 403
+      h <- hashOf cd "p.md"
+      saved <- save h "title: New\n\nBye"
+      liftIO $ status saved `shouldBe` 403
+      creation <- get "/new/s"
+      liftIO $ status creation `shouldBe` 403
+      liftIO $ gitOut (repoOf cd) ["rev-list", "--count", "HEAD"] `shouldReturn` "1\n"
+      liftIO $ gitOut (repoOf cd) ["status", "--porcelain"] `shouldReturn` ""
+
+  it "writes nothing in a source that is not the top of a git repository" $
+    withKiwiConfig [] [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])] pages $ \cd _ app -> do
+      D.removeDirectoryRecursive (repoOf cd FP.</> ".git")
+      flip WT.runSession app $ do
+        -- the mode of the sources is read at each load
+        _ <- login "bob"
+        h <- hashOf cd "p.md"
+        unclassified <- save h "title: New\n\nBye"
+        liftIO $ status unclassified `shouldBe` 500
+        _ <- login "ann"
+        reloaded <- post "/reload" []
+        liftIO $ status reloaded `shouldBe` 200
+        _ <- login "bob"
+        refused <- save h "title: New\n\nBye"
+        liftIO $ status refused `shouldBe` 403
+        content <- liftIO $ readFile (pagePath cd "p.md")
+        liftIO $ content `shouldSatisfy` (not . L.isInfixOf "Bye")
 
   it "previews the content of a text, relative to its page" $ onKiwi $ \_ -> do
     _ <- login "bob"
@@ -321,16 +345,15 @@ editSpec = do
 
   it "commits a created page, with the message of the form" $ withGit $
     withKiwiConfig sourceLines [("bob", "secret", ["family"])] pages $ \cd _ app -> do
-      git cd ["init", "-q"]
-      git cd ["add", "."]
-      git cd ["commit", "-q", "-m", "init"]
+      git (repoOf cd) ["add", "."]
+      git (repoOf cd) ["commit", "-q", "-m", "init"]
       flip WT.runSession app $ do
         _ <- login "bob"
         created <- create [("text", "title: New\n\nBody"), ("message", "From the web")]
         liftIO $ status created `shouldBe` 200
-        liftIO $ gitOut cd ["log", "-1", "--format=%an|%B"] `shouldReturn`
+        liftIO $ gitOut (repoOf cd) ["log", "-1", "--format=%an|%B"] `shouldReturn`
           T.unpack ("bob via Kiwi|Create s:" <> uidOf (body created) <> " (kiwi kiwi)\n\nFrom the web\n\n")
-        liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""
+        liftIO $ gitOut (repoOf cd) ["status", "--porcelain"] `shouldReturn` ""
 
   -- deletion of pages: carl has the admin right on the pages d and e, bob the
   -- write right; d links two files, pic only by it, doc also by e
@@ -342,19 +365,16 @@ editSpec = do
                  , ("doc__ABCDEFGH13.txt", "doc") ]
       delAccounts = [ ("ann", "secret", ["admin"]), ("bob", "secret", ["family"])
                     , ("carl", "secret", ["editors"]) ]
-      onDelKiwi kiwiLines withRepo test = withGit $
+      onDelKiwi kiwiLines test = withGit $
         withKiwiConfig kiwiLines delAccounts delPages $ \cd _ app -> do
-          if withRepo then do
-            git cd ["init", "-q"]
-            git cd ["add", "."]
-            git cd ["commit", "-q", "-m", "init"]
-          else return ()
+          git (repoOf cd) ["add", "."]
+          git (repoOf cd) ["commit", "-q", "-m", "init"]
           WT.runSession (test cd) app
       deletion h params = post "/delete-page" ([("source", "s"), ("id", "d"), ("hash", h)] ++ params)
       exists cd name = liftIO $ D.doesFileExist (pagePath cd name)
 
   it "asks the users with the admin right on a page to confirm its deletion" $
-    onDelKiwi [] True $ \_ -> do
+    onDelKiwi [] $ \_ -> do
       anonymous <- get "/delete/s/d"
       liftIO $ status anonymous `shouldBe` 401
       _ <- login "bob"
@@ -383,7 +403,7 @@ editSpec = do
       liftIO $ adminPage `shouldSatisfy` T.isInfixOf "<code>pic__ABCDEFGH12.png</code>"
 
   it "deletes a page and the files only it links, in git, then goes home" $
-    onDelKiwi [] True $ \cd -> do
+    onDelKiwi [] $ \cd -> do
       _ <- login "carl"
       liftIO $ appendFile (pagePath cd "d.md") "\n\nOutside"
       h <- hashOf cd "d.md"
@@ -394,25 +414,25 @@ editSpec = do
       exists cd "d.md" >>= liftIO . (`shouldBe` False)
       exists cd "pic__ABCDEFGH12.png" >>= liftIO . (`shouldBe` False)
       exists cd "doc__ABCDEFGH13.txt" >>= liftIO . (`shouldBe` True)
-      liftIO $ gitOut cd ["log", "-2", "--format=%an|%B"] `shouldReturn`
+      liftIO $ gitOut (repoOf cd) ["log", "-2", "--format=%an|%B"] `shouldReturn`
         "carl via Kiwi|Delete s:d Doomed (kiwi kiwi)\n\nObsolete\n\n\
         \Files deleted:\n- pic__ABCDEFGH12.png\n\n\
         \Kiwi|Pre-delete commit of s:d (kiwi kiwi)\n\n"
       -- the change made outside of kiwi is in the history
-      liftIO $ gitOut cd ["show", "HEAD~1:s/d.md"] >>= (`shouldSatisfy` ("Outside" `L.isInfixOf`))
-      liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""
+      liftIO $ gitOut (repoOf cd) ["show", "HEAD~1:d.md"] >>= (`shouldSatisfy` ("Outside" `L.isInfixOf`))
+      liftIO $ gitOut (repoOf cd) ["status", "--porcelain"] `shouldReturn` ""
       gone <- get "/page/s/d"
       liftIO $ status gone `shouldBe` 404
 
-  it "keeps the files of a deleted page unless asked" $ onDelKiwi [] True $ \cd -> do
+  it "keeps the files of a deleted page unless asked" $ onDelKiwi [] $ \cd -> do
     _ <- login "carl"
     h <- hashOf cd "d.md"
     deleted <- deletion h [("file", "ABCDEFGH12")]
     liftIO $ status deleted `shouldBe` 303
     exists cd "pic__ABCDEFGH12.png" >>= liftIO . (`shouldBe` True)
-    liftIO $ gitOut cd ["log", "-1", "--format=%B"] `shouldReturn` "Delete s:d Doomed (kiwi kiwi)\n\n"
+    liftIO $ gitOut (repoOf cd) ["log", "-1", "--format=%B"] `shouldReturn` "Delete s:d Doomed (kiwi kiwi)\n\n"
 
-  it "refuses a deletion when the page or its files changed" $ onDelKiwi [] True $ \cd -> do
+  it "refuses a deletion when the page or its files changed" $ onDelKiwi [] $ \cd -> do
     _ <- login "carl"
     conflict <- deletion "0000" []
     liftIO $ status conflict `shouldBe` 409
@@ -433,38 +453,27 @@ editSpec = do
     liftIO $ status writer `shouldBe` 403
     exists cd "d.md" >>= liftIO . (`shouldBe` True)
 
-  it "deletes no page outside of git" $ do
-    onDelKiwi [] False $ \cd -> do
+  it "deletes no page of a read-only source" $
+    onDelKiwi ["[source s]", "read-only: yes"] $ \cd -> do
       _ <- login "carl"
-      confirm <- body <$> get "/delete/s/d"
-      liftIO $ confirm `shouldSatisfy` T.isInfixOf "not in a git repository: Doomed"
-      liftIO $ confirm `shouldSatisfy` (not . T.isInfixOf "name=\"hash\"")
-      h <- hashOf cd "d.md"
-      refused <- deletion h []
-      liftIO $ status refused `shouldBe` 403
-      exists cd "d.md" >>= liftIO . (`shouldBe` True)
-    onDelKiwi ["git-commit: no"] True $ \cd -> do
-      _ <- login "carl"
-      editor <- body <$> get "/edit/s/d"
-      liftIO $ editor `shouldSatisfy` (not . T.isInfixOf "/delete/s/d")
-      confirm <- body <$> get "/delete/s/d"
-      liftIO $ confirm `shouldSatisfy` T.isInfixOf "git-commit: no"
+      editor <- get "/edit/s/d"
+      liftIO $ status editor `shouldBe` 403
+      confirm <- get "/delete/s/d"
+      liftIO $ status confirm `shouldBe` 403
       h <- hashOf cd "d.md"
       refused <- deletion h []
       liftIO $ status refused `shouldBe` 403
       exists cd "d.md" >>= liftIO . (`shouldBe` True)
 
-  it "deletes no file ignored by git" $ onDelKiwi [] True $ \cd -> do
-    liftIO $ writeFile (cd FP.</> ".gitignore") "*.png\n"
-    liftIO $ git cd ["rm", "-q", "--cached", "s/pic__ABCDEFGH12.png"]
-    liftIO $ git cd ["add", ".gitignore"]
-    liftIO $ git cd ["commit", "-q", "-m", "ignore"]
+  it "deletes nothing when a file is ignored by git" $ onDelKiwi [] $ \cd -> do
+    liftIO $ writeFile (repoOf cd FP.</> ".gitignore") "*.png\n"
+    liftIO $ git (repoOf cd) ["rm", "-q", "--cached", "pic__ABCDEFGH12.png"]
+    liftIO $ git (repoOf cd) ["add", ".gitignore"]
+    liftIO $ git (repoOf cd) ["commit", "-q", "-m", "ignore"]
     _ <- login "carl"
-    confirm <- body <$> get "/delete/s/d"
-    liftIO $ confirm `shouldSatisfy` T.isInfixOf "ignored by git: pic.png"
-    liftIO $ confirm `shouldSatisfy` (not . T.isInfixOf "name=\"delete-files\"")
     h <- hashOf cd "d.md"
+    -- the commit before the deletion fails
     refused <- deletion h [("delete-files", "yes"), ("file", "ABCDEFGH12")]
-    liftIO $ status refused `shouldBe` 403
+    liftIO $ status refused `shouldBe` 500
     exists cd "d.md" >>= liftIO . (`shouldBe` True)
     exists cd "pic__ABCDEFGH12.png" >>= liftIO . (`shouldBe` True)

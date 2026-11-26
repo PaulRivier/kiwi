@@ -418,7 +418,8 @@ apiSpec = do
   -- writes, with a token of ann (admin), bob (family: write right on p) and
   -- joe (friends: read only)
   let writePages = [ ("p.md", "title: Page\nuid: p\naccess: family:w, friends\n\nHello\n\nWorld\n") ]
-      onWriteKiwi test = withKiwiConfig []
+      onWriteKiwi = onWriteKiwiWith []
+      onWriteKiwiWith kiwiLines test = withKiwiConfig kiwiLines
                            [ ("ann", "secret", ["admin"]), ("bob", "secret", ["family"])
                            , ("joe", "secret", ["friends"]) ] writePages $ \cd ss app -> do
         accs <- readIORef (accounts ss)
@@ -435,6 +436,26 @@ apiSpec = do
            path)
         (TLE.encodeUtf8 $ TL.fromStrict b)
       fileOf cd name = liftIO $ TE.decodeUtf8 <$> BS.readFile (cd FP.</> "s" FP.</> name)
+
+  it "writes nothing in a read-only source, its pages read as by a reader" $
+    onWriteKiwiWith ["[source s]", "read-only: yes"] $ \cd tokenOf -> do
+      bytes <- liftIO $ BS.readFile (cd FP.</> "s" FP.</> "p.md")
+      let hash = TE.encodeUtf8 (fileHash bytes)
+      put <- send "PUT" (tokenOf "ann") [("If-Match", hash)] "/api/page/s/p" "title: New\n\nBye\n"
+      liftIO $ status put `shouldBe` 403
+      patch <- send "PATCH" (tokenOf "bob") [] "/api/page/s/p"
+                 "{\"edits\": [{\"old\": \"World\", \"new\": \"Earth\"}]}"
+      liftIO $ status patch `shouldBe` 403
+      created <- send "POST" (tokenOf "ann") [] "/api/pages/s" "title: Burns\n\nCool it.\n"
+      liftIO $ status created `shouldBe` 403
+      script <- send "POST" (tokenOf "ann") [] "/api/metadata" "pages s/p\nmeta zone set here\n"
+      liftIO $ status script `shouldBe` 403
+      -- the admin reads the header without the keys of the admin right
+      page <- send "GET" (tokenOf "ann") [] "/api/page/s/p" ""
+      liftIO $ status page `shouldBe` 200
+      liftIO $ body page `shouldSatisfy` (not . T.isInfixOf "access:")
+      fileOf cd "p.md" >>= liftIO . (`shouldBe` TE.decodeUtf8 bytes)
+      liftIO $ D.listDirectory (cd FP.</> "s") >>= (`shouldMatchList` [".git", "p.md"])
 
   it "replaces a page with the hash it was read with" $ onWriteKiwi $ \cd tokenOf -> do
     bytes <- liftIO $ BS.readFile (cd FP.</> "s" FP.</> "p.md")
@@ -501,17 +522,17 @@ apiSpec = do
 
   it "commits a page created or changed by the API, with the account as author" $ withGit $
     onWriteKiwi $ \cd tokenOf -> do
+      let repo = cd FP.</> "s"
       liftIO $ do
-        git cd ["init", "-q"]
-        git cd ["add", "."]
-        git cd ["commit", "-q", "-m", "init"]
+        git repo ["add", "."]
+        git repo ["commit", "-q", "-m", "init"]
       created <- send "POST" (tokenOf "ann") [] "/api/pages/s" "title: Burns\n\nCool it.\n"
       liftIO $ status created `shouldBe` 201
       _ <- send "PATCH" (tokenOf "bob") [] "/api/page/s/p?message=Earth%20is%20better"
              "{\"edits\": [{\"old\": \"World\", \"new\": \"Earth\"}]}"
-      lastMessage <- liftIO $ gitOut cd ["log", "-1", "--format=%B"]
+      lastMessage <- liftIO $ gitOut repo ["log", "-1", "--format=%B"]
       liftIO $ lastMessage `shouldBe` "Edit s:p (kiwi kiwi)\n\nEarth is better\n\n"
-      logs <- liftIO $ gitOut cd ["log", "--format=%an|%s"]
+      logs <- liftIO $ gitOut repo ["log", "--format=%an|%s"]
       liftIO $ take 2 (lines logs) `shouldSatisfy` \ls -> case ls of
         [edit, create] -> edit == "bob via Kiwi|Edit s:p (kiwi kiwi)" &&
                           "ann via Kiwi|Create s:" `L.isPrefixOf` create

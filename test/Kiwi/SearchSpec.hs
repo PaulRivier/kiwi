@@ -195,10 +195,10 @@ searchSpec = do
     SE.query se' ["[dessert > fruits]"] `shouldBe` []
 
   describe "searchLang" $ do
-    let configs = [ SourceConfig "en" Nothing (Just (LangFixed English))
-                  , SourceConfig "en-auto" Nothing (Just (LangAuto English))
-                  , SourceConfig "es" Nothing (Just (LangAuto Spanish))
-                  , SourceConfig "none" Nothing Nothing ]
+    let configs = [ SourceConfig "en" Nothing (Just (LangFixed English)) False
+                  , SourceConfig "en-auto" Nothing (Just (LangAuto English)) False
+                  , SourceConfig "es" Nothing (Just (LangAuto Spanish)) False
+                  , SourceConfig "none" Nothing Nothing False ]
         allSources = ["en", "en-auto", "es", "none", "unconfigured"]
         lang def ctx = searchLang def configs allSources (S.fromList ctx)
     it "takes the lang of the sources of the context" $ do

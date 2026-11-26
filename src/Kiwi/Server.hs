@@ -287,7 +287,7 @@ initServerState cfp conf logger' = do
   sem <- newQSem 3
   sess      <- loadSessions $ FP.combine kiwiDir' "_sessions"
   sessM <- newMVar sess
-  db <- DB.updatePagesDB logger' (Conf.gitCommit conf) contentDir'
+  db <- DB.updatePagesDB logger' contentDir'
           (DB.emptyPagesDB (Conf.defaultMeta conf)
                            (Conf.customMetaConfig conf)
                            (Conf.sourcesConfig conf))
@@ -312,7 +312,6 @@ initServerState cfp conf logger' = do
     , etags        = etags'
     , tocSetting   = Conf.toc conf
     , secureCookie = Conf.secureCookie conf
-    , gitCommit    = Conf.gitCommit conf
     , agentGuide   = Conf.agentGuideFile cfp' conf
     , logger       = logger'
   }

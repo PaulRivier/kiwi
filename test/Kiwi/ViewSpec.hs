@@ -168,6 +168,19 @@ viewSpec = do
     plain <- get long
     liftIO $ lookup "Content-Encoding" (WT.simpleHeaders plain) `shouldBe` Nothing
 
+  it "lists nothing of the read-only sources on the doctor page" $
+    withKiwiConfig ["[source s]", "read-only: yes"] [("ann", "secret", ["admin"])]
+      [ ("p.md", "uid: p\ntitle: Page\n\n[x](page:none) [f](file:ABCDEFGH12)")
+      , ("bad.md", "# No header\n\nText"), ("pic__ABCDEFGH13.png", "png") ] $ \_ _ ->
+    WT.runSession $ do
+      _ <- postForm "/login" "username=ann&password=secret"
+      admin <- body <$> get "/doctor"
+      forM_ ["bad.md", "page:none", "file:ABCDEFGH12", "pic__ABCDEFGH13"] $ \t ->
+        liftIO $ admin `shouldSatisfy` (not . T.isInfixOf t)
+      -- the page is served
+      page <- get "/page/s/p"
+      liftIO $ WT.simpleStatus page `shouldBe` Net.status200
+
   it "lists the load errors on the doctor page, for admins only" $
     withKiwiAccounts [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
                      [("p.md", "uid: p\ntitle: Page\n\nHello"), ("bad.md", "# No header\n\nText")] $

@@ -86,13 +86,16 @@ load c = case loadPage "test.md" c "src" defMeta [] of
   Right p -> p
 
 -- | Runs the test on the content folder of a new temporary kiwi folder,
--- removed afterwards
+-- removed afterwards. Its source "s" is a git repository (when git is
+-- installed), so that kiwi writes there (see 'SourceMode').
 withContentDir :: (FilePath -> IO a) -> IO a
 withContentDir test = do
   tmp <- D.getTemporaryDirectory
   bracket (newDir tmp (0 :: Int)) D.removeDirectoryRecursive $ \d -> do
     let cd = d FP.</> "content"
     D.createDirectoryIfMissing True (cd FP.</> "s")
+    hasGit <- D.findExecutable "git"
+    forM_ hasGit $ \_ -> git (cd FP.</> "s") ["init", "-q"]
     test cd
   where
     newDir tmp n = do

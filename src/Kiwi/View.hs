@@ -109,8 +109,7 @@ renderPage findPage p canWrite doc backlinks related keywords = do
              (pageView loc ctx findPage p canWrite doc backlinks related keywords)
 
 -- | Editor of a page: the text of its file, its hash, and the line where
--- the editor starts (from 1); with a field for the message of the commit,
--- unless the pages are not committed (git-commit: no)
+-- the editor starts (from 1); with a field for the message of the commit
 renderEditor :: K.Page -> Bool -> T.Text -> T.Text -> Int -> ActM TL.Text
 renderEditor p canDelete text hash line = editorLayout (EditPage p hash canDelete) text line
 
@@ -121,14 +120,13 @@ renderNewPage source text = editorLayout (NewPage source) text 1
 editorLayout :: EditTarget -> T.Text -> Int -> ActM TL.Text
 editorLayout target text line = do
   vctx <- getViewCtx
-  commits <- asksK K.gitCommit
   let loc = ctxLocales vctx
       title = case target of
         EditPage p _ _ -> K.loc_Editing loc <> " : " <> K.pageTitle p
         NewPage source -> K.loc_NewPageIn loc <> " " <> source
   return $ renderText $
     layout vctx { ctxEditor = True } title NoActions Nothing $
-      editorView loc commits (ctxIsAdmin vctx) target text line
+      editorView loc (ctxIsAdmin vctx) target text line
 
 -- | The sources where the user can create a page, each one a link to the
 -- form of a new page there
@@ -524,12 +522,11 @@ data EditTarget = EditPage K.Page T.Text Bool
 -- | The editor of a page, or the form of a new page (see 'renderEditor',
 -- 'renderNewPage'): a form, turned into a markdown editor by app.js, with
 -- the texts of its buttons and messages, the field of the message of the
--- commit if the pages are committed, and, for a new page and an admin, the
--- field of its path. The id and the hash are empty for a new page. The link
--- to the deletion of the page needs the admin right on it, and the pages to
--- be committed.
-editorView :: K.Locales -> Bool -> Bool -> EditTarget -> T.Text -> Int -> Html ()
-editorView loc commits admin target text line =
+-- commit, and, for a new page and an admin, the field of its path. The id
+-- and the hash are empty for a new page. The link to the deletion of the
+-- page needs the admin right on it.
+editorView :: K.Locales -> Bool -> EditTarget -> T.Text -> Int -> Html ()
+editorView loc admin target text line =
   form_ ([ class_ formClass, method_ "post", action_ action
          , data_ "page-url" back, data_ "line" (T.pack $ show line)
          , data_ "error-session" (K.loc_ActionSession loc)
@@ -555,13 +552,12 @@ editorView loc commits admin target text line =
     -- the browser drops a newline at the start of a textarea
     textarea_ [name_ "text", class_ "editor-text", rows_ "30"] $ toHtml ("\n" <> text)
     div_ [class_ "editor-actions"] $ do
-      when commits $
-        input_ [ type_ "text", name_ "message", class_ "commit-message", maxlength_ "2000"
-               , placeholder_ (K.loc_CommitMessage loc), title_ (K.loc_CommitMessage loc) ]
+      input_ [ type_ "text", name_ "message", class_ "commit-message", maxlength_ "2000"
+             , placeholder_ (K.loc_CommitMessage loc), title_ (K.loc_CommitMessage loc) ]
       button_ [type_ "submit", class_ "save"] $ toHtml $ K.loc_Save loc
       a_ [href_ back, class_ "cancel"] $ toHtml $ K.loc_Cancel loc
       case target of
-        EditPage p _ True | commits ->
+        EditPage p _ True ->
           a_ [href_ (Url.deleteUrl $ K.pageUID p), class_ "delete-page"] $ toHtml $ K.loc_DeletePage loc
         _ -> mempty
   where
@@ -577,8 +573,6 @@ data DeleteForm = DeleteForm
   , dfPath :: Maybe FP.FilePath      -- ^ of the file, from the top of the source (admins)
   , dfBacklinks :: [K.Page]          -- ^ the pages linking to it, that the user can read
   , dfFiles :: [(T.Text, T.Text)]    -- ^ the files that only this page links: uid, name
-  , dfRefused :: [T.Text]            -- ^ why the page can not be deleted
-  , dfFilesRefused :: [T.Text]       -- ^ why its files can not be deleted
   , dfError :: Maybe T.Text          -- ^ failure of the deletion asked
   , dfMessage :: T.Text              -- ^ of the commit
   , dfDeleteFiles :: Bool            -- ^ delete the files too
@@ -591,7 +585,6 @@ renderDeletePage df = do
   loc <- getLocales
   let p = dfPage df
       (source, pId) = K.pageUID p
-      deletable = null (dfRefused df)
   renderView (K.loc_Deleting loc <> " : " <> K.pageTitle p) NoActions Nothing $
     form_ [class_ "delete-page", method_ "post", action_ "/delete-page"] $ do
       h1_ [class_ "page-title"] $ do
@@ -606,32 +599,20 @@ renderDeletePage df = do
       unless (null $ dfFiles df) $ do
         p_ $ toHtml $ K.loc_DeleteFiles loc
         ul_ $ forM_ (dfFiles df) $ \(_, name) -> li_ $ code_ $ toHtml name
-        if null (dfFilesRefused df)
-          then when deletable $ do
-            forM_ (dfFiles df) $ \(u, _) -> input_ [type_ "hidden", name_ "file", value_ u]
-            p_ $ label_ $ do
-              input_ $ [type_ "checkbox", name_ "delete-files", value_ "yes"] ++
-                       [checked_ | dfDeleteFiles df]
-              " " <> toHtml (K.loc_DeleteFilesToo loc)
-          else do
-            p_ $ toHtml $ K.loc_FilesNotDeletable loc
-            ul_ [class_ "delete-refused"] $ forM_ (dfFilesRefused df) $ li_ . toHtml
-      if deletable
-        then do
-          input_ [type_ "hidden", name_ "source", value_ source]
-          input_ [type_ "hidden", name_ "id", value_ pId]
-          input_ [type_ "hidden", name_ "hash", value_ (dfHash df)]
-          div_ [class_ "editor-actions"] $ do
-            input_ [ type_ "text", name_ "message", class_ "commit-message", maxlength_ "2000"
-                   , value_ (dfMessage df)
-                   , placeholder_ (K.loc_CommitMessage loc), title_ (K.loc_CommitMessage loc) ]
-            button_ [type_ "submit", class_ "delete"] $ toHtml $ K.loc_Delete loc
-            a_ [href_ (Url.editUrl $ K.pageUID p), class_ "cancel"] $ toHtml $ K.loc_Cancel loc
-        else do
-          p_ $ toHtml $ K.loc_DeleteImpossible loc
-          ul_ [class_ "delete-refused"] $ forM_ (dfRefused df) $ li_ . toHtml
-          div_ [class_ "editor-actions"] $
-            a_ [href_ (Url.editUrl $ K.pageUID p), class_ "cancel"] $ toHtml $ K.loc_Cancel loc
+        forM_ (dfFiles df) $ \(u, _) -> input_ [type_ "hidden", name_ "file", value_ u]
+        p_ $ label_ $ do
+          input_ $ [type_ "checkbox", name_ "delete-files", value_ "yes"] ++
+                   [checked_ | dfDeleteFiles df]
+          " " <> toHtml (K.loc_DeleteFilesToo loc)
+      input_ [type_ "hidden", name_ "source", value_ source]
+      input_ [type_ "hidden", name_ "id", value_ pId]
+      input_ [type_ "hidden", name_ "hash", value_ (dfHash df)]
+      div_ [class_ "editor-actions"] $ do
+        input_ [ type_ "text", name_ "message", class_ "commit-message", maxlength_ "2000"
+               , value_ (dfMessage df)
+               , placeholder_ (K.loc_CommitMessage loc), title_ (K.loc_CommitMessage loc) ]
+        button_ [type_ "submit", class_ "delete"] $ toHtml $ K.loc_Delete loc
+        a_ [href_ (Url.editUrl $ K.pageUID p), class_ "cancel"] $ toHtml $ K.loc_Cancel loc
 
 browseView :: K.Locales -> K.Context -> BrowseToggles -> Maybe T.Text -> BrowseMenu ->
               BrowseFilters -> PagesListing -> [K.Page] -> Html ()
