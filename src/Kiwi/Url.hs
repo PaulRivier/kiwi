@@ -3,6 +3,7 @@ module Kiwi.Url
   ( pageUrl
   , pageUIDUrl
   , editUrl
+  , newPageUrl
   , urlEncodeText
   , urlDecodeText
   , contextParams
@@ -30,6 +31,10 @@ pageUIDUrl (s, i) = T.concat ["/page/", urlEncodeText s, "/", urlEncodeText i]
 -- | URL of the editor of a page (see 'pageUIDUrl')
 editUrl :: PageUID -> T.Text
 editUrl (s, i) = T.concat ["/edit/", urlEncodeText s, "/", urlEncodeText i]
+
+-- | URL of the form of a new page in this source
+newPageUrl :: T.Text -> T.Text
+newPageUrl s = "/new/" <> urlEncodeText s
 
 -- | Query parameters of the navigation context: "source" for each source,
 -- as on the browse page, and "archive=yes" in the archives

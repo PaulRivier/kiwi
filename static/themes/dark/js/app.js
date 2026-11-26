@@ -84,7 +84,9 @@ if (editable) {
 
 
 // Page editor: the form of the page text becomes a markdown editor
-// (EasyMDE, loaded before this script), saved with the hash of the file read
+// (EasyMDE, loaded before this script), saved with the hash of the file
+// read; the same form creates a new page (class new-page: empty id and hash,
+// sent to /create-page)
 
 const editorForm = $("form.page-editor");
 
@@ -92,6 +94,7 @@ if (editorForm && window.EasyMDE) {
   const data = editorForm.dataset;
   const field = (name) => editorForm.elements[name].value;
   const source = field("source"), id = field("id"), hash = field("hash");
+  const isNew = editorForm.classList.contains("new-page");
   // titles of the toolbar buttons, from the data-button-NAME attributes
   const button = (name, action, text) => ({
     name, action, text, title: data[`button${name.replace(/(^|-)(.)/g, (_, _d, c) => c.toUpperCase())}`],
@@ -118,8 +121,10 @@ if (editorForm && window.EasyMDE) {
     element: editorForm.elements.text,
     autoDownloadFontAwesome: false,
     spellChecker: false,
-    // a draft is kept in the browser for this version of the file only
-    autosave: { enabled: true, uniqueId: `kiwi-${source}/${id}/${hash}`, delay: 5000 },
+    // a draft is kept in the browser for this version of the file only, or
+    // for the new pages of the source
+    autosave: { enabled: true, delay: 5000,
+                uniqueId: isNew ? `kiwi-new-${source}` : `kiwi-${source}/${id}/${hash}` },
     maxHeight: "65vh",
     previewClass: ["editor-preview", "document"],
     previewRender: renderPreview,
@@ -153,7 +158,8 @@ if (editorForm && window.EasyMDE) {
   // the editor opens at the line of the block chosen on the page
   const cm = editor.codemirror;
   const line = Math.max(0, Number(data.line) - 1);
-  cm.setCursor({ line, ch: 0 });
+  // a new page: after "title: "
+  cm.setCursor({ line, ch: isNew ? cm.getLine(line).length : 0 });
   cm.scrollTo(null, cm.charCoords({ line, ch: 0 }, "local").top - 40);
   cm.focus();
 
@@ -172,8 +178,10 @@ if (editorForm && window.EasyMDE) {
     save.disabled = true;
     let response;
     try {
-      const message = editorForm.elements.message?.value ?? "";
-      response = await post("/save-page", { source, id, hash, message, text: editor.value() });
+      // the fields of the form (message, path of a new page...), and the text
+      const params = new URLSearchParams(new FormData(editorForm));
+      params.set("text", editor.value());
+      response = await post(editorForm.getAttribute("action"), params);
     } catch {
       save.disabled = false;
       alert(data.errorFailed);

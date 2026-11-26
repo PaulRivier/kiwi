@@ -5,6 +5,8 @@ module Kiwi.Write
   ( readPageFile
   , updatePage
   , createPage
+  , creatableSources
+  , canCreateIn
   , ScriptRun (..)
   , runMetaScript
   , metaScriptResult
@@ -140,6 +142,21 @@ createPage ss loginM messageM source pathM sent = withMVar (pagesDBLock ss) $ \_
               let p = (if n == 1 then base else base ++ " (" ++ show n ++ ")") FP.<.> "md"
               taken <- (||) <$> D.doesPathExist p <*> D.doesPathExist (p FP.-<.> "markdown")
               if taken then go (n + 1) else return p
+
+-- | The sources where the user can create a page (see 'canCreateIn')
+creatableSources :: PagesDB -> Maybe Login -> [T.Text]
+creatableSources db loginM = filter (canCreateIn db loginM) (dbSources db)
+
+-- | Whether the user can create a page in this source: when a page without
+-- header would get there an access (default of the config and of the
+-- source) that gives the user the write right; every source for the admins
+-- (see 'createPage', which checks the access of the page created)
+canCreateIn :: PagesDB -> Maybe Login -> T.Text -> Bool
+canCreateIn db loginM source =
+  source `elem` dbSources db &&
+  maybe False (>= AccessWrite) (Auth.accessLevel loginM $ fromMaybe [] $ metaAccess $
+                                  sourceMeta scM (defaultMeta db))
+  where scM = L.find ((== source) . scSourceName) (sourcesConfig db)
 
 -- | Applies the commands of a metadata script (see "Kiwi.MetaScript") to the
 -- headers of the pages of their "pages" lines that the user can write,

@@ -234,3 +234,98 @@ editSpec = do
       T.isInfixOf "<a href=\"/page/s/none\" class=\"kiwi-link-page kiwi-link-broken\">x</a>"
     invalid <- post "/preview" [("source", "s"), ("id", "p"), ("text", "not a header\n\nx")]
     liftIO $ status invalid `shouldBe` 400
+
+  -- creation of pages: bob (family) can write in the source s
+  let sourceLines = ["[source s]", "access: family:w, public"]
+      onNewKiwi test = withKiwiConfig sourceLines
+                         [ ("ann", "secret", ["admin"]), ("bob", "secret", ["family"])
+                         , ("joe", "secret", ["friends"]) ] pages $
+                         \cd _ app -> WT.runSession (test cd) app
+      create params = post "/create-page" (("source", "s") : params)
+      -- the uid of the page of an URL /page/s/UID
+      uidOf = T.drop (T.length "/page/s/")
+
+  it "gives the form of a new page to the users who can write in the source" $ onNewKiwi $ \_ -> do
+    anonymous <- get "/new/s"
+    liftIO $ status anonymous `shouldBe` 401
+    anonymousSources <- get "/new"
+    liftIO $ status anonymousSources `shouldBe` 401
+    _ <- login "joe"
+    reader <- get "/new/s"
+    liftIO $ status reader `shouldBe` 403
+    readerPage <- body <$> get "/page/s/p"
+    liftIO $ readerPage `shouldSatisfy` (not . T.isInfixOf "new-page")
+    _ <- login "bob"
+    form <- get "/new/s"
+    liftIO $ status form `shouldBe` 200
+    liftIO $ body form `shouldSatisfy` T.isInfixOf "action=\"/create-page\""
+    liftIO $ body form `shouldSatisfy` T.isInfixOf "title: \n\n</textarea>"
+    liftIO $ body form `shouldSatisfy` (not . T.isInfixOf "name=\"path\"")
+    unknown <- get "/new/none"
+    liftIO $ status unknown `shouldBe` 404
+    sources <- get "/new"
+    liftIO $ body sources `shouldSatisfy` T.isInfixOf "href=\"/new/s\""
+    -- the button of the navigation bar goes to the form of the source of the page
+    page <- body <$> get "/page/s/p"
+    liftIO $ page `shouldSatisfy` T.isInfixOf "href=\"/new/s\" class=\"icon new-page\""
+    _ <- login "ann"
+    adminForm <- get "/new/s"
+    liftIO $ body adminForm `shouldSatisfy` T.isInfixOf "name=\"path\""
+
+  it "creates a page named after its title, and reloads the pages" $ onNewKiwi $ \cd -> do
+    _ <- login "bob"
+    created <- create [("text", "title: Hello world\n\nBody"), ("path", "")]
+    liftIO $ status created `shouldBe` 200
+    let url = body created
+    liftIO $ url `shouldSatisfy` T.isPrefixOf "/page/s/"
+    content <- liftIO $ BS.readFile $ pagePath cd "Hello world.md"
+    liftIO $ content `shouldBe` TE.encodeUtf8 ("title: Hello world\nuid: " <> uidOf url <> "\n\nBody\n")
+    page <- get (TE.encodeUtf8 url)
+    liftIO $ status page `shouldBe` 200
+    liftIO $ body page `shouldSatisfy` T.isInfixOf "Body"
+    -- a title is needed
+    untitled <- create [("text", "tags: a\n\nBody")]
+    liftIO $ status untitled `shouldBe` 400
+    blank <- create [("text", "title:  \n\nBody")]
+    liftIO $ status blank `shouldBe` 400
+    -- only the admins choose the path
+    withPath <- create [("text", "title: T\n\nBody"), ("path", "sub/t")]
+    liftIO $ status withPath `shouldBe` 403
+    _ <- login "joe"
+    reader <- create [("text", "title: T\n\nBody")]
+    liftIO $ status reader `shouldBe` 403
+    _ <- login "ann"
+    admin <- create [("text", "title: T\n\nBody"), ("path", "sub/t")]
+    liftIO $ status admin `shouldBe` 200
+    adminContent <- liftIO $ BS.readFile $ pagePath cd ("sub" FP.</> "t.md")
+    liftIO $ adminContent `shouldBe` TE.encodeUtf8 ("title: T\nuid: " <> uidOf (body admin) <> "\n\nBody\n")
+
+  it "refuses the creation requests from other sites" $ onNewKiwi $ \_ -> do
+    _ <- login "bob"
+    other <- request "POST" [("Origin", "https://evil.example"), ("Host", "kiwi.example")]
+                     "/create-page" (encode [("source", "s"), ("text", "title: X\n\nX")])
+    liftIO $ status other `shouldBe` 403
+
+  it "previews the content of a new page, in its source" $ onNewKiwi $ \_ -> do
+    _ <- login "bob"
+    preview <- post "/preview" [ ("source", "s"), ("id", "")
+                               , ("text", "title: T\n\n[o](page:q) [x](<page: none>)") ]
+    liftIO $ status preview `shouldBe` 200
+    liftIO $ body preview `shouldSatisfy`
+      T.isInfixOf "<a href=\"/page/s/none\" class=\"kiwi-link-page kiwi-link-broken\">x</a>"
+    _ <- login "joe"
+    reader <- post "/preview" [("source", "s"), ("id", ""), ("text", "title: T\n\nx")]
+    liftIO $ status reader `shouldBe` 403
+
+  it "commits a created page, with the message of the form" $ withGit $
+    withKiwiConfig sourceLines [("bob", "secret", ["family"])] pages $ \cd _ app -> do
+      git cd ["init", "-q"]
+      git cd ["add", "."]
+      git cd ["commit", "-q", "-m", "init"]
+      flip WT.runSession app $ do
+        _ <- login "bob"
+        created <- create [("text", "title: New\n\nBody"), ("message", "From the web")]
+        liftIO $ status created `shouldBe` 200
+        liftIO $ gitOut cd ["log", "-1", "--format=%an|%B"] `shouldReturn`
+          T.unpack ("bob via Kiwi|Create s:" <> uidOf (body created) <> " (kiwi kiwi)\n\nFrom the web\n\n")
+        liftIO $ gitOut cd ["status", "--porcelain"] `shouldReturn` ""

@@ -622,6 +622,24 @@ The save and preview requests from the pages of another site are
 refused: behind a reverse proxy, keep the `Host` header of the requests
 (or set `X-Forwarded-Host`).
 
+## Create pages in the browser
+
+The users who can write in a source (the write right in the access that a
+page without header would get there: `access` of its `[source NAME]`
+section, else of `[metadata-default]`; every source for the admins) see a
+new page button in the navigation bar. It opens the form of a new page in
+the source of the page shown (or the only source of the navigation
+context), else the list of the sources where they can create a page
+(`/new`; `/new/SOURCE` for the form of a source).
+
+The form is the editor of the pages, with a header holding an empty
+title: a new page needs a title. Kiwi gives the page its uid, and names
+its file after its title, at the top of the source (" (2)" is added when
+the name is taken); the admins can give the path of the file in the source
+instead, without extension (its folders are made). As in the editor, the
+metadata that the user can not change are ignored, the message of the
+change is added to the commit, and a draft is kept in the browser.
+
 # Edit file with your local editor
 
 If you have set your editor in kiwi.ini, you can click on the open

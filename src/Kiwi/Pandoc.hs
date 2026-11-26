@@ -5,6 +5,7 @@
 module Kiwi.Pandoc
   ( loadPageIO
   , pageDoc
+  , newPageDoc
   , embeddedDoc
   , pagePath
   , linksInContext
@@ -173,6 +174,11 @@ pageDoc files p =
   let source = fst $ pageUID p
   in (\(doc, _, _) -> doc) <$> loadDoc True (pageAbsoluteFSPath p) source
                                        (\u -> M.lookup (source, u) files) (pageBody p)
+
+-- | Document of the content of a new page of this source (see 'pageDoc')
+newPageDoc :: M.Map (T.Text, T.Text) FP.FilePath -> T.Text -> T.Text -> Either String PD.Pandoc
+newPageDoc files source content =
+  (\(doc, _, _) -> doc) <$> loadDoc True "new page" source (\u -> M.lookup (source, u) files) content
 
 
 -- | Document of a file embedded in kiwi (README, CommonMark cheatsheet), with

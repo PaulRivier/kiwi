@@ -174,6 +174,9 @@ data PagesDB =
   PagesDB { defaultMeta   :: MetaData
           , customMetaConfig :: [CustomMetaConfig]
           , sourcesConfig :: [SourceConfig]
+          -- | the sources: the folders of the content folder (not hidden)
+          -- at the last load, sorted, those without page included
+          , dbSources :: [T.Text]
           , dbGeneration :: Int  -- ^ number of loads (see 'Kiwi.PagesDB.updatePagesDB')
           -- | files that are not loaded: (source, path in its pages folder,
           -- reason), by source then path
@@ -565,6 +568,10 @@ data Locales = Locales
   , loc_Save :: T.Text
   , loc_Cancel :: T.Text
   , loc_CommitMessage :: T.Text  -- ^ placeholder of the message of the commit, in the editor
+  , loc_NewPage :: T.Text        -- ^ title of the button of the navigation bar
+  , loc_NewPageIn :: T.Text      -- ^ before the source, in the form of a new page
+  , loc_NewPageSource :: T.Text  -- ^ heading of the choice of the source
+  , loc_PagePath :: T.Text       -- ^ placeholder of the path of a new page (admins)
   -- | save failures: the page changed meanwhile, the text can not be saved
   -- (followed by the reason), metadata that the user can not change (followed
   -- by their keys)

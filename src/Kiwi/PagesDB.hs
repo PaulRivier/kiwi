@@ -18,7 +18,7 @@ import qualified Crypto.Random as CR
 import           Data.Bifunctor (first)
 import qualified Data.ByteString as BS
 import           Data.IORef (atomicWriteIORef, readIORef)
-import           Data.List (find, partition, sortOn)
+import           Data.List (find, partition, sort, sortOn)
 import qualified Data.Map.Strict as M
 import           Data.Maybe (fromMaybe, isNothing)
 import           Data.SearchEngine (insertDocs, deleteDoc)
@@ -153,6 +153,7 @@ updatePagesDB logger' git contentDir' db = do
       return (kw, idx, full')
     when full $ logger' L.Info $ T.pack $ "TF-IDF finished in " ++ printf "%.2f" t ++ "s"
     return db { dbGeneration = dbGeneration db + 1
+              , dbSources = sort $ map (T.pack . FP.takeFileName) sourceDirs
               , loadErrors = sortOn (\(src, p, _) -> (src, p)) (errors ++ fileErrors)
               , sourceFiles = files
               , pagesIndex = RDI.whole newIndex
@@ -372,6 +373,7 @@ emptyPagesDB md cmc sc =
     PagesDB { defaultMeta = md
             , customMetaConfig = cmc
             , sourcesConfig = sc
+            , dbSources = []
             , dbGeneration = 0
             , loadErrors = []
             , sourceFiles = M.empty

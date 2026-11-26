@@ -1202,6 +1202,13 @@ form.page-editor textarea.editor-text {
   margin: 12px 0 24px;
 }
 
+/* the path of a new page (admins), above its text */
+form.page-editor input.page-path {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
 /* the message of the commit takes the room left by the buttons */
 .editor-actions input.commit-message {
   flex: 1;

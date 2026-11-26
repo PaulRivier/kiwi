@@ -13,6 +13,9 @@ module Kiwi.Controller
   , serveEditPage
   , serveEditor
   , serveSavePage
+  , serveNewPageSources
+  , serveNewPage
+  , serveCreatePage
   , servePreview
   , serveLogin
   , logUserIn
@@ -72,7 +75,7 @@ import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
 import           Kiwi.Meta (splitPage)
 import           Kiwi.Files (servedName)
-import           Kiwi.Pandoc (pageDoc, embeddedDoc)
+import           Kiwi.Pandoc (pageDoc, newPageDoc, embeddedDoc)
 import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, stripAccents,
                               excerpt)
 import           Kiwi.PagesDB (brokenLinks)
@@ -585,33 +588,92 @@ serveSavePage uid hash messageM sent = withEditablePage uid $ \p level -> withEd
       unless (null ignored) $
         setHeader "Kiwi-Ignored-Keys" $ TL.fromStrict $ T.intercalate ", " ignored
       Scotty.text $ TL.fromStrict $ Url.pageUIDUrl uid
-    Left (Edit.SaveForbidden e) -> do
-      status Net.status403
-      Scotty.text $ TL.pack e
-    -- the browser editor sends the whole text: its change always applies
-    Left (Edit.SaveNotApplied e) -> do
-      status Net.status409
-      Scotty.text $ TL.pack e
-    Left Edit.SaveConflict -> do
-      status Net.status409
-      Scotty.text "the page has changed since its edition"
-    Left (Edit.SaveInvalid e) -> do
+    Left f -> saveFailed f
+
+-- | Answer of the browser editor to a failed save or creation: 403, 409
+-- (the file changed), 400 (with the reason), 500
+saveFailed :: Edit.SaveFailure -> ActM ()
+saveFailed f = case f of
+  Edit.SaveForbidden e -> do
+    status Net.status403
+    Scotty.text $ TL.pack e
+  -- the browser editor sends the whole text: its change always applies
+  Edit.SaveNotApplied e -> do
+    status Net.status409
+    Scotty.text $ TL.pack e
+  Edit.SaveConflict -> do
+    status Net.status409
+    Scotty.text "the page has changed since its edition"
+  Edit.SaveInvalid e -> do
+    status Net.status400
+    Scotty.text $ TL.pack e
+  Edit.SaveFailed e -> serveFailure $ T.pack e
+
+-- | Runs the action when the user of the request can create a page in this
+-- source (see 'Write.canCreateIn'); 404 for an unknown source
+withCreatableSource :: T.Text -> ActM () -> ActM ()
+withCreatableSource source run = do
+  db <- getDB
+  loginM <- asksK (K.login . K.requestState)
+  if | source `notElem` K.dbSources db -> serveNotFound
+     | Write.canCreateIn db loginM source -> run
+     | otherwise -> serveForbidden
+
+-- | The sources where the user can create a page, each one a link to its
+-- form (see 'serveNewPage'); 401 or 403 when there is none
+serveNewPageSources :: ActM ()
+serveNewPageSources = do
+  db <- getDB
+  loginM <- asksK (K.login . K.requestState)
+  case Write.creatableSources db loginM of
+    [] -> serveForbidden
+    sources -> V.renderNewPageSources sources >>= html
+
+-- | Form of a new page in this source, for a user who can create a page
+-- there: the editor of a page, with a header holding an empty title
+serveNewPage :: T.Text -> ActM ()
+serveNewPage source = withCreatableSource source $ do
+  r <- V.renderNewPage source "title: \n\n"
+  setHeader "Cache-Control" "no-store"
+  html r
+
+-- | Creates a page in this source from the text sent by the form of a new
+-- page (see 'Write.createPage'), at the path given, if any (admins), with
+-- the message of the commit, if any. The text must have a title. The answer
+-- is the URL of the new page; 400 when the text can not be saved.
+serveCreatePage :: T.Text -> Maybe FP.FilePath -> Maybe T.Text -> T.Text -> ActM ()
+serveCreatePage source pathM messageM sent = withCreatableSource source $ withEditRequest sent $ do
+  cmc <- K.customMetaConfig <$> getDB
+  case splitPage cmc sent of
+    Right (header, _) | maybe True (T.null . T.strip) (K.metaTitle header) -> do
       status Net.status400
-      Scotty.text $ TL.pack e
-    Left (Edit.SaveFailed e) -> serveFailure $ T.pack e
+      Scotty.text "a new page needs a title"
+    _ -> do
+      ss <- asksK id
+      loginM <- asksK (K.login . K.requestState)
+      result <- liftIO $ Write.createPage ss loginM messageM source pathM sent
+      case result of
+        Right (uid, _) -> Scotty.text $ TL.fromStrict $ Url.pageUIDUrl uid
+        Left f -> saveFailed f
 
 -- | Preview of the content of a text sent by the editor of a page, as the
--- content of the page (links relative to its folder): an HTML fragment, or
--- 400 with the reason when the header of the text is invalid
+-- content of the page (its links in its source), or by the form of a new
+-- page of a source (empty id): an HTML fragment, or 400 with the reason when
+-- the header of the text is invalid
 servePreview :: K.PageUID -> T.Text -> ActM ()
-servePreview uid sent = withEditablePage uid $ \p _ -> withEditRequest sent $ do
-  db <- getRestrictedDB
-  case splitPage (K.customMetaConfig db) sent >>= \(_, content) ->
-         pageDoc (K.sourceFiles db) p { K.pageBody = content } of
-    Left e -> do
-      status Net.status400
-      Scotty.text $ TL.pack e
-    Right doc -> html $ V.renderPreview (fmap K.pageSummary . findPage db) doc
+servePreview (source, pId) sent
+  | T.null pId = withCreatableSource source $ withEditRequest sent $
+      preview (\db content -> newPageDoc (K.sourceFiles db) source content)
+  | otherwise = withEditablePage (source, pId) $ \p _ -> withEditRequest sent $
+      preview (\db content -> pageDoc (K.sourceFiles db) p { K.pageBody = content })
+  where
+    preview toDoc = do
+      db <- getRestrictedDB
+      case splitPage (K.customMetaConfig db) sent >>= toDoc db . snd of
+        Left e -> do
+          status Net.status400
+          Scotty.text $ TL.pack e
+        Right doc -> html $ V.renderPreview (fmap K.pageSummary . findPage db) doc
 
 serveLogin :: ActM ()
 serveLogin = do

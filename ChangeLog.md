@@ -6,6 +6,11 @@
   the one of the commit (not shown with `git-commit: no`).
 - Logging out forgets the drafts of the browser editor kept by the
   browser.
+- **Creation of pages in the browser**: a new page button in the
+  navigation bar, for the users who can write in a source, opens the
+  editor on a new page of the source of the page shown (`/new/SOURCE`), or
+  the choice of the source (`/new`); the file is named after the title,
+  or, for the admins, given by its path in the source.
 - The page view shows the summary of the page below its title, in the
   frame of the metadata, and its keywords after the backlinks, each one a
   search of the pages that have it.

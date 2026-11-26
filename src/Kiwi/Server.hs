@@ -10,7 +10,7 @@ module Kiwi.Server
 import           Control.Concurrent.QSem (newQSem)
 import           Control.Concurrent.MVar (newMVar, withMVar)
 import           Control.Exception (IOException, SomeException, try)
-import           Control.Monad (when)
+import           Control.Monad (mfilter, when)
 import           Control.Monad.Reader
 import           Data.IORef (newIORef, readIORef)
 import           Data.Maybe (fromMaybe)
@@ -143,6 +143,16 @@ kiwiRoute ss api = do
     message <- formParamMaybe "message"
     serveSavePage uid hash message sent
   post "/preview" $ withLogin $ editParams >>= uncurry servePreview
+  -- creation of a page in the browser, in a source where the user can write
+  get "/new" $ withLogin serveNewPageSources
+  get "/new/:source" $ withLogin $ pathParam "source" >>= serveNewPage
+  post "/create-page" $ withLogin $ do
+    source <- formParam "source"
+    sent <- T.replace "\r\n" "\n" <$> formParam "text"
+    -- an empty path: the name of the file comes from the title
+    pathM <- fmap T.unpack . mfilter (not . T.null . T.strip) <$> formParamMaybe "path"
+    message <- formParamMaybe "message"
+    serveCreatePage source pathM message sent
   get  "/login" $ withLogin serveLogin
   post "/login" $ logUserIn
   post "/logout" $ logUserOut
@@ -166,7 +176,8 @@ kiwiRoute ss api = do
   where
     editParams = do
       source <- formParam "source"
-      pId <- formParam "id"
+      -- empty for a new page (see 'servePreview')
+      pId <- fromMaybe "" <$> formParamMaybe "id"
       -- browsers send the text of a textarea with CRLF line endings
       sent <- T.replace "\r\n" "\n" <$> formParam "text"
       return ((source, pId), sent)

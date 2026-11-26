@@ -9,6 +9,8 @@ module Kiwi.View
   , renderUidSearch
   , renderDoc
   , renderEditor
+  , renderNewPage
+  , renderNewPageSources
   , renderPreview
   , MetaEntry (..)
   , renderMetadata
@@ -43,7 +45,8 @@ import qualified Kiwi.Auth as Auth
 import qualified Kiwi.Browse as Browse
 import           Kiwi.Tags (prettyTag)
 import qualified Kiwi.Url as Url
-import           Kiwi.Utils (asksK, inlinesText)
+import           Kiwi.Utils (asksK, getDB, inlinesText)
+import qualified Kiwi.Write as Write
 import           Kiwi.HtmlWriter (PageLookup, writeHtml5)
 import           Kiwi.Pandoc (linksInContext)
 import           Kiwi.Files (servedName)
@@ -58,6 +61,8 @@ data ViewCtx = ViewCtx { ctxLocales :: K.Locales
                        , ctxContext :: K.Context      -- ^ navigation context
                        , ctxQuery   :: T.Text         -- ^ in the search field
                        , ctxEditor  :: Bool           -- ^ the page has an editor
+                       -- | the sources where the user can create a page
+                       , ctxCreatable :: [T.Text]
                        }
 
 getViewCtx :: ActM ViewCtx
@@ -69,6 +74,7 @@ getViewCtx = ViewCtx <$> getLocales
                      <*> asksK (K.context . K.requestState)
                      <*> pure T.empty
                      <*> pure False
+                     <*> (Write.creatableSources <$> getDB <*> asksK (K.login . K.requestState))
 
 getLocales :: ActM K.Locales
 getLocales = Loc.locales <$> asksK K.uiLang
@@ -103,14 +109,32 @@ renderPage findPage p canWrite doc backlinks related keywords = do
 -- the editor starts (from 1); with a field for the message of the commit,
 -- unless the pages are not committed (git-commit: no)
 renderEditor :: K.Page -> T.Text -> T.Text -> Int -> ActM TL.Text
-renderEditor p text hash line = do
+renderEditor p text hash line = editorLayout (EditPage p hash) text line
+
+-- | Form of a new page in this source, with this text (see 'renderEditor')
+renderNewPage :: T.Text -> T.Text -> ActM TL.Text
+renderNewPage source text = editorLayout (NewPage source) text 1
+
+editorLayout :: EditTarget -> T.Text -> Int -> ActM TL.Text
+editorLayout target text line = do
   vctx <- getViewCtx
   commits <- asksK K.gitCommit
   let loc = ctxLocales vctx
+      title = case target of
+        EditPage p _ -> K.loc_Editing loc <> " : " <> K.pageTitle p
+        NewPage source -> K.loc_NewPageIn loc <> " " <> source
   return $ renderText $
-    layout vctx { ctxEditor = True } (K.loc_Editing loc <> " : " <> K.pageTitle p)
-           NoActions Nothing $
-      editorView loc commits p text hash line
+    layout vctx { ctxEditor = True } title NoActions Nothing $
+      editorView loc commits (ctxIsAdmin vctx) target text line
+
+-- | The sources where the user can create a page, each one a link to the
+-- form of a new page there
+renderNewPageSources :: [T.Text] -> ActM TL.Text
+renderNewPageSources sources = do
+  loc <- getLocales
+  renderView (K.loc_NewPage loc) ReloadAction Nothing $ div_ [class_ "new-page-sources"] $ do
+    h1_ $ toHtml $ K.loc_NewPageSource loc
+    ul_ $ forM_ sources $ \s -> li_ $ a_ [href_ (Url.newPageUrl s)] $ toHtml s
 
 -- | HTML of a document previewed in the editor, with the links to the pages
 -- that do not exist (according to the predicate) marked as broken
@@ -316,10 +340,28 @@ navigation ctx actions = nav_ [class_ "top-nav"] $ do
         when admin reload
       ReloadAction -> when admin reload
       NoActions -> mempty
+    case actions of
+      PageActions p _ -> newPage (Just $ fst $ K.pageUID p)
+      ReloadAction -> newPage Nothing
+      NoActions -> mempty
     searchForm loc (ctxContext ctx) (ctxQuery ctx) False
   where
     loc = ctxLocales ctx
     admin = ctxIsAdmin ctx
+    -- a new page in the source of the page, else in the only source of the
+    -- context (or the only one where the user can create), else the choice
+    -- of the source
+    creatable = ctxCreatable ctx
+    newPage sourceM = unless (null creatable) $
+      a_ [ href_ (newPageTarget sourceM), class_ "icon new-page"
+         , title_ (K.loc_NewPage loc) ] $ icon "new"
+    newPageTarget sourceM = case sourceM of
+      Just s | s `elem` creatable -> Url.newPageUrl s
+      _ -> let inCtx = K.contextSources (ctxContext ctx)
+               candidates = if S.null inCtx then creatable else filter (`S.member` inCtx) creatable
+           in case candidates of
+                [s] -> Url.newPageUrl s
+                _ -> "/new"
     reload = iconButton "reload" (K.loc_Reload loc) alerts "reload"
     -- texts of the alerts shown by app.js when the action fails
     alerts = [ data_ "error-session" (K.loc_ActionSession loc)
@@ -471,13 +513,20 @@ pageView loc ctx findPage p canWrite doc backlinks related keywords = div_ [clas
     browseLink f k = Browse.browseUrl ctx $ Browse.addToReq contextReq (f, k)
 
 
--- | The editor of a page (see 'renderEditor'): a form, turned into a
--- markdown editor by app.js, with the texts of its buttons and messages, and
--- the field of the message of the commit if the pages are committed.
-editorView :: K.Locales -> Bool -> K.Page -> T.Text -> T.Text -> Int -> Html ()
-editorView loc commits p text hash line =
-  form_ ([ class_ "page-editor", method_ "post", action_ "/save-page"
-         , data_ "page-url" (Url.pageUrl p), data_ "line" (T.pack $ show line)
+-- | What the editor writes: a page (with the hash of its file), or a new
+-- page of a source
+data EditTarget = EditPage K.Page T.Text
+                | NewPage T.Text
+
+-- | The editor of a page, or the form of a new page (see 'renderEditor',
+-- 'renderNewPage'): a form, turned into a markdown editor by app.js, with
+-- the texts of its buttons and messages, the field of the message of the
+-- commit if the pages are committed, and, for a new page and an admin, the
+-- field of its path. The id and the hash are empty for a new page.
+editorView :: K.Locales -> Bool -> Bool -> EditTarget -> T.Text -> Int -> Html ()
+editorView loc commits admin target text line =
+  form_ ([ class_ formClass, method_ "post", action_ action
+         , data_ "page-url" back, data_ "line" (T.pack $ show line)
          , data_ "error-session" (K.loc_ActionSession loc)
          , data_ "error-forbidden" (K.loc_ActionForbidden loc)
          , data_ "error-failed" (K.loc_ActionFailed loc)
@@ -485,12 +534,19 @@ editorView loc commits p text hash line =
          , data_ "error-invalid" (K.loc_SaveInvalid loc)
          , data_ "warning-ignored" (K.loc_SaveIgnored loc) ] ++
          [ data_ ("button-" <> name) label | (name, label) <- K.loc_EditorButtons loc ]) $ do
-    h1_ [class_ "page-title"] $ do
-      span_ [class_ "editing"] $ toHtml (K.loc_Editing loc) <> " : "
-      toHtml (K.pageTitle p)
+    h1_ [class_ "page-title"] $ case target of
+      EditPage p _ -> do
+        span_ [class_ "editing"] $ toHtml (K.loc_Editing loc) <> " : "
+        toHtml (K.pageTitle p)
+      NewPage _ -> do
+        span_ [class_ "editing"] $ toHtml (K.loc_NewPageIn loc) <> " "
+        toHtml source
     input_ [type_ "hidden", name_ "source", value_ source]
     input_ [type_ "hidden", name_ "id", value_ pId]
     input_ [type_ "hidden", name_ "hash", value_ hash]
+    when (admin && isNew) $
+      input_ [ type_ "text", name_ "path", class_ "page-path", maxlength_ "500"
+             , placeholder_ (K.loc_PagePath loc), title_ (K.loc_PagePath loc) ]
     -- the browser drops a newline at the start of a textarea
     textarea_ [name_ "text", class_ "editor-text", rows_ "30"] $ toHtml ("\n" <> text)
     div_ [class_ "editor-actions"] $ do
@@ -498,8 +554,12 @@ editorView loc commits p text hash line =
         input_ [ type_ "text", name_ "message", class_ "commit-message", maxlength_ "2000"
                , placeholder_ (K.loc_CommitMessage loc), title_ (K.loc_CommitMessage loc) ]
       button_ [type_ "submit", class_ "save"] $ toHtml $ K.loc_Save loc
-      a_ [href_ (Url.pageUrl p), class_ "cancel"] $ toHtml $ K.loc_Cancel loc
-  where (source, pId) = K.pageUID p
+      a_ [href_ back, class_ "cancel"] $ toHtml $ K.loc_Cancel loc
+  where
+    (isNew, (source, pId), hash, back, action) = case target of
+      EditPage p h -> (False, K.pageUID p, h, Url.pageUrl p, "/save-page")
+      NewPage s -> (True, (s, ""), "", "/", "/create-page")
+    formClass = if isNew then "page-editor new-page" else "page-editor"
 
 browseView :: K.Locales -> K.Context -> BrowseToggles -> Maybe T.Text -> BrowseMenu ->
               BrowseFilters -> PagesListing -> [K.Page] -> Html ()
