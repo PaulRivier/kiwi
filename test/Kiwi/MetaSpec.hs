@@ -1,12 +1,14 @@
 module Kiwi.MetaSpec (metaSpec) where
 
 import qualified Data.ByteString as BS
+import qualified Data.List as L
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Time as Time
 import           Test.Hspec
 
 import           Kiwi.Meta
+import           Kiwi.Tags (normalizeTag)
 import           Kiwi.Types
 
 cfg :: [CustomMetaConfig]
@@ -31,9 +33,30 @@ metaSpec = do
                  \date: 2020-01-05\nauthors: Jack\\, Jr, John\naa: 1\nfiles-dir: f\n\
                  \images-dir: i\nzz: 2\n"
 
-  it "sorts the tags, expands their groups and removes duplicates" $
+  it "sorts the tags, removes duplicates and groups them by common prefix" $ do
     normalize "tags: sport > {escalade, alpinisme}, b, sport>escalade, a\\, b, x \\> y"
-      `shouldBe` "tags: a\\, b, b, sport > alpinisme, sport > escalade, x \\> y\n"
+      `shouldBe` "tags: a\\, b, b, sport > {alpinisme, escalade}, x \\> y\n"
+    normalize "tags: plantes > arbre, plantes > fabacée" `shouldBe` "tags: plantes > {arbre, fabacée}\n"
+    -- groups at each level, a group of one is not one
+    normalize "tags: loisir > sport > vélo, loisir > lecture, loisir > sport > escalade, a > b > c"
+      `shouldBe` "tags: a > b > c, loisir > {lecture, sport > {escalade, vélo}}\n"
+    normalize "tags: a > b > c, a > b > d" `shouldBe` "tags: a > b > {c, d}\n"
+    -- a tag that is the prefix of others comes before them
+    normalize "tags: cuisine > plat, cuisine, cuisine > dessert, a > b > c, a > d, a > b"
+      `shouldBe` "tags: a > {b, b > c, d}, cuisine, cuisine > {dessert, plat}\n"
+    -- groups on the right are expanded
+    normalize "tags: {a, b} > c" `shouldBe` "tags: a > c, b > c\n"
+    -- the special characters of the segments are escaped
+    normalize "tags: x > a\\, b, x > c\\{d\\}, x > e \\> f"
+      `shouldBe` "tags: x > {a\\, b, c\\{d\\}, e \\> f}\n"
+
+  it "reads back the tags it groups" $ do
+    let tags = fmap (L.sort . map normalizeTag) . metaTags . parse
+        headers = [ "tags: loisir > sport > vélo, loisir > lecture, loisir > sport > escalade"
+                  , "tags: cuisine > plat, cuisine, cuisine > dessert, a > b > c, a > d, a > b"
+                  , "tags: x > a\\, b, x > c\\{d\\}, x > e \\> f, x, y \\> z > {t, u}" ]
+    mapM_ (\h -> tags (normalize h) `shouldBe` tags h) headers
+    mapM_ (\h -> normalize (normalize h) `shouldBe` normalize h) headers
 
   it "keeps the values that can not be read, and the unknown keys" $ do
     normalize "lang: klingon\narchive: maybe\ncount: 3, x\nfoo: a\nfoo: b"

@@ -249,16 +249,16 @@ writePage cmc m content =
 -- | Normalized text of a header, read back by 'parseHeader': one line by
 -- key, in this order: title, summary, uid, previous-uids, tags, access, lang, archive,
 -- the custom metadata in the order of the config, then the other
--- keys by name (one line by value). The tags are sorted, without
--- duplicates, their segments separated by " > ". The values that can not be read are written as they were.
+-- keys by name (one line by value). The tags are grouped by their common
+-- prefixes (see 'writeTags'). The values that can not be read are written as
+-- they were.
 writeHeader :: [CustomMetaConfig] -> MetaData -> T.Text
 writeHeader cmc m = T.unlines $ concat
   [ line "title" (metaTitle m)
   , line "summary" (metaSummary m)
   , line "uid" (metaUid m)
   , line "previous-uids" (T.intercalate ", " . map (escape ",") <$> metaPreviousUids m)
-  , line "tags" (T.intercalate ", " . map writeTag . nodup . map writeTag' <$>
-                 metaTags m)
+  , line "tags" (writeTags <$> metaTags m)
   , let invalid = other "access"
     in case metaAccess m of
          Nothing | null invalid -> []
@@ -290,11 +290,32 @@ writeHeader cmc m = T.unlines $ concat
       AccessRead  -> ""
       AccessWrite -> ":w"
       AccessAdmin -> ":a"
-    -- a tag, by its segments: "a > b"
-    writeTag' = T.intercalate " > " . map (escape ">") . tagToSegments
-    writeTag = escape ",{}"
     escape cs = T.concatMap (\ch -> if ch `elem` T.unpack cs then T.pack ['\\', ch]
                                     else T.singleton ch)
+
+
+-- | Text of a tags field, read back by 'splitTags': the tags without
+-- duplicates, sorted by segments, those with the same first segment grouped
+-- between braces, at each level: "a > b > c, a > b > d, e" gives
+-- "a > b > {c, d}, e". A tag that is the prefix of others is written before
+-- them ("a, a > {b, c}"): the syntax has no empty alternative.
+writeTags :: [TagId] -> T.Text
+writeTags = T.intercalate ", " . go . nodup . filter (not . null) . map tagToSegments
+  where
+    -- sorted, distinct, non-empty segments
+    go :: [TagSegments] -> [T.Text]
+    go = concatMap group . L.groupBy (\a b -> take 1 a == take 1 b)
+    group g = case g of
+      (s : _) : _ ->
+        let self = [ escape s | [_] <- g ]
+            rests = [ r | _ : r@(_ : _) <- g ]
+        in self ++ case go rests of
+                     []  -> []
+                     [r] -> [escape s <> " > " <> r]
+                     rs  -> [escape s <> " > {" <> T.intercalate ", " rs <> "}"]
+      _ -> []
+    escape = T.concatMap (\ch -> if ch `elem` [',', '>', '{', '}'] then T.pack ['\\', ch]
+                                 else T.singleton ch)
 
 
 -- | Fields of a header: key and values of its lines. Each line is a field
