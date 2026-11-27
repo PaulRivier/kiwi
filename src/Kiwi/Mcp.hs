@@ -265,17 +265,16 @@ tools :: [Tool]
 tools =
   [ Tool "search" "Search the wiki" ReadOnly
       [prose|
-        Full-text search in the wiki. Use it first to find where an information is, before
-        reading pages. The words are alternatives: the pages containing any of them are
-        found, best first (the more words, the better), so add synonyms freely. There is
-        no OR nor AND operator (OR is searched as a word). Each result gives the page
-        (SOURCE/UID), its title, how many of the words it contains and where, its last
-        change (modified), tags, content_size (chars=N lines=M: the characters and lines
-        of its content), its summary (a short description written in its header, if any), its
-        keywords (the terms that tell it from the other pages, computed by the wiki), and
-        up to three passages with their line and section; the first line names the words
-        found in no page. Words are matched by their stem. "exact phrase" and -excluded
-        words are allowed. The filters of list_pages (tags, fields...) narrow the search.
+        Full-text search in the wiki. Use it first to find where an information is, before reading
+        pages. The words are alternatives: the pages containing any of them are found, best first
+        (the more words, the better), so add synonyms freely. There is no OR nor AND operator. Each
+        result gives the page (SOURCE/UID), its title, how many of the words matched and where. Then
+        its last change (modified), tags, content_size (chars=N lines=M: the characters and lines of
+        its content), its summary (a short description written in its header, if any), its keywords
+        (the terms that tell it from the other pages, computed by the wiki), and up to three
+        passages with their line and section; the first line names the words found in no page. Words
+        are matched by their stem. "exact phrase" and -excluded words are allowed. The filters of
+        list_pages (tags, fields...) narrow the search.
       |]
       ([ ("query", prop "string" "The words to search, e.g. burns \"first aid\" -baby") ]
        ++ selectionProps ++
