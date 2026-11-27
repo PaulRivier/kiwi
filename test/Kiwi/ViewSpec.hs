@@ -178,8 +178,8 @@ viewSpec = do
       forM_ ["bad.md", "page:none", "file:ABCDEFGH12", "pic__ABCDEFGH13"] $ \t ->
         liftIO $ admin `shouldSatisfy` (not . T.isInfixOf t)
       -- the page is served
-      page <- get "/page/s/p"
-      liftIO $ WT.simpleStatus page `shouldBe` Net.status200
+      served <- get "/page/s/p"
+      liftIO $ WT.simpleStatus served `shouldBe` Net.status200
 
   it "lists the load errors on the doctor page, for admins only" $
     withKiwiAccounts [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
