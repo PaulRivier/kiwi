@@ -1250,6 +1250,69 @@ form.page-editor .meta-suggestions .meta-new {
   color: rgba(var(--kiwi-text), 0.6);
 }
 
+/* the files of the editor (app.js shows the frame), below the body: a line
+   by file, its buttons after its name; the button to send files and the
+   help below them */
+form.page-editor fieldset.editor-files {
+  margin: 12px 0 0;
+  padding: 4px 12px 8px;
+  border: 1px solid rgba(var(--kiwi-text), 0.2);
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+form.page-editor fieldset.editor-files[hidden] {
+  display: none;
+}
+
+form.page-editor .editor-files legend {
+  padding: 0 4px;
+  color: rgba(var(--kiwi-text), 0.6);
+}
+
+form.page-editor ul.editor-files-list {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+form.page-editor ul.editor-files-list > li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+form.page-editor ul.editor-files-list .file-name {
+  overflow-wrap: anywhere;
+}
+
+/* a file being sent */
+form.page-editor ul.editor-files-list > li.sending .file-name {
+  color: rgba(var(--kiwi-text), 0.5);
+  font-style: italic;
+}
+
+form.page-editor ul.editor-files-list button {
+  padding: 0 8px;
+}
+
+form.page-editor ul.editor-files-list button.delete-file {
+  border-color: rgba(var(--kiwi-error), 0.8);
+}
+
+form.page-editor .editor-files-send {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+form.page-editor .editor-files-help {
+  color: rgba(var(--kiwi-text), 0.6);
+  font-size: 0.9em;
+}
+
 .editor-actions {
   display: flex;
   align-items: center;

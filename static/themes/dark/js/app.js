@@ -327,6 +327,17 @@ if (editorForm && window.EasyMDE) {
   });
   const E = window.EasyMDE;
 
+  // the files sent from this editor, by uid: a URL of their bytes in the
+  // browser, as kiwi serves a file only once a saved page links it
+  const sentFiles = new Map();
+  // the links and images of these files in a preview point to their bytes
+  const showSentFiles = (preview) => {
+    for (const [uid, url] of sentFiles) {
+      for (const img of preview.querySelectorAll(`img[src^="/file/"][src$="/${uid}"]`)) img.src = url;
+      for (const a of preview.querySelectorAll(`a[href^="/file/"][href$="/${uid}"]`)) a.href = url;
+    }
+  };
+
   // the preview is rendered by kiwi, as the page would be; the side by side
   // preview is rendered again once the typing stops
   let previewTimer;
@@ -336,6 +347,7 @@ if (editorForm && window.EasyMDE) {
       try {
         const response = await post("/preview", { source, id, body: text });
         preview.innerHTML = await response.text();
+        showSentFiles(preview);
       } catch {
         // network failure: the preview is kept
       }
@@ -410,6 +422,125 @@ if (editorForm && window.EasyMDE) {
     cm.setCursor({ line, ch: 0 });
     cm.scrollTo(null, cm.charCoords({ line, ch: 0 }, "local").top - 40);
     cm.focus();
+  }
+
+  // Files (frame .editor-files): those that the page links, and those sent
+  // from this editor (to the folder of the page, see /new-file), each one
+  // with a button that inserts its link at the cursor, and, for those sent,
+  // a button that deletes it. A file dropped or pasted in the content is
+  // also inserted there, one chosen with the button by its Insert button
+  // only.
+  const filesFrame = $("form.page-editor .editor-files");
+  if (filesFrame) {
+    const fd = filesFrame.dataset;
+    const list = filesFrame.querySelector(".editor-files-list");
+    const input = filesFrame.querySelector(".file-input");
+    filesFrame.hidden = false;
+    const pageQuery = isNew ? "" : `page=${encodeURIComponent(id)}`;
+    const failure = async (response) => {
+      if (response.status === 401) return data.errorSession;
+      if (response.status === 403) return data.errorForbidden;
+      if (response.status === 413) return fd.errorTooLarge;
+      if (response.status === 400) return `${fd.errorRefused} ${await response.text()}`;
+      if (response.status === 409) return await response.text();
+      return `${data.errorFailed} (HTTP ${response.status})`;
+    };
+    const button = (className, text) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = className;
+      b.textContent = text;
+      return b;
+    };
+
+    // sends a file; its link goes to the bookmark, if any, after the text
+    // before
+    const send = async (file, mark, before) => {
+      const row = document.createElement("li");
+      row.className = "sending";
+      const name = document.createElement("span");
+      name.className = "file-name";
+      name.textContent = file.name;
+      row.append(name);
+      list.append(row);
+      const query = new URLSearchParams({ name: file.name });
+      let response, reason;
+      try {
+        response = await fetch(`/new-file/${encodeURIComponent(source)}?${query}&${pageQuery}`,
+                               { method: "POST", body: file });
+        if (!response.ok) reason = await failure(response);
+      } catch {
+        reason = data.errorFailed;
+      }
+      if (reason) {
+        row.remove();
+        alert(`${file.name}\n${reason}`);
+        return;
+      }
+      const { uid, name: served, link } = await response.json();
+      sentFiles.set(uid, URL.createObjectURL(file));
+      row.className = "sent";
+      row.dataset.uid = uid;
+      row.dataset.link = link;
+      name.textContent = served;
+      row.append(button("insert-file", fd.insert), button("delete-file", fd.delete));
+      const at = mark?.find();
+      if (at) cm.replaceRange(before + link, at);
+    };
+    // the files one after the other, their links in their order, a blank
+    // line between them
+    const sendAll = async (files, pos) => {
+      const mark = pos ? cm.setBookmark(pos, { insertLeft: true }) : null;
+      for (const [i, file] of files.entries()) await send(file, mark, i > 0 ? "\n\n" : "");
+      mark?.clear();
+    };
+
+    filesFrame.querySelector(".attach-files").addEventListener("click", () => input.click());
+    input.addEventListener("change", () => {
+      sendAll([...input.files], null);
+      input.value = "";
+    });
+    cm.on("drop", (_cm, e) => {
+      const files = [...(e.dataTransfer?.files ?? [])];
+      if (files.length === 0) return;
+      e.preventDefault();
+      sendAll(files, cm.coordsChar({ left: e.clientX, top: e.clientY }, "window"));
+    });
+    cm.on("paste", (_cm, e) => {
+      const files = [...(e.clipboardData?.files ?? [])];
+      if (files.length === 0) return;
+      e.preventDefault();
+      sendAll(files, cm.getCursor());
+    });
+
+    list.addEventListener("click", async (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      const row = b.closest("li");
+      if (b.classList.contains("insert-file")) {
+        cm.replaceSelection(row.dataset.link);
+        cm.focus();
+      } else if (b.classList.contains("delete-file")) {
+        b.disabled = true;
+        const uid = row.dataset.uid;
+        let reason;
+        try {
+          const response = await fetch(`/delete-file/${encodeURIComponent(source)}/${uid}?${pageQuery}`,
+                                       { method: "POST" });
+          if (!response.ok) reason = await failure(response);
+        } catch {
+          reason = data.errorFailed;
+        }
+        if (reason) {
+          b.disabled = false;
+          alert(reason);
+          return;
+        }
+        URL.revokeObjectURL(sentFiles.get(uid));
+        sentFiles.delete(uid);
+        row.remove();
+      }
+    });
   }
 
   // leaving the page with changes asks for a confirmation

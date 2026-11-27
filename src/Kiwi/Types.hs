@@ -582,6 +582,15 @@ data Locales = Locales
   , loc_PagePath :: T.Text       -- ^ placeholder of the path of a new page (admins)
   , loc_EditorMeta :: T.Text     -- ^ label of the header in the editor
   , loc_EditorBody :: T.Text     -- ^ label of the body in the editor
+  -- | the files of the editor: title of the frame, button to send files,
+  -- help, button to insert a link, alerts of a file too large or refused
+  -- (followed by the reason)
+  , loc_EditorFiles :: T.Text
+  , loc_AttachFiles :: T.Text
+  , loc_EditorFilesHelp :: T.Text
+  , loc_InsertFile :: T.Text
+  , loc_FileTooLarge :: T.Text
+  , loc_FileRefused :: T.Text
   -- | deletion of a page: link of the editor, before the title of the page,
   -- what happens, the pages linking to it, the files that only it links,
   -- the box to delete them, the button, the reasons that make it

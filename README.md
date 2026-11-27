@@ -158,6 +158,10 @@ set `secure-cookie: yes` in the `[kiwi]` section: the session cookie
 will then only be sent over HTTPS connections. Keep it to `no` if you
 access Kiwi with plain HTTP, or login will not work.
 
+`max-upload-size` is the largest file that the editor of the browser can
+send, in megabytes (20 by default, see [Files in the
+editor](#files-in-the-editor)).
+
 Sessions expire after one year, you then have to log in again.
 
 The session cookie is named after the `name` and the `port` of the
@@ -639,6 +643,36 @@ for this version of the file; logging out forgets the drafts.
 Kiwi commits the saved file: see [Content versioning and
 backup](#content-versioning-and-backup). The message written next to the
 Save button, if any, is added to the one of the commit.
+
+### Files in the editor
+
+The *Files* frame below the content lists the files that the page links
+(when the editor was opened), each one with an *Insert* button, which
+writes its link at the cursor: `![name](file:UID)` for an image, which
+the page then shows, `[name](file:UID)` for another file. Its *Send
+files…* button sends files from your computer; a file dropped or pasted
+(a screen capture…) in the content is sent too, and its link inserted
+where it was dropped, or at the cursor. A file chosen with the button is
+inserted with its *Insert* button only.
+
+Kiwi writes each file sent next to the file of the page (at the top of
+the source for a new page, where the page will be), under its name with
+a new uid (`schema.png` becoming `schema__K3M9QW2TZ1.png`, see [images
+and files](#images-and-files)), and commits it by *LOGIN via Kiwi*
+(`Add file SOURCE:UID NAME (kiwi NAME)`). It needs the right to edit the
+page, or to create a page in the source. Any type of file can be sent,
+but not a name that Kiwi would not serve (a page file, a name starting
+with `.` or `_`, a temporary file…), and no file larger than
+`max-upload-size` megabytes of the `[kiwi]` section of *kiwi.ini* (20 by
+default).
+
+A file sent is served once a saved page links it, like any file; until
+then, the preview shows the copy that your browser keeps. The files sent
+since the editor was opened have a *Delete* button too, to remove a file
+sent by mistake (committed as `Delete file SOURCE:UID NAME (kiwi NAME)`);
+a file that a saved page links is not deleted. A file sent whose link was
+not saved stays in the source, linked by no page: `/doctor` lists it for
+the admins.
 
 The save and preview requests from the pages of another site are
 refused: behind a reverse proxy, keep the `Host` header of the requests

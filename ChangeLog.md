@@ -5,6 +5,13 @@
 - **Raw HTML is no longer rendered**: the HTML written in a page
   (comments `<!-- … -->` included) is shown as code (`pre`/`code` of
   class `kiwi-raw-html`). Write these passages in Markdown.
+- **Files in the browser editor**: a *Files* frame below the content
+  lists the files that the page links, with a button to insert their
+  link, and sends files (button, drop or paste in the content, which
+  inserts their link there). Each file sent is written next to the page
+  with a new uid and committed; those sent since the editor was opened
+  can be deleted. New key `max-upload-size` of `[kiwi]` (in megabytes, 20
+  by default).
 - The files of the sources are served in a sandbox
   (`Content-Security-Policy: sandbox`, PDF files excepted): an HTML
   document or an SVG image opened alone runs no script.

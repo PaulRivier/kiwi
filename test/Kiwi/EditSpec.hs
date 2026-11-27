@@ -649,6 +649,15 @@ editSpec = do
       linkedFile <- get ("/file/s/" <> TE.encodeUtf8 uid)
       liftIO $ status linkedFile `shouldBe` 200
       liftIO $ WT.simpleBody linkedFile `shouldBe` "PNG"
+      -- the editor lists the files that the page links, with their link
+      editor <- get "/edit/s/p"
+      liftIO $ body editor `shouldSatisfy` T.isInfixOf
+        ("<li data-uid=\"" <> sentUid sent <> "\" data-link=\"![schéma.png](file:" <> sentUid sent
+         <> ")\"><span class=\"file-name\">schéma.png</span>")
+      -- none in the form of a new page (only admins create pages in s)
+      _ <- login "ann"
+      newForm <- get "/new/s"
+      liftIO $ body newForm `shouldSatisfy` T.isInfixOf "<ul class=\"editor-files-list\"></ul>"
       -- the same name again: another file; a file that is not an image
       again <- sendFile [] "/new-file/s?page=p&name=sch%C3%A9ma.png" "PNG2"
       liftIO $ sentUid again `shouldNotBe` uid

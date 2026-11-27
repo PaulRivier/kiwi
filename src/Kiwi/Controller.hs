@@ -563,8 +563,14 @@ serveEditor uid lineM = withEditablePage uid $ \p level -> do
     Left e -> serveFailure $ T.pack e
     Right ((rawHeader, body), meta) -> do
       vocabulary <- metaVocabulary (fst $ K.pageUID p) (level >= K.AccessAdmin)
+      db <- getDB
+      -- the files that the page links, by name
+      let source = fst (K.pageUID p)
+          files = sortOn (textOrder . T.pack . servedName . FP.takeFileName . snd)
+                    [ (u, path) | u <- U.nodup (K.pageFiles p)
+                                , Just path <- [M.lookup (source, u) (K.sourceFiles db)] ]
       r <- V.renderEditor p (level >= K.AccessAdmin) (meta, Edit.textHash rawHeader)
-                          (body, Edit.textHash body) (fromMaybe 1 lineM) vocabulary
+                          (body, Edit.textHash body) (fromMaybe 1 lineM) vocabulary files
       -- the text of the file is not kept by the browser
       setHeader "Cache-Control" "no-store"
       html r

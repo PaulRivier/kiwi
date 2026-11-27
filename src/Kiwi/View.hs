@@ -116,17 +116,18 @@ renderPage findPage p canWrite doc backlinks related keywords = do
 -- the line of the body where the editor starts (from 1); with a field for
 -- the message of the commit, and the vocabulary of the header
 renderEditor :: K.Page -> Bool -> (T.Text, T.Text) -> (T.Text, T.Text) -> Int ->
-                [VocabularyEntry] -> ActM TL.Text
+                [VocabularyEntry] -> [(T.Text, FP.FilePath)] -> ActM TL.Text
 renderEditor p canDelete (meta, metaHash) (body, bodyHash) line =
   editorLayout (EditPage p metaHash bodyHash canDelete) meta body line
 
 -- | Form of a new page in this source, with this header and an empty body
 -- (see 'renderEditor')
 renderNewPage :: T.Text -> T.Text -> [VocabularyEntry] -> ActM TL.Text
-renderNewPage source meta = editorLayout (NewPage source) meta "" 1
+renderNewPage source meta vocabulary = editorLayout (NewPage source) meta "" 1 vocabulary []
 
-editorLayout :: EditTarget -> T.Text -> T.Text -> Int -> [VocabularyEntry] -> ActM TL.Text
-editorLayout target meta body line vocabulary = do
+editorLayout :: EditTarget -> T.Text -> T.Text -> Int -> [VocabularyEntry] ->
+                [(T.Text, FP.FilePath)] -> ActM TL.Text
+editorLayout target meta body line vocabulary files = do
   vctx <- getViewCtx
   let loc = ctxLocales vctx
       title = case target of
@@ -134,7 +135,7 @@ editorLayout target meta body line vocabulary = do
         NewPage source -> K.loc_NewPageIn loc <> " " <> source
   return $ renderText $
     layout vctx { ctxEditor = True } title NoActions Nothing $
-      editorView loc (ctxIsAdmin vctx) target meta body line vocabulary
+      editorView loc (ctxIsAdmin vctx) target meta body line vocabulary files
 
 -- | The sources where the user can create a page, each one a link to the
 -- form of a new page there
@@ -538,10 +539,11 @@ data EditTarget = EditPage K.Page T.Text T.Text Bool
 -- its buttons and messages, the field of the message of the commit, and,
 -- for a new page and an admin, the field of its path. The id and the hashes
 -- are empty for a new page. The link to the deletion of the page needs the
--- admin right on it.
+-- admin right on it. Below the body, the frame of the files (see
+-- 'editorFiles').
 editorView :: K.Locales -> Bool -> EditTarget -> T.Text -> T.Text -> Int -> [VocabularyEntry] ->
-              Html ()
-editorView loc admin target meta body line vocabulary =
+              [(T.Text, FP.FilePath)] -> Html ()
+editorView loc admin target meta body line vocabulary files =
   form_ ([ class_ formClass, method_ "post", action_ action
          , data_ "page-url" back, data_ "line" (T.pack $ show line)
          , data_ "error-session" (K.loc_ActionSession loc)
@@ -573,6 +575,7 @@ editorView loc admin target meta body line vocabulary =
     script_ [type_ "application/json", id_ "meta-vocabulary"] $ vocabularyJson vocabulary
     label_ [class_ "editor-label", for_ "editor-body"] $ toHtml (K.loc_EditorBody loc)
     textarea_ [id_ "editor-body", name_ "body", class_ "editor-text", rows_ "30"] $ toHtml ("\n" <> body)
+    editorFiles loc files
     div_ [class_ "editor-actions"] $ do
       input_ [ type_ "text", name_ "message", class_ "commit-message", maxlength_ "2000"
              , placeholder_ (K.loc_CommitMessage loc), title_ (K.loc_CommitMessage loc) ]
@@ -587,6 +590,27 @@ editorView loc admin target meta body line vocabulary =
       EditPage p mh bh _ -> (False, K.pageUID p, (mh, bh), Url.pageUrl p, "/save-page")
       NewPage s -> (True, (s, ""), ("", ""), "/", "/create-page")
     formClass = if isNew then "page-editor new-page" else "page-editor"
+
+-- | The files of the editor (app.js shows the frame, which needs the markdown
+-- editor): those that the page links (uid, path in the source), each one with
+-- the text that its button inserts in the body ('insertFileLink'), then
+-- those sent from this editor, added by app.js. The file field has no name:
+-- the form does not send it.
+editorFiles :: K.Locales -> [(T.Text, FP.FilePath)] -> Html ()
+editorFiles loc files =
+  fieldset_ [ class_ "editor-files", hidden_ ""
+            , data_ "insert" (K.loc_InsertFile loc), data_ "delete" (K.loc_Delete loc)
+            , data_ "error-too-large" (K.loc_FileTooLarge loc)
+            , data_ "error-refused" (K.loc_FileRefused loc) ] $ do
+    legend_ $ toHtml $ K.loc_EditorFiles loc
+    ul_ [class_ "editor-files-list"] $ forM_ files $ \(uid, path) ->
+      li_ [data_ "uid" uid, data_ "link" (insertFileLink path uid)] $ do
+        span_ [class_ "file-name"] $ toHtml $ servedName $ FP.takeFileName path
+        button_ [type_ "button", class_ "insert-file"] $ toHtml $ K.loc_InsertFile loc
+    div_ [class_ "editor-files-send"] $ do
+      button_ [type_ "button", class_ "attach-files"] $ toHtml $ K.loc_AttachFiles loc
+      input_ [type_ "file", multiple_ "", class_ "file-input", hidden_ ""]
+      span_ [class_ "editor-files-help"] $ toHtml $ K.loc_EditorFilesHelp loc
 
 -- | What the editor of a header proposes for a key (see 'editorView'): its
 -- values, the rights that can follow a value after a ":" (access), and its
