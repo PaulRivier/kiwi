@@ -1254,7 +1254,7 @@ form.page-editor .meta-suggestions .meta-new {
    by file, its buttons after its name; the button to send files and the
    help below them */
 form.page-editor fieldset.editor-files {
-  margin: 12px 0 0;
+  margin: 4px 0 24px 0;
   padding: 4px 12px 8px;
   border: 1px solid rgba(var(--kiwi-text), 0.2);
   border-radius: 4px;
@@ -1297,8 +1297,18 @@ form.page-editor ul.editor-files-list button {
   padding: 0 8px;
 }
 
+/* the deletion of a file sent, in the color of the errors */
 form.page-editor ul.editor-files-list button.delete-file {
-  border-color: rgba(var(--kiwi-error), 0.8);
+  background-color: rgba(var(--kiwi-error), 0.8);
+}
+
+form.page-editor ul.editor-files-list button.delete-file:hover {
+  background-color: rgb(var(--kiwi-error));
+}
+
+form.page-editor ul.editor-files-list button:disabled {
+  cursor: wait;
+  opacity: 0.5;
 }
 
 form.page-editor .editor-files-send {
@@ -1361,7 +1371,11 @@ form.delete-page .delete-error {
 }
 
 form.delete-page button.delete {
-  border-color: rgb(var(--kiwi-error));
+  background-color: rgba(var(--kiwi-error), 0.8);
+}
+
+form.delete-page button.delete:hover {
+  background-color: rgb(var(--kiwi-error));
 }
 
 .editor-actions button:disabled {
