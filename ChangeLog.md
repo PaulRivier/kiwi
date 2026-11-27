@@ -1,6 +1,6 @@
 # ChangeLog for Kiwi
 
-## Unreleased
+## v0.4.7.0 - 2026-11-27
 
 - **Raw HTML is no longer rendered**: the HTML written in a page
   (comments `<!-- … -->` included) is shown as code (`pre`/`code` of
