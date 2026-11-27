@@ -65,6 +65,7 @@ loc_english = Locales
   , loc_SaveConflict = "The page has changed since it was opened: keep a copy of your text, and open the editor again."
   , loc_SaveInvalid = "The page can not be saved:"
   , loc_SaveIgnored = "You can not change these metadata, they are left as they were:"
+  , loc_NewMetaValue = "new value"
   , loc_EditorButtons =
       [ ("bold", "Bold"), ("italic", "Italic"), ("strikethrough", "Strikethrough")
       , ("heading", "Heading"), ("quote", "Quote"), ("code", "Code")
@@ -153,6 +154,7 @@ loc_french = Locales
   , loc_SaveConflict = "La page a changé depuis son ouverture\x00A0: gardez une copie de votre texte, et ouvrez l'éditeur à nouveau."
   , loc_SaveInvalid = "La page ne peut pas être enregistrée\x00A0:"
   , loc_SaveIgnored = "Vous ne pouvez pas changer ces métadonnées, elles restent inchangées\x00A0:"
+  , loc_NewMetaValue = "nouvelle valeur"
   , loc_EditorButtons =
       [ ("bold", "Gras"), ("italic", "Italique"), ("strikethrough", "Barré")
       , ("heading", "Titre"), ("quote", "Citation"), ("code", "Code")

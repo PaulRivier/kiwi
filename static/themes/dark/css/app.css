@@ -1215,6 +1215,39 @@ form.page-editor textarea.editor-meta {
   font: 0.95em ui-monospace, monospace;
 }
 
+/* the suggestions of the header (app.js), below its text area; the one
+   chosen with the arrows is highlighted */
+form.page-editor .meta-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font: 0.85em ui-monospace, monospace;
+}
+
+form.page-editor .meta-suggestions[hidden] {
+  display: none;
+}
+
+form.page-editor .meta-suggestions button {
+  padding: 1px 8px;
+  background-color: rgba(var(--kiwi-text), 0.08);
+  color: rgb(var(--kiwi-text));
+  border: 1px solid rgba(var(--kiwi-text), 0.2);
+}
+
+form.page-editor .meta-suggestions button:hover,
+form.page-editor .meta-suggestions button.selected {
+  background-color: rgba(var(--kiwi-primary), 0.35);
+  border-color: rgb(var(--kiwi-primary));
+}
+
+form.page-editor .meta-suggestions .meta-new {
+  font-style: italic;
+  color: rgba(var(--kiwi-text), 0.6);
+}
+
 .editor-actions {
   display: flex;
   align-items: center;

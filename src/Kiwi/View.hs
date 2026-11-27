@@ -543,7 +543,8 @@ editorView loc admin target meta body line vocabulary =
          , data_ "error-failed" (K.loc_ActionFailed loc)
          , data_ "error-conflict" (K.loc_SaveConflict loc)
          , data_ "error-invalid" (K.loc_SaveInvalid loc)
-         , data_ "warning-ignored" (K.loc_SaveIgnored loc) ] ++
+         , data_ "warning-ignored" (K.loc_SaveIgnored loc)
+         , data_ "new-value" (K.loc_NewMetaValue loc) ] ++
          [ data_ ("button-" <> name) label | (name, label) <- K.loc_EditorButtons loc ]) $ do
     h1_ [class_ "page-title"] $ case target of
       EditPage p _ _ _ -> do

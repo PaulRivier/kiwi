@@ -202,6 +202,8 @@ editSpec = do
         let has t = liftIO $ editor `shouldSatisfy` T.isInfixOf t
             hasNot t = liftIO $ editor `shouldSatisfy` (not . T.isInfixOf t)
         has "<script type=\"application/json\" id=\"meta-vocabulary\">"
+        -- the text of a value that no page has, for app.js
+        has "data-new-value=\"new value\""
         -- the tags and their prefixes, archives included
         has "\"values\":[\"cuisine\",\"cuisine > pâtes\",\"vieux\"]"
         -- the custom fields, with their description; no "<" in the script

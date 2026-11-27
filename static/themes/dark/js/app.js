@@ -84,6 +84,175 @@ if (editable) {
 }
 
 
+// Suggestions for the header of a page, in a bar below its text area: the
+// keys and the values of the vocabulary of its source (#meta-vocabulary,
+// from kiwi), for the line of the cursor. Before the ":", its key; after
+// it, the value being written, from the last "," of the line (tags: whole
+// paths, nothing inside a group "{...}"; access: the rights after a ":").
+// Those that start with the text written come first, then those that
+// contain it, without case nor accents. The bar opens when the user types
+// (or Ctrl+Space), follows the cursor on its line, and closes on another
+// line, with Escape, or when the text area loses the focus. ↓/↑ choose a
+// suggestion, Tab or Enter write the chosen one (without a choice, they keep
+// their role); a click writes one.
+
+const maxSuggestions = 10;
+
+// without case nor accents, nor spaces around the ">" of the tags
+const normalized = (s) =>
+  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s*>\s*/g, ">").trim();
+
+function headerSuggestions(meta, vocabulary, newValueText) {
+  const entries = new Map(vocabulary.map((e) => [e.key, { ...e, norms: e.values.map(normalized) }]));
+  const keys = vocabulary.map((e) => e.key);
+  const keyNorms = keys.map(normalized);
+  const bar = document.createElement("div");
+  bar.className = "meta-suggestions";
+  bar.hidden = true;
+  meta.after(bar);
+
+  // open: the bar follows the cursor on this line (start in the text);
+  // current: what a choice replaces in the text, and the suggestions
+  let open = false, openLine = -1, current = null, selected = -1;
+
+  const close = () => {
+    open = false;
+    current = null;
+    bar.hidden = true;
+  };
+
+  // the texts that match what is written, and whether it is one of them
+  const matching = (texts, norms, typed) => {
+    const t = normalized(typed);
+    const starts = [], contains = [];
+    texts.forEach((x, i) => {
+      if (norms[i].startsWith(t)) starts.push(x);
+      else if (norms[i].includes(t)) contains.push(x);
+    });
+    return { found: starts.concat(contains).slice(0, maxSuggestions), known: norms.includes(t) };
+  };
+
+  // the suggestions replacing the text from start to end, each one a label
+  // and what it writes; isNew: the value written is in no page, nor the
+  // start of one
+  const show = (start, end, typed, items, isNew) => {
+    const written = items.length === 1 && normalized(items[0].label) === normalized(typed);
+    if ((items.length === 0 || written) && !isNew) {
+      current = null;
+      bar.hidden = true;
+      return;
+    }
+    current = { start, end, items };
+    selected = -1;
+    const buttons = items.map((item, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = item.label;
+      if (item.title) b.title = item.title;
+      // the text area keeps the focus
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", () => choose(i));
+      return b;
+    });
+    if (isNew) {
+      const note = document.createElement("span");
+      note.className = "meta-new";
+      note.textContent = newValueText;
+      buttons.push(note);
+    }
+    bar.replaceChildren(...buttons);
+    bar.hidden = false;
+  };
+
+  const update = () => {
+    const pos = meta.selectionStart, text = meta.value;
+    const lineStart = text.lastIndexOf("\n", pos - 1) + 1;
+    if (pos !== meta.selectionEnd || lineStart !== openLine) return close();
+    let lineEnd = text.indexOf("\n", pos);
+    if (lineEnd < 0) lineEnd = text.length;
+    const line = text.slice(lineStart, lineEnd), at = pos - lineStart;
+    const colon = line.indexOf(":");
+    if (colon < 0 || at <= colon) {
+      // the key, written with its ":" when the line has none
+      const lead = line.length - line.trimStart().length;
+      const typed = line.slice(lead, Math.max(lead, at));
+      const { found } = matching(keys, keyNorms, typed);
+      const items = found.map((k) => ({ label: k, text: colon < 0 ? `${k}: ` : k,
+                                        title: entries.get(k).description }));
+      return show(lineStart + lead, lineStart + (colon < 0 ? line.length : colon), typed, items, false);
+    }
+    const entry = entries.get(line.slice(0, colon).trim());
+    const before = line.slice(colon + 1, at);
+    const count = (c) => before.split(c).length - 1;
+    if (!entry || count("{") > count("}")) return show(0, 0, "", [], false);
+    // the value of the cursor, from the last "," before it to the next one,
+    // without the spaces around
+    const itemStart = colon + 1 + before.lastIndexOf(",") + 1;
+    let itemEnd = line.indexOf(",", at);
+    if (itemEnd < 0) itemEnd = line.length;
+    const raw = line.slice(itemStart, itemEnd);
+    const start = itemStart + raw.length - raw.trimStart().length;
+    const end = Math.max(start, itemEnd - (raw.length - raw.trimEnd().length));
+    const typed = line.slice(start, Math.max(start, at));
+    const right = typed.indexOf(":");
+    if (entry.rights && right >= 0) {
+      const { found } = matching(entry.rights, entry.rights, typed.slice(right + 1));
+      return show(lineStart + start + right + 1, lineStart + end, typed.slice(right + 1),
+                  found.map((r) => ({ label: r, text: r })), false);
+    }
+    // a value that no page has, when nothing matches it
+    const { found, known } = matching(entry.values, entry.norms, typed);
+    show(lineStart + start, lineStart + end, typed, found.map((v) => ({ label: v, text: v })),
+         typed.trim() !== "" && entry.values.length > 0 && !known && found.length === 0);
+  };
+
+  const openHere = () => {
+    open = true;
+    openLine = meta.value.lastIndexOf("\n", meta.selectionStart - 1) + 1;
+    update();
+  };
+
+  // the text written replaces the text of the suggestion (an input event:
+  // the draft is kept, the bar follows)
+  const choose = (i) => {
+    const { start, end, items } = current;
+    meta.setRangeText(items[i].text, start, end, "end");
+    meta.dispatchEvent(new Event("input"));
+  };
+
+  const select = (i) => {
+    selected = i;
+    [...bar.querySelectorAll("button")].forEach((b, j) => b.classList.toggle("selected", j === i));
+  };
+
+  meta.addEventListener("input", openHere);
+  meta.addEventListener("blur", close);
+  meta.addEventListener("click", () => { if (open) update(); });
+  meta.addEventListener("keyup", (e) => {
+    if (open && !["ArrowDown", "ArrowUp", "Tab", "Enter", "Escape"].includes(e.key)) update();
+  });
+  meta.addEventListener("keydown", (e) => {
+    if (e.key === " " && e.ctrlKey) {
+      e.preventDefault();
+      openHere();
+      return;
+    }
+    if (!current) return;
+    const n = current.items.length;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      close();
+    } else if (n > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      select(e.key === "ArrowDown" ? (selected + 1) % n : (selected <= 0 ? n : selected) - 1);
+    } else if ((e.key === "Tab" || e.key === "Enter") && selected >= 0 && !e.shiftKey) {
+      e.preventDefault();
+      choose(selected);
+    }
+  });
+}
+
+
 // Page editor: the header of the page in a text area, its body in a
 // markdown editor (EasyMDE, loaded before this script), saved with the
 // hashes of the header and the body read; the same form creates a new page
@@ -171,6 +340,9 @@ if (editorForm && window.EasyMDE) {
   // the text area grows with the header
   const fitMeta = () => { meta.rows = Math.max(3, meta.value.split("\n").length + 1); };
   fitMeta();
+
+  const vocabulary = $("#meta-vocabulary");
+  if (vocabulary) headerSuggestions(meta, JSON.parse(vocabulary.textContent), data.newValue);
 
   // the editor opens at the line of the block chosen on the page; a new
   // page: in the header, after "title: "

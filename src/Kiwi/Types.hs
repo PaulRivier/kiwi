@@ -598,6 +598,9 @@ data Locales = Locales
   , loc_SaveConflict :: T.Text
   , loc_SaveInvalid :: T.Text
   , loc_SaveIgnored :: T.Text
+  -- | a value of the header that no page of the source has (suggestions of
+  -- the editor)
+  , loc_NewMetaValue :: T.Text
   -- | titles of the buttons of the editor toolbar, by name
   , loc_EditorButtons :: [(T.Text, T.Text)]
   , loc_CopyLink :: T.Text
