@@ -10,6 +10,7 @@ module Kiwi.View
   , renderDoc
   , renderEditor
   , renderNewPage
+  , VocabularyEntry (..)
   , renderNewPageSources
   , DeleteForm (..)
   , renderDeletePage
@@ -29,11 +30,13 @@ module Kiwi.View
   ) where
 
 import           Control.Monad (forM_, unless, when)
+import qualified Data.Aeson as A
 import           Data.List (intersperse)
 import           Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TLE
 import           Data.Tree (Forest, Tree (..))
 import           Lucid
 import           Lucid.Base (makeAttributes)
@@ -110,18 +113,19 @@ renderPage findPage p canWrite doc backlinks related keywords = do
 
 -- | Editor of a page: its header and its body, each one with its hash, and
 -- the line of the body where the editor starts (from 1); with a field for
--- the message of the commit
-renderEditor :: K.Page -> Bool -> (T.Text, T.Text) -> (T.Text, T.Text) -> Int -> ActM TL.Text
+-- the message of the commit, and the vocabulary of the header
+renderEditor :: K.Page -> Bool -> (T.Text, T.Text) -> (T.Text, T.Text) -> Int ->
+                [VocabularyEntry] -> ActM TL.Text
 renderEditor p canDelete (meta, metaHash) (body, bodyHash) line =
   editorLayout (EditPage p metaHash bodyHash canDelete) meta body line
 
 -- | Form of a new page in this source, with this header and an empty body
 -- (see 'renderEditor')
-renderNewPage :: T.Text -> T.Text -> ActM TL.Text
+renderNewPage :: T.Text -> T.Text -> [VocabularyEntry] -> ActM TL.Text
 renderNewPage source meta = editorLayout (NewPage source) meta "" 1
 
-editorLayout :: EditTarget -> T.Text -> T.Text -> Int -> ActM TL.Text
-editorLayout target meta body line = do
+editorLayout :: EditTarget -> T.Text -> T.Text -> Int -> [VocabularyEntry] -> ActM TL.Text
+editorLayout target meta body line vocabulary = do
   vctx <- getViewCtx
   let loc = ctxLocales vctx
       title = case target of
@@ -129,7 +133,7 @@ editorLayout target meta body line = do
         NewPage source -> K.loc_NewPageIn loc <> " " <> source
   return $ renderText $
     layout vctx { ctxEditor = True } title NoActions Nothing $
-      editorView loc (ctxIsAdmin vctx) target meta body line
+      editorView loc (ctxIsAdmin vctx) target meta body line vocabulary
 
 -- | The sources where the user can create a page, each one a link to the
 -- form of a new page there
@@ -529,8 +533,9 @@ data EditTarget = EditPage K.Page T.Text T.Text Bool
 -- for a new page and an admin, the field of its path. The id and the hashes
 -- are empty for a new page. The link to the deletion of the page needs the
 -- admin right on it.
-editorView :: K.Locales -> Bool -> EditTarget -> T.Text -> T.Text -> Int -> Html ()
-editorView loc admin target meta body line =
+editorView :: K.Locales -> Bool -> EditTarget -> T.Text -> T.Text -> Int -> [VocabularyEntry] ->
+              Html ()
+editorView loc admin target meta body line vocabulary =
   form_ ([ class_ formClass, method_ "post", action_ action
          , data_ "page-url" back, data_ "line" (T.pack $ show line)
          , data_ "error-session" (K.loc_ActionSession loc)
@@ -558,6 +563,7 @@ editorView loc admin target meta body line =
     label_ [class_ "editor-label", for_ "editor-meta"] $ toHtml (K.loc_EditorMeta loc)
     textarea_ [ id_ "editor-meta", name_ "meta", class_ "editor-meta", spellcheck_ "false"
               , rows_ (T.pack $ show $ max 3 (length (T.lines meta) + 1)) ] $ toHtml ("\n" <> meta)
+    script_ [type_ "application/json", id_ "meta-vocabulary"] $ vocabularyJson vocabulary
     label_ [class_ "editor-label", for_ "editor-body"] $ toHtml (K.loc_EditorBody loc)
     textarea_ [id_ "editor-body", name_ "body", class_ "editor-text", rows_ "30"] $ toHtml ("\n" <> body)
     div_ [class_ "editor-actions"] $ do
@@ -574,6 +580,25 @@ editorView loc admin target meta body line =
       EditPage p mh bh _ -> (False, K.pageUID p, (mh, bh), Url.pageUrl p, "/save-page")
       NewPage s -> (True, (s, ""), ("", ""), "/", "/create-page")
     formClass = if isNew then "page-editor new-page" else "page-editor"
+
+-- | What the editor of a header proposes for a key (see 'editorView'): its
+-- values, the rights that can follow a value after a ":" (access), and its
+-- description
+data VocabularyEntry = VocabularyEntry
+  { vocKey :: T.Text
+  , vocValues :: [T.Text]
+  , vocRights :: [T.Text]
+  , vocDescription :: Maybe T.Text
+  }
+
+-- | The vocabulary as JSON, for app.js, in a script element (a block of
+-- data, never run): no "<", so that no value can end the element
+vocabularyJson :: [VocabularyEntry] -> T.Text
+vocabularyJson entries = T.replace "<" "\\u003c" $ TL.toStrict $ TLE.decodeUtf8 $ A.encode $
+  [ A.object $ [ "key" A..= vocKey e, "values" A..= vocValues e ]
+               ++ [ "rights" A..= vocRights e | not (null $ vocRights e) ]
+               ++ [ "description" A..= d | Just d <- [vocDescription e] ]
+  | e <- entries ]
 
 -- | What the confirmation of the deletion of a page shows
 data DeleteForm = DeleteForm

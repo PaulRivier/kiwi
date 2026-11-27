@@ -187,6 +187,42 @@ editSpec = do
     admin <- get "/edit/s/p"
     liftIO $ body admin `shouldSatisfy` T.isInfixOf "access: family:w, friends, public"
 
+  it "gives the vocabulary of the pages of the source that the user can read" $
+    -- bob can create a page in s
+    withKiwiConfig ["[source s]", "access: family:w"]
+      [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
+      [ ("p.md", "title: P\nuid: p\ntags: cuisine > pâtes\nzone: nord, x</script>\n\
+                 \access: family:w, public\n\nP")
+      , ("old.md", "title: Old\nuid: old\ntags: vieux\narchive: yes\naccess: family\n\nO")
+      , ("secret.md", "title: S\nuid: secret\ntags: caché\nzone: secrète\naccess: nobody\n\nS")
+      , ("../t/o.md", "title: O\nuid: o\ntags: ailleurs\naccess: public\n\nO") ] $
+      \_ _ app -> flip WT.runSession app $ do
+        _ <- login "bob"
+        editor <- body <$> get "/edit/s/p"
+        let has t = liftIO $ editor `shouldSatisfy` T.isInfixOf t
+            hasNot t = liftIO $ editor `shouldSatisfy` (not . T.isInfixOf t)
+        has "<script type=\"application/json\" id=\"meta-vocabulary\">"
+        -- the tags and their prefixes, archives included
+        has "\"values\":[\"cuisine\",\"cuisine > pâtes\",\"vieux\"]"
+        -- the custom fields, with their description; no "<" in the script
+        has "\"description\":\"the area\",\"key\":\"zone\",\"values\":[\"nord\",\"x\\u003c/script>\"]"
+        has "\"key\":\"archive\",\"values\":[\"no\",\"yes\"]"
+        has "\"auto/french\""
+        has "\"key\":\"title\",\"values\":[]"
+        -- not the pages that bob can not read, nor those of other sources,
+        -- nor the access, without the admin right, nor the uids
+        mapM_ hasNot ["caché", "secrète", "ailleurs", "\"key\":\"access\"", "\"key\":\"uid\"", "x</script>"]
+        newPage <- body <$> get "/new/s"
+        liftIO $ newPage `shouldSatisfy` T.isInfixOf "\"cuisine > pâtes\""
+        liftIO $ newPage `shouldSatisfy` (not . T.isInfixOf "\"key\":\"access\"")
+        _ <- login "ann"
+        admin <- body <$> get "/edit/s/p"
+        liftIO $ admin `shouldSatisfy`
+          T.isInfixOf "\"key\":\"access\",\"rights\":[\"r\",\"w\",\"a\"],\"values\":[\"family\",\"nobody\",\"public\"]"
+        liftIO $ admin `shouldSatisfy` T.isInfixOf "\"caché\""
+        adminNew <- body <$> get "/new/s"
+        liftIO $ adminNew `shouldSatisfy` T.isInfixOf "\"key\":\"access\""
+
   it "shows the edition links to the users with the write right" $ onKiwi $ \_ -> do
     anonymous <- body <$> get "/page/s/p"
     liftIO $ anonymous `shouldSatisfy` (not . T.isInfixOf "/edit/s/p")

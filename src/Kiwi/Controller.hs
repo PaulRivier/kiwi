@@ -275,7 +275,11 @@ metadataPage db = do
     keysForest K.FieldTag keys = tagsForest $ sortOn (map segOrder . fst)
       [ (Tags.tagToSegments t, k) | k@(K.KeyText t) <- keys ]
     keysForest _ keys = [ Tree.Node k [] | k <- sortOn keyOrder keys ]
-    segOrder seg = (textOrder seg, seg)
+
+-- | Order of a segment of a tag: without case nor accents, the raw segment
+-- breaking ties, so that a tag is followed by its sub-tags
+segOrder :: T.Text -> (T.Text, T.Text)
+segOrder seg = (textOrder seg, seg)
 
 -- | Order of the texts (sources, metadata keys), without case nor accents
 textOrder :: T.Text -> T.Text
@@ -551,11 +555,39 @@ serveEditor uid lineM = withEditablePage uid $ \p level -> do
   case fileE >>= \(_, t) -> (,) (Edit.splitFile t) <$> Edit.editorMeta cmc level t of
     Left e -> serveFailure $ T.pack e
     Right ((rawHeader, body), meta) -> do
+      vocabulary <- metaVocabulary (fst $ K.pageUID p) (level >= K.AccessAdmin)
       r <- V.renderEditor p (level >= K.AccessAdmin) (meta, Edit.textHash rawHeader)
-                          (body, Edit.textHash body) (fromMaybe 1 lineM)
+                          (body, Edit.textHash body) (fromMaybe 1 lineM) vocabulary
       -- the text of the file is not kept by the browser
       setHeader "Cache-Control" "no-store"
       html r
+
+-- | What the editor of a header proposes in this source (see
+-- 'V.VocabularyEntry'): the keys that a header can have, and the values of
+-- the pages of the source that the user can read, archives included, each
+-- list in the order of the metadata page; the access with the admin right
+-- only (see 'Edit.editorMeta'), never the keys of kiwi ('Meta.kiwiKeys').
+metaVocabulary :: T.Text -> Bool -> ActM [V.VocabularyEntry]
+metaVocabulary source admin = do
+  db <- getDB
+  loginM <- asksK (K.login . K.requestState)
+  let idx = RDI.narrow (K.pagesIndex db) $
+              DI.And [U.qOnly K.FieldSource source, Auth.readableAnyArchiveQuery loginM]
+      values f = map Browse.showKeyLabel $ sortOn keyOrder $ RDI.getFieldKeys idx f
+      tags = map Tags.prettyTag $ sortOn (map segOrder . Tags.tagToSegments)
+               [ t | K.KeyText t <- RDI.getFieldKeys idx K.FieldTag ]
+      langs = sortOn textOrder $ "auto" : concat [ [n, "auto/" <> n]
+                                                 | l <- [minBound .. maxBound], let n = K.langName l ]
+      entry k vs = V.VocabularyEntry k vs [] Nothing
+      custom c = (entry (K.cmcName c) $ case K.cmcType c of
+                    K.CmtBool -> ["no", "yes"]
+                    _ -> values (K.FieldCustom $ K.cmcName c))
+                   { V.vocDescription = K.cmcDescription c }
+  return $ sortOn (textOrder . V.vocKey) $
+    [ entry "title" [], entry "summary" [], entry "tags" tags, entry "lang" langs
+    , entry "archive" ["no", "yes"] ] ++
+    [ (entry "access" (values K.FieldAccess)) { V.vocRights = ["r", "w", "a"] } | admin ] ++
+    map custom (K.customMetaConfig db)
 
 -- | Runs the action on the page when the user can delete it (admin right
 -- on the page; see 'withEditablePage' for the other cases)
@@ -731,7 +763,8 @@ serveNewPageSources = do
 -- empty body
 serveNewPage :: T.Text -> ActM ()
 serveNewPage source = withCreatableSource source $ do
-  r <- V.renderNewPage source "title: "
+  vocabulary <- metaVocabulary source =<< Auth.isAdmin
+  r <- V.renderNewPage source "title: " vocabulary
   setHeader "Cache-Control" "no-store"
   html r
 
