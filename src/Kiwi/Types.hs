@@ -96,6 +96,8 @@ data ServerState =
               , secureCookie  :: Bool
               , agentGuide    :: Maybe FP.FilePath  -- ^ file of the guide of
                                                     -- the user for the agents (API)
+              , maxUploadSize :: Integer  -- ^ largest file sent by the
+                                          -- editor, in bytes
               , logger        :: Logger
               }
 

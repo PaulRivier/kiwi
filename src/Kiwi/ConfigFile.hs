@@ -38,6 +38,7 @@ data KiwiConfig = KiwiConfig
   , secureCookie :: Bool
   , agentGuide :: Maybe FP.FilePath  -- ^ file of the guide of the user for
                                      -- the agents, as written (see 'agentGuideFile')
+  , maxUploadSize :: Integer  -- ^ largest file sent by the editor, in MB
   }
   
 
@@ -69,6 +70,7 @@ configParser = do
     secureCookie' <- fieldFlagDef "secure-cookie" False
     -- without it (or empty), no guide of the user
     agentGuide' <- fieldMbOf "agent-guide" string
+    maxUploadSize' <- fieldDefOf "max-upload-size" megabytes 20
     return KiwiConfig
       { name = name'
       , contentDir = contentDir'
@@ -82,6 +84,7 @@ configParser = do
       , toc = toc'
       , secureCookie = secureCookie'
       , agentGuide = mfilter (not . null) (trim <$> agentGuide')
+      , maxUploadSize = maxUploadSize'
       }
 
 
@@ -112,6 +115,12 @@ sourceConfigParser source = do
                         , K.scReadOnly = readOnly
                         }
 
+
+-- | A size in megabytes: a whole number, 1 or more
+megabytes :: T.Text -> Either String Integer
+megabytes t = case TR.decimal (T.strip t) of
+  Right (n, rest) | T.null rest, n >= 1 -> Right n
+  _ -> Left $ "invalid size " ++ show (T.strip t) ++ ", expected a number of megabytes (1 or more)"
 
 -- | An access list (see 'Meta.parseAccess'), refused with an invalid item
 accessList :: T.Text -> Either String K.Access

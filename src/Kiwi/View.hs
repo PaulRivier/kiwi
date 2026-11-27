@@ -25,6 +25,7 @@ module Kiwi.View
   , renderBadRequest
   , renderForbidden
   , renderServerError
+  , insertFileLink
   , cmLink     -- exported for tests
   , pageView   -- exported for tests
   ) where
@@ -55,7 +56,7 @@ import           Kiwi.Utils (asksK, getDB, inlinesText)
 import qualified Kiwi.Write as Write
 import           Kiwi.HtmlWriter (PageLookup, writeHtml5)
 import           Kiwi.Pandoc (linksInContext)
-import           Kiwi.Files (servedName)
+import           Kiwi.Files (isImagePath, servedName)
 
 
 -- | What the layout needs to know about the current request
@@ -385,6 +386,11 @@ cmLink p = cmLinkTo (K.pageTitle p) ("page:" <> snd (K.pageUID p))
 -- without uid as text ("[cake.jpg](file:K3M9QW2TZ1)")
 cmFileLink :: FilePath -> T.Text -> T.Text
 cmFileLink path uid = cmLinkTo (T.pack $ servedName $ FP.takeFileName path) ("file:" <> uid)
+
+-- | What the editor inserts for a file of the source (see 'cmFileLink'):
+-- the image itself for an image ("![cake.jpg](file:K3M9QW2TZ1)")
+insertFileLink :: FilePath -> T.Text -> T.Text
+insertFileLink path uid = (if isImagePath path then "!" else "") <> cmFileLink path uid
 
 -- | CommonMark link with this text and target (that needs no angle
 -- brackets). The brackets of the text are escaped (and the backslashes,

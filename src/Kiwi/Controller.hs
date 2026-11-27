@@ -18,6 +18,8 @@ module Kiwi.Controller
   , serveCreatePage
   , serveDeletePage
   , serveDeleteRequest
+  , serveNewFile
+  , serveDeleteFile
   , servePreview
   , serveLogin
   , logUserIn
@@ -46,7 +48,9 @@ import           Control.Exception (IOException, SomeException, fromException, t
 import           Control.Monad (forM_, unless)
 import           Control.Monad.Reader
 import           Crypto.Hash (SHA1, hashlazy)
+import qualified Data.Aeson as A
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BC
 import           Data.IORef (readIORef)
 import           Data.Function (on)
 import           Data.List (groupBy, isPrefixOf, sort, sortOn)
@@ -66,6 +70,7 @@ import qualified System.Directory as D
 import           System.Exit (ExitCode (..))
 import qualified System.FilePath as FP
 import qualified System.Process as Proc
+import           Text.Read (readMaybe)
 import qualified Text.Pandoc.Definition as PD
 import qualified Network.Wai as Wai
 import           Web.Scotty.Trans (ScottyException (..), formParam, queryParams, redirect,
@@ -78,6 +83,7 @@ import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
 import           Kiwi.Meta (parseHeader)
 import           Kiwi.Files (servedName)
+import qualified Kiwi.Files as Files
 import           Kiwi.Pandoc (pageDoc, newPageDoc, embeddedDoc)
 import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, stripAccents,
                               excerpt)
@@ -748,6 +754,63 @@ withCreatableSource source run = do
   if | M.notMember source (K.dbSources db) -> serveNotFound
      | Write.canCreateIn db loginM source -> run
      | otherwise -> serveForbidden
+
+-- | Runs the action with the folder (from the top of the source) where the
+-- files sent by the editor of this page go, the one of its file, when the
+-- user can edit it (see 'withEditablePage'); without page (the form of a
+-- new page), the top of the source, where the page will be, when the user
+-- can create a page there (see 'withCreatableSource')
+withFileFolder :: T.Text -> Maybe T.Text -> (FP.FilePath -> ActM ()) -> ActM ()
+withFileFolder source pageM run = case pageM of
+  Just pId -> withEditablePage (source, pId) $ \p _ -> do
+    cd <- asksK K.contentDir
+    run $ FP.takeDirectory $ FP.makeRelative (cd FP.</> T.unpack source) (K.pageAbsoluteFSPath p)
+  Nothing -> withCreatableSource source $ run "."
+
+-- | Adds a file sent by the editor of a page (its uid; none for a new page)
+-- to the folder of the page (see 'withFileFolder', 'Write.addFile'), under
+-- this name with a new uid; its bytes are the body of the request, at most
+-- 'K.maxUploadSize' (413 above). The answer is JSON: its uid, its name, and
+-- the text that the editor inserts to link it ('V.insertFileLink'); 400 for
+-- a name that kiwi does not serve (a page…, see 'Files.uploadName').
+serveNewFile :: T.Text -> Maybe T.Text -> T.Text -> ActM ()
+serveNewFile source pageM sentName = withFileFolder source pageM $ \dir -> withEditRequest "" $
+  case Files.uploadName sentName of
+    Nothing -> do
+      status Net.status400
+      Scotty.text "invalid file name"
+    Just name -> do
+      maxSize <- asksK K.maxUploadSize
+      headers <- Wai.requestHeaders <$> request
+      let declared = lookup Net.hContentLength headers >>= readMaybe . BC.unpack
+          tooLarge = do status Net.status413
+                        Scotty.text "the file is too large"
+      if maybe False (> maxSize) declared then tooLarge else do
+        next <- Scotty.bodyReader
+        cd <- asksK K.contentDir
+        tmpM <- liftIO $ Write.receiveFile (cd FP.</> T.unpack source FP.</> dir) maxSize next
+        case tmpM of
+          Nothing -> tooLarge
+          Just tmp -> do
+            ss <- asksK id
+            user <- maybe "" K.loginUser <$> asksK (K.login . K.requestState)
+            result <- liftIO $ Write.addFile ss user source dir name tmp
+            case result of
+              Right (uid, rel) -> Scotty.json $ A.object
+                [ "uid" A..= uid
+                , "name" A..= servedName (FP.takeFileName rel)
+                , "link" A..= V.insertFileLink rel uid ]
+              Left f -> saveFailed f
+
+-- | Deletes a file that the editor of a page (its uid; none for a new page)
+-- sent (see 'serveNewFile'), when no page links it (see 'Write.deleteFile';
+-- 409 otherwise), with the right to send files from this editor
+serveDeleteFile :: T.Text -> T.Text -> Maybe T.Text -> ActM ()
+serveDeleteFile source uid pageM = withFileFolder source pageM $ \_ -> withEditRequest "" $ do
+  ss <- asksK id
+  user <- maybe "" K.loginUser <$> asksK (K.login . K.requestState)
+  result <- liftIO $ Write.deleteFile ss user source uid
+  either saveFailed (const $ Scotty.text "") result
 
 -- | The sources where the user can create a page, each one a link to its
 -- form (see 'serveNewPage'); 401 or 403 when there is none

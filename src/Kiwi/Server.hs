@@ -161,6 +161,18 @@ kiwiRoute ss api = do
     filesToo <- (== Just ("yes" :: T.Text)) <$> formParamMaybe "delete-files"
     fileUids <- map snd . filter ((== "file") . fst) <$> formParams
     serveDeleteRequest (source, pId) hash message filesToo fileUids
+  -- the files sent by the editor of a page (its uid, none for a new page),
+  -- in the folder of the page, and their deletion (see 'serveNewFile')
+  post "/new-file/:source" $ withLogin $ do
+    source <- pathParam "source"
+    page <- pageQuery
+    name <- queryParam "name"
+    serveNewFile source page name
+  post "/delete-file/:source/:uid" $ withLogin $ do
+    source <- pathParam "source"
+    uid <- pathParam "uid"
+    page <- pageQuery
+    serveDeleteFile source uid page
   -- creation of a page in the browser, in a source where the user can write
   get "/new" $ withLogin serveNewPageSources
   get "/new/:source" $ withLogin $ pathParam "source" >>= serveNewPage
@@ -199,6 +211,8 @@ kiwiRoute ss api = do
       -- empty for a new page (see 'servePreview')
       pId <- fromMaybe "" <$> formParamMaybe "id"
       return (source, pId)
+    -- the page of the editor that sends a file, none (or empty) for a new page
+    pageQuery = mfilter (not . T.null) <$> queryParamMaybe "page"
     -- browsers send the text of a textarea with CRLF line endings
     textParam name = T.replace "\r\n" "\n" <$> formParam name
 
@@ -314,6 +328,7 @@ initServerState cfp conf logger' = do
     , tocSetting   = Conf.toc conf
     , secureCookie = Conf.secureCookie conf
     , agentGuide   = Conf.agentGuideFile cfp' conf
+    , maxUploadSize = Conf.maxUploadSize conf * 1024 * 1024
     , logger       = logger'
   }
   where

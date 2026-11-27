@@ -1,5 +1,6 @@
 module Kiwi.EditSpec (editSpec) where
 
+import           Control.Monad (forM_)
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BC
@@ -601,3 +602,134 @@ editSpec = do
     liftIO $ status refused `shouldBe` 500
     exists cd "d.md" >>= liftIO . (`shouldBe` True)
     exists cd "pic__ABCDEFGH12.png" >>= liftIO . (`shouldBe` True)
+
+  -- the files sent by the editor: ann (admin), bob (family: write right on
+  -- p and on sub/r), joe (friends: read right on p)
+  let filePages = pages ++ [("sub/r.md", "uid: r\ntitle: R\naccess: family:w\n\nR")]
+      onFiles kiwiLines test = withGit $
+        withKiwiConfig kiwiLines [ ("ann", "secret", ["admin"]), ("bob", "secret", ["family"])
+                                 , ("joe", "secret", ["friends"]) ] filePages $ \cd _ app -> do
+          git (repoOf cd) ["add", "."]
+          git (repoOf cd) ["commit", "-q", "-m", "init"]
+          WT.runSession (test cd) app
+      sendFile headers path bytes = WT.srequest $ WT.SRequest
+        (WT.setPath Wai.defaultRequest
+           { Wai.requestMethod = "POST"
+           , Wai.requestHeaders = ("Content-Type", "application/octet-stream") : headers }
+           path)
+        bytes
+      -- the uid of the answer of a file sent
+      sentUid r = T.take 10 $ snd $ T.breakOnEnd "\"uid\":\"" (body r)
+      -- the files of a folder of the source, without the pages
+      filesIn cd dir = filter (\f -> not (".md" `L.isSuffixOf` f || "." `L.isPrefixOf` f)) . L.sort <$>
+                         liftIO (D.listDirectory (repoOf cd FP.</> dir))
+
+  it "adds the files sent by the editor of a page next to the page, with a uid" $
+    onFiles [] $ \cd -> do
+      _ <- login "bob"
+      sent <- sendFile [] "/new-file/s?page=p&name=sch%C3%A9ma.png" "PNG"
+      let uid = sentUid sent
+      liftIO $ do
+        status sent `shouldBe` 200
+        T.length uid `shouldBe` 10
+        body sent `shouldSatisfy` T.isInfixOf "\"name\":\"schéma.png\""
+        body sent `shouldSatisfy` T.isInfixOf ("\"link\":\"![schéma.png](file:" <> uid <> ")\"")
+      let name = "sch\xe9ma__" ++ T.unpack uid ++ ".png"
+      liftIO $ BS.readFile (repoOf cd FP.</> name) `shouldReturn` "PNG"
+      liftIO $ gitOut (repoOf cd) ["log", "-1", "--format=%an <%ae>|%cn <%ce>|%s"]
+        `shouldReturn` ("bob via Kiwi <>|Kiwi <>|Add file s:" ++ T.unpack uid ++
+                        " sch\xe9ma.png (kiwi kiwi)\n")
+      liftIO $ gitOut (repoOf cd) ["status", "--porcelain"] `shouldReturn` ""
+      -- served once a page links it
+      unlinked <- get ("/file/s/" <> TE.encodeUtf8 uid)
+      liftIO $ status unlinked `shouldBe` 404
+      h <- hashesOf cd "p.md"
+      saved <- save h ("title: Page\n\n![s](file:" <> uid <> ")")
+      liftIO $ status saved `shouldBe` 200
+      linkedFile <- get ("/file/s/" <> TE.encodeUtf8 uid)
+      liftIO $ status linkedFile `shouldBe` 200
+      liftIO $ WT.simpleBody linkedFile `shouldBe` "PNG"
+      -- the same name again: another file; a file that is not an image
+      again <- sendFile [] "/new-file/s?page=p&name=sch%C3%A9ma.png" "PNG2"
+      liftIO $ sentUid again `shouldNotBe` uid
+      notes <- sendFile [] "/new-file/s?page=r&name=%20notes.txt%20" "notes"
+      liftIO $ body notes `shouldSatisfy`
+        T.isInfixOf ("\"link\":\"[notes.txt](file:" <> sentUid notes <> ")\"")
+      -- next to the page in its folder
+      filesIn cd "sub" >>= liftIO . (`shouldBe` ["notes__" ++ T.unpack (sentUid notes) ++ ".txt"])
+      liftIO $ length <$> filesIn cd "." `shouldReturn` 3  -- the two images, sub
+
+  it "adds the files of the form of a new page to the top of the source" $
+    onFiles [] $ \cd -> do
+      _ <- login "bob"
+      refused <- sendFile [] "/new-file/s?name=a.pdf" "PDF"
+      liftIO $ status refused `shouldBe` 403
+      _ <- login "ann"
+      sent <- sendFile [] "/new-file/s?page=&name=a.pdf" "PDF"
+      liftIO $ status sent `shouldBe` 200
+      filesIn cd "." >>= liftIO . (`shouldBe` ["a__" ++ T.unpack (sentUid sent) ++ ".pdf", "sub"])
+
+  it "refuses the files without the right, a page name, too large, from other sites" $
+    onFiles ["max-upload-size: 1"] $ \cd -> do
+      let send = sendFile [] "/new-file/s?page=p&name=x.png"
+      anonymous <- send "X"
+      liftIO $ status anonymous `shouldBe` 401
+      _ <- login "joe"
+      reader <- send "X"
+      liftIO $ status reader `shouldBe` 403
+      _ <- login "bob"
+      forM_ ["x.md", "", "a/b.png", "_x.png", ".x", "x.png~", "x.bak"] $ \n -> do
+        r <- sendFile [] ("/new-file/s?page=p&name=" <> URI.urlEncode True n) "X"
+        liftIO $ (n, status r) `shouldBe` (n, 400)
+      unnamed <- sendFile [] "/new-file/s?page=p" "X"
+      liftIO $ status unnamed `shouldBe` 400
+      missing <- sendFile [] "/new-file/s?page=none&name=x.png" "X"
+      liftIO $ status missing `shouldBe` 404
+      large <- send (BL.replicate (1024 * 1024 + 1) 0)
+      liftIO $ status large `shouldBe` 413
+      declared <- sendFile [("Content-Length", "2000000")] "/new-file/s?page=p&name=x.png" "X"
+      liftIO $ status declared `shouldBe` 413
+      other <- sendFile [("Origin", "https://evil.example"), ("Host", "kiwi.example")]
+                        "/new-file/s?page=p&name=x.png" "X"
+      liftIO $ status other `shouldBe` 403
+      -- no file left, not even a temporary one
+      filesIn cd "." >>= liftIO . (`shouldBe` ["sub"])
+      exact <- send (BL.replicate (1024 * 1024) 0)
+      liftIO $ status exact `shouldBe` 200
+
+  it "adds no file to a read-only source" $
+    onFiles ["[source s]", "read-only: yes"] $ \cd -> do
+      _ <- login "ann"
+      r <- sendFile [] "/new-file/s?page=p&name=x.png" "X"
+      liftIO $ status r `shouldBe` 403
+      n <- sendFile [] "/new-file/s?name=x.png" "X"
+      liftIO $ status n `shouldBe` 403
+      filesIn cd "." >>= liftIO . (`shouldBe` ["sub"])
+
+  it "deletes a file sent by the editor that no page links" $ onFiles [] $ \cd -> do
+    _ <- login "bob"
+    sent <- sendFile [] "/new-file/s?page=p&name=x.txt" "X"
+    let uid = sentUid sent
+        deleteSent page = sendFile [] ("/delete-file/s/" <> TE.encodeUtf8 uid <> page) ""
+    _ <- login "joe"
+    reader <- deleteSent "?page=p"
+    liftIO $ status reader `shouldBe` 403
+    _ <- login "bob"
+    other <- sendFile [("Origin", "https://evil.example"), ("Host", "kiwi.example")]
+                      ("/delete-file/s/" <> TE.encodeUtf8 uid <> "?page=p") ""
+    liftIO $ status other `shouldBe` 403
+    deleted <- deleteSent "?page=p"
+    liftIO $ status deleted `shouldBe` 200
+    filesIn cd "." >>= liftIO . (`shouldBe` ["sub"])
+    liftIO $ gitOut (repoOf cd) ["log", "-1", "--format=%an <%ae>|%s"]
+      `shouldReturn` ("bob via Kiwi <>|Delete file s:" ++ T.unpack uid ++ " x.txt (kiwi kiwi)\n")
+    liftIO $ gitOut (repoOf cd) ["status", "--porcelain"] `shouldReturn` ""
+    gone <- deleteSent "?page=p"
+    liftIO $ status gone `shouldBe` 409
+    -- a file that a page links
+    linked <- sendFile [] "/new-file/s?page=p&name=y.txt" "Y"
+    h <- hashesOf cd "p.md"
+    _ <- save h ("title: Page\n\n[y](file:" <> sentUid linked <> ")")
+    refused <- sendFile [] ("/delete-file/s/" <> TE.encodeUtf8 (sentUid linked) <> "?page=p") ""
+    liftIO $ status refused `shouldBe` 409
+    filesIn cd "." >>= liftIO . (`shouldBe` ["sub", "y__" ++ T.unpack (sentUid linked) ++ ".txt"])

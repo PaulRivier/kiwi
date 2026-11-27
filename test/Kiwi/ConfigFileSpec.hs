@@ -88,6 +88,13 @@ configSpec = do
   it "ignores git-commit, which is no longer read" $
     fmap Conf.port (Conf.parseConfig $ ini ["git-commit: no"]) `shouldBe` Right 3456
 
+  it "reads the largest file sent by the editor, 20 MB by default" $ do
+    Conf.maxUploadSize <$> Conf.parseConfig (ini []) `shouldBe` Right 20
+    Conf.maxUploadSize <$> Conf.parseConfig (ini ["max-upload-size: 5 "]) `shouldBe` Right 5
+    failsWith "invalid size \"0\", expected a number of megabytes"
+      (Conf.parseConfig $ ini ["max-upload-size: 0"])
+    failsWith "invalid size \"2.5\"" (Conf.parseConfig $ ini ["max-upload-size: 2.5"])
+
   it "reads the address to listen on, all of them without it" $ do
     fmap Conf.bind (Conf.parseConfig $ ini []) `shouldBe` Right Nothing
     fmap Conf.bind (Conf.parseConfig $ ini ["bind:"]) `shouldBe` Right Nothing

@@ -12,9 +12,10 @@ module Kiwi.Files
   , withFileUid
   , servedName
   , isImagePath
+  , uploadName
   ) where
 
-import           Data.Char (isAlphaNum, toLower)
+import           Data.Char (isAlphaNum, isControl, toLower)
 import           Data.List (stripPrefix, tails)
 import           Data.Maybe (listToMaybe)
 import qualified Data.Text as T
@@ -105,6 +106,17 @@ withFileUid u name = case splitUid name of
 -- | The name of a file without its uid, as given to the browser
 servedName :: String -> String
 servedName name = maybe name (\(before, _, after) -> before ++ after) (splitUid name)
+
+-- | The name of a file sent by a user (the editor), without the spaces
+-- around it, when kiwi can serve a file of this name with a uid (see
+-- 'servablePath'): one segment (no '/' nor '\\'), no control character, at
+-- most 200 characters. A page name is refused.
+uploadName :: T.Text -> Maybe FilePath
+uploadName t
+  | T.null n || T.length n > 200 || T.any (\c -> isControl c || c == '\\') n = Nothing
+  | not (servablePath [n]) || not (servablePath [T.pack $ withFileUid "0000000000" (T.unpack n)]) = Nothing
+  | otherwise = Just (T.unpack n)
+  where n = T.strip t
 
 -- | Whether a path is the one of an image (by its extension, in any case):
 -- its links open in the image viewer of the theme

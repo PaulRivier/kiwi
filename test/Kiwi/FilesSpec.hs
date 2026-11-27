@@ -22,6 +22,13 @@ filesSpec = do
     filter (not . servablePath) (map (map T.pack) ok) `shouldBe` []
     filter servablePath (map (map T.pack) refused) `shouldBe` []
 
+  it "keeps the names of the files sent that kiwi can serve, without the spaces around" $ do
+    map uploadName [" a b.png ", "sch\xe9ma.svg", "x__XJD54PM77T.pdf", "Makefile"]
+      `shouldBe` map Just ["a b.png", "sch\xe9ma.svg", "x__XJD54PM77T.pdf", "Makefile"]
+    map uploadName [ "", "  ", "p.md", "a/b.png", "a\\b.png", ".x", "_x", "x~", "x.bak"
+                   , "a\nb", T.replicate 201 "a" ]
+      `shouldBe` replicate 11 Nothing
+
   it "tells the conflict copies of syncthing" $ do
     isConflictCopy "p.sync-conflict-20260101-120000-ABCDEFG.md" `shouldBe` True
     isConflictCopy "a.SYNC-CONFLICT-20260101-120000-ABCDEFG.png" `shouldBe` True

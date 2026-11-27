@@ -28,6 +28,8 @@ secure-cookie: no
 # requests left in the pages… It is given to them after the documentation
 # of the API, read again at each request. Optional.
 # agent-guide: agent-guide.md
+# Largest file sent from the browser editor, in megabytes (20 by default)
+# max-upload-size: 20
 
 # built-in metadata default values
 [metadata-default]

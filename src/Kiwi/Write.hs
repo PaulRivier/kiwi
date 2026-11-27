@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 
 -- | Writing of the page files changed by a user: the browser editor, and
 -- the API. A change (see 'Kiwi.Edit.Change') is checked and written under the
@@ -12,13 +13,16 @@ module Kiwi.Write
   , canCreateIn
   , deletePage
   , orphanFiles
+  , receiveFile
+  , addFile
+  , deleteFile
   , ScriptRun (..)
   , runMetaScript
   , metaScriptResult
   ) where
 
 import           Control.Concurrent.MVar (withMVar)
-import           Control.Exception (IOException, try)
+import           Control.Exception (IOException, bracketOnError, try)
 import           Control.Monad (foldM, forM, forM_, unless, when)
 import           Control.Monad.Except (ExceptT (..), liftEither, runExceptT, throwError, withExceptT)
 import qualified Crypto.Random as CR
@@ -27,15 +31,17 @@ import qualified Data.List as L
 import           Data.Maybe (fromMaybe, isJust)
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
-import           Data.IORef (readIORef)
+import           Data.IORef (atomicModifyIORef', readIORef)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified System.Directory as D
 import qualified System.FilePath as FP
+import qualified System.IO as IO
 
 import qualified Kiwi.Auth as Auth
 import qualified Kiwi.Edit as Edit
+import qualified Kiwi.Files as Files
 import qualified Kiwi.Git as Git
 import qualified Kiwi.Log as L
 import qualified Kiwi.PagesDB as DB
@@ -248,6 +254,93 @@ orphanFiles db p =
               , all ((== pageUID p) . pageUID) $
                   RDI.query (pagesIndex db) (U.qOnly FieldFile (source, u)) ]
   where source = fst (pageUID p)
+
+-- | Writes the chunks of a file sent by a user (the editor, until an empty
+-- chunk) to a new temporary file of this folder, at most this many bytes:
+-- Nothing (and no file) when there are more. Its name starts with '_', so
+-- that the loader ignores it until 'addFile' gives it its name. It is
+-- removed on an exception (a client gone…), which goes on.
+receiveFile :: FilePath -> Integer -> IO BS.ByteString -> IO (Maybe FilePath)
+receiveFile dir maxSize next = do
+  suffix <- uidFromBytes <$> (CR.getRandomBytes 10 :: IO BS.ByteString)
+  let tmp = dir FP.</> ("_kiwi-upload-" ++ T.unpack suffix)
+      copy h n = do
+        chunk <- next
+        let n' = n + fromIntegral (BS.length chunk)
+        if | BS.null chunk -> return True
+           | n' > maxSize -> return False
+           | otherwise -> BS.hPut h chunk >> copy h n'
+  bracketOnError (IO.openBinaryFile tmp IO.WriteMode) (\h -> IO.hClose h >> D.removeFile tmp) $ \h -> do
+    complete <- copy h 0
+    IO.hClose h
+    if complete then return (Just tmp) else Nothing <$ D.removeFile tmp
+
+-- | Gives a file received by 'receiveFile' (this temporary path) its name in
+-- this folder of the source (from its top), with a new uid (see
+-- 'Files.withFileUid'), for a user (login) whose right the caller checked, in
+-- a source where kiwi writes (see 'SourceMode'). The file is committed by
+-- the user (a failure is only logged), and kiwi serves it, once a page links
+-- it, without a reload of the pages. All of it holds the lock of the
+-- reloads. The temporary file is removed on a failure. The result is the
+-- uid of the file and its path from the top of the source.
+addFile :: ServerState -> T.Text -> T.Text -> FilePath -> FilePath -> FilePath ->
+           IO (Either Edit.SaveFailure (T.Text, FilePath))
+addFile ss user source dir name tmp = withMVar (pagesDBLock ss) $ \_ -> do
+  r <- runExceptT $ do
+    db <- liftIO $ readIORef (pagesDB ss)
+    writableSource db source
+    (uid, rel) <- liftIO $ newName db
+    withExceptT (\e -> Edit.SaveFailed $ show (e :: IOException)) $ ExceptT $ try $
+      D.renameFile tmp (top FP.</> rel)
+    liftIO $ do
+      logger ss L.Info $ T.pack $ concat [ "file added by ", T.unpack user, ": ", top FP.</> rel ]
+      commitPaths ss source (user <> " via Kiwi")
+        (commitMessage (T.concat [ "Add file ", source, ":", uid, " ", T.pack name
+                                 , " (kiwi ", kiwiName ss, ")" ]) Nothing)
+        [top FP.</> rel]
+      changeFiles ss (M.insert (source, uid) rel)
+    return (uid, rel)
+  either (const $ () <$ (try (D.removeFile tmp) :: IO (Either IOException ()))) (const $ return ()) r
+  return r
+  where
+    top = contentDir ss FP.</> T.unpack source
+    -- a uid of no file of the source, and a free path
+    newName db = do
+      u <- uidFromBytes <$> (CR.getRandomBytes 10 :: IO BS.ByteString)
+      let rel = FP.normalise $ dir FP.</> Files.withFileUid (T.unpack u) name
+      taken <- D.doesPathExist (top FP.</> rel)
+      if taken || M.member (source, u) (sourceFiles db) then newName db else return (u, rel)
+
+-- | Deletes a file of a source for a user (login) whose right the caller
+-- checked, when no page links it (index of all the pages: 'SaveNotApplied'
+-- otherwise, as for a file of this uid that no longer exists), in a source
+-- where kiwi writes (see 'SourceMode'). The deletion is committed by the user
+-- (a failure is only logged). All of it holds the lock of the reloads.
+deleteFile :: ServerState -> T.Text -> T.Text -> T.Text -> IO (Either Edit.SaveFailure ())
+deleteFile ss user source uid = withMVar (pagesDBLock ss) $ \_ -> runExceptT $ do
+  db <- liftIO $ readIORef (pagesDB ss)
+  writableSource db source
+  rel <- maybe (throwError $ Edit.SaveNotApplied "no file of this uid") return $
+           M.lookup (source, uid) (sourceFiles db)
+  unless (null $ RDI.query (pagesIndex db) (U.qOnly FieldFile (source, uid))) $
+    throwError $ Edit.SaveNotApplied "a page links this file"
+  let path = contentDir ss FP.</> T.unpack source FP.</> rel
+  withExceptT (\e -> Edit.SaveFailed $ show (e :: IOException)) $ ExceptT $ try $ D.removeFile path
+  liftIO $ do
+    logger ss L.Info $ T.pack $ concat [ "file deleted by ", T.unpack user, ": ", path ]
+    commitPaths ss source (user <> " via Kiwi")
+      (commitMessage (T.concat [ "Delete file ", source, ":", uid, " "
+                               , T.pack (Files.servedName $ FP.takeFileName rel)
+                               , " (kiwi ", kiwiName ss, ")" ]) Nothing)
+      [path]
+    changeFiles ss (M.delete (source, uid))
+
+-- | Changes the files of the sources of the kiwi, under the lock of the
+-- reloads, without reloading them: the pages that link them are rendered
+-- again (new generation, see 'dbGeneration')
+changeFiles :: ServerState -> (M.Map (T.Text, T.Text) FilePath -> M.Map (T.Text, T.Text) FilePath) -> IO ()
+changeFiles ss f = atomicModifyIORef' (pagesDB ss) $ \db ->
+  (db { sourceFiles = f (sourceFiles db), dbGeneration = dbGeneration db + 1 }, ())
 
 -- | Applies the commands of a metadata script (see "Kiwi.MetaScript") to the
 -- headers of the pages of their "pages" lines that the user can write,
