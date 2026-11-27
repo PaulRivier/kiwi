@@ -412,7 +412,10 @@ folder whose name is one of those:
 - `Thumbs.db` and `desktop.ini`.
 
 These files are listed in debug mode (`kiwi serve --log-level debug`).
-The text files are served as UTF-8.
+The text files are served as UTF-8. A file opened alone in the browser
+(an HTML document, an SVG image…) runs no script: it is served in a
+sandbox (`Content-Security-Policy: sandbox`), except the PDF files,
+that the browsers do not show in a sandbox.
 
 A file added to the disk gets its uid, and is served, once the pages
 are reloaded.

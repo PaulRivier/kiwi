@@ -897,6 +897,8 @@ serveFile source uid = do
               sent <- lookup Net.hIfNoneMatch . Wai.requestHeaders <$> request
               setHeader "ETag" $ TL.fromStrict etag
               setHeader "Cache-Control" "private, no-cache"
+              unless (contentType (T.pack name) == "application/pdf") $
+                setHeader "Content-Security-Policy" fileCSP
               if sent == Just (TE.encodeUtf8 etag) then status Net.status304 else do
                 setHeader "Content-Type" $ TL.fromStrict $ contentType $ T.pack name
                 setHeader "Content-Disposition" $ TL.fromStrict $ disposition $ T.pack name
@@ -905,6 +907,13 @@ serveFile source uid = do
             Left (_ :: IOException) -> serveNotFound
   where
     epoch = Time.UTCTime (Time.fromGregorian 1970 1 1) 0
+    -- a file opened alone (an HTML document, an SVG image…) runs no script,
+    -- in an origin of its own: it can not act in kiwi with the session of
+    -- its reader, whoever put it in the source. It adds to the policy of
+    -- 'Kiwi.Server.securityHeaders'. Not for the PDF files, that the
+    -- browsers do not show in a sandbox, and whose viewers run no script of
+    -- the origin of kiwi.
+    fileCSP = "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
     -- by the extension of the name; the texts are in UTF-8, as the pages
     contentType name =
       let t = TE.decodeUtf8 $ defaultMimeLookup name

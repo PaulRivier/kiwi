@@ -223,6 +223,9 @@ viewSpec = do
     flip WT.runSession app $ do
       let status path = WT.simpleStatus <$> get path
           header h = lookup h . WT.simpleHeaders
+          -- the sandbox of the files, added to the policy of every response
+          csp r = [ v | (h, v) <- WT.simpleHeaders r, h == "Content-Security-Policy" ]
+          fileCSP = "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'"
       png <- get "/file/s/AAAAAAAAAA"
       liftIO $ do
         WT.simpleStatus png `shouldBe` Net.status200
@@ -231,15 +234,20 @@ viewSpec = do
         header "Content-Disposition" png
           `shouldBe` Just "inline; filename=\"a.png\"; filename*=UTF-8''a.png"
         header "Cache-Control" png `shouldBe` Just "private, no-cache"
+        csp png `shouldSatisfy` elem fileCSP
         etagOf png `shouldSatisfy` (/= "")
       cached <- getWith (etagOf png) "/file/s/AAAAAAAAAA"
       liftIO $ WT.simpleStatus cached `shouldBe` Net.status304
       liftIO $ WT.simpleBody cached `shouldBe` ""
       txt <- get "/file/s/BBBBBBBBBB"
       liftIO $ header "Content-Type" txt `shouldBe` Just "text/plain; charset=utf-8"
+      liftIO $ csp txt `shouldSatisfy` elem fileCSP
       pdf <- get "/file/s/CCCCCCCCCC"
       liftIO $ header "Content-Disposition" pdf `shouldBe`
         Just "inline; filename=\"_t_ 1.pdf\"; filename*=UTF-8''%C3%A9t%C3%A9%201.pdf"
+      -- a PDF is not shown in a sandbox
+      liftIO $ csp pdf `shouldSatisfy` notElem fileCSP
+      liftIO $ length (csp pdf) `shouldBe` 1
       -- linked by an archived page: served out of the archive mode
       status "/file/s/EEEEEEEEEE" >>= liftIO . (`shouldBe` Net.status200)
       -- not linked, ignored file, unknown uid, in another source
