@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Raw HTML is no longer rendered**: the HTML written in a page
+  (comments `<!-- … -->` included) is shown as code (`pre`/`code` of
+  class `kiwi-raw-html`). Write these passages in Markdown.
 - The `archive` key of a page is no longer reserved to the admins: the
   users with the write right on the page see and change it in the editor
   and the API, as the metadata scripts already allowed.

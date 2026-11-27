@@ -16,6 +16,16 @@ htmlWriterSpec = do
   it "renders a paragraph starting with !! as any other (no annotation in kiwi)" $
     html "t: t\n\n!! fix *this*\n" `shouldBe` "<p>!! fix <em>this</em></p>"
 
+  it "shows the raw HTML as code, scripts and comments included" $ do
+    html "t: t\n\n<div class=\"x\">\n<script>alert(1)</script>\n</div>\n"
+      `shouldBe` "<pre class=\"kiwi-raw-html\"><code>&lt;div class=&quot;x&quot;&gt;\n&lt;script&gt;alert(1)&lt;/script&gt;\n&lt;/div&gt;</code></pre>"
+    html "t: t\n\na<br>b <img src=\"/file/s/X\"> c\n"
+      `shouldBe` T.concat
+        [ "<p>a<code class=\"kiwi-raw-html\">&lt;br&gt;</code>b "
+        , "<code class=\"kiwi-raw-html\">&lt;img src=&quot;/file/s/X&quot;&gt;</code> c</p>" ]
+    html "t: t\n\n<!-- a note -->\n"
+      `shouldBe` "<pre class=\"kiwi-raw-html\"><code>&lt;!-- a note --&gt;</code></pre>"
+
   it "marks the links to missing pages as broken, without their target attributes" $ do
     let exists uid = uid == ("src", "Here")
         render = TL.toStrict . renderText . writeHtml5 (\u -> if exists u then Just Nothing else Nothing) . pandocDoc . load

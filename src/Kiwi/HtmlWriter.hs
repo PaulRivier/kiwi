@@ -131,7 +131,7 @@ blockWith ex blk = case blk of
   PD.CodeBlock (i, cs, kvs) code ->
     let (line, kvs') = List.partition ((== lineKey) . fst) kvs
     in pre_ (ex ++ [data_ "line" l | (_, l) <- line]) (code_ (attrs (i, cs, kvs')) (toHtml code))
-  PD.RawBlock fmt raw -> rawToHtml fmt raw
+  PD.RawBlock fmt raw -> rawBlockToHtml ex fmt raw
   PD.BlockQuote bs -> blockquote_ ex (blocksToHtml bs)
   PD.OrderedList (start, _, _) items ->
     ol_ ([start_ (showT start) | start /= 1] ++ ex) (mapM_ (li_ . blocksToHtml) items)
@@ -159,10 +159,26 @@ headerTag 4 = h4_
 headerTag 5 = h5_
 headerTag _ = h6_
 
-rawToHtml :: PD.Format -> T.Text -> W ()
-rawToHtml (PD.Format fmt) raw
-  | T.toLower fmt `elem` ["html", "html5"] = toHtmlRaw raw
+-- | The raw HTML of a page is not rendered: it is shown as code (a block of
+-- code for a block, code for an inline), so that no page holds a script nor
+-- an element of another page, whoever wrote it. Comments included. Other
+-- raw formats are left out.
+rawBlockToHtml :: [Attributes] -> PD.Format -> T.Text -> W ()
+rawBlockToHtml ex fmt raw
+  | isHtml fmt = pre_ (class_ rawHtmlClass : ex) (code_ (toHtml $ T.dropWhileEnd (== '\n') raw))
   | otherwise = mempty
+
+rawInlineToHtml :: PD.Format -> T.Text -> W ()
+rawInlineToHtml fmt raw
+  | isHtml fmt = code_ [class_ rawHtmlClass] (toHtml raw)
+  | otherwise = mempty
+
+isHtml :: PD.Format -> Bool
+isHtml (PD.Format fmt) = T.toLower fmt `elem` ["html", "html5"]
+
+-- | Class of the raw HTML shown as code
+rawHtmlClass :: T.Text
+rawHtmlClass = "kiwi-raw-html"
 
 captionToHtml :: (W () -> W ()) -> PD.Caption -> W ()
 captionToHtml h (PD.Caption _short bs)
@@ -268,7 +284,7 @@ inlineToHtml il = case il of
   PD.SoftBreak -> "\n"
   PD.LineBreak -> br_ []
   PD.Math _ str -> toHtml str -- plug in texmath yourself if you need real math rendering
-  PD.RawInline fmt raw -> rawToHtml fmt raw
+  PD.RawInline fmt raw -> rawInlineToHtml fmt raw
   PD.Link attr ils (url, title) -> do
     (attr', summary) <- linkAttr attr
     -- the title of the link, then the summary of its page, on two lines

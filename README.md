@@ -23,9 +23,11 @@ content :
 Kiwi uses [CommonMark](<https://commonmark.org/>) flavor of Markdown
 for contents, with these extensions: tables, footnotes, task lists,
 strikethrough, autolinks and heading anchors. The *CommonMark* link at
-the bottom of each page (`/commonmark`) shows the syntax. Raw HTML is
-allowed, but its scripts are blocked by the Content-Security-Policy of
-Kiwi (`script-src 'self'`): only the scripts of the theme run.
+the bottom of each page (`/commonmark`) shows the syntax. Raw HTML
+(comments included) is not rendered: Kiwi shows it as code, so that no
+page can hold a script or an element acting in the browser of its
+readers. Only the scripts of the theme run (Content-Security-Policy
+`script-src 'self'`).
 
 Kiwi is beta software, use at your own risk.
 
@@ -390,8 +392,7 @@ only when a page links to it with a `file:` link, and only to the
 readers of at least one of the pages that link to it (archived or
 not): a file linked by a private page only is private, a file linked by
 no page is never served. A reader who can not read any of these pages
-gets the same answer as for a page (401, or 403 when logged in). Links
-written in raw HTML (`<img src="/file/…">`) do not count. As a
+gets the same answer as for a page (401, or 403 when logged in). As a
 consequence, a writer of a page can make any file of the source
 readable by the readers of this page, by linking to it.
 

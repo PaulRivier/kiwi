@@ -202,7 +202,7 @@ front of the line.
 
 ### Inline code
 
-Wrap inline snippets of code with a single backtick: <code>`</code>.
+Wrap inline snippets of code with a single backtick: `` ` ``.
 
 For example, to show `<div></div>` inline with other text, just wrap
 it in backticks.
@@ -214,15 +214,15 @@ For example, to show `<div></div>` inline with other text, just wrap it in backt
 ### "Fenced" code block
 
 Three consecutive backticks, referred to as "code fences", are used to
-denote multiple lines of code: <code>```</code>.
+denote multiple lines of code: ` ``` `.
 
 For example, this:
 
-<pre>
+````
 ```html
 Example text here...
 ```
-</pre>
+````
 
 Appears like this when viewed in a browser:
 
@@ -327,8 +327,10 @@ exclamation point. This will display the image in the page.
 
 ## Raw HTML
 
-Any text between `<` and `>` that looks like an HTML tag will be
-parsed as a raw HTML tag and rendered to HTML without escaping.
+Any text between `<` and `>` that looks like an HTML tag (comments
+`<!-- … -->` included) is raw HTML. Kiwi does not render it: it shows it
+as code, so that no page holds a script or an element that would act in
+the browser of its readers. Write the page in Markdown instead.
 
 
 Example:
