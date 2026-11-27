@@ -281,9 +281,10 @@ metadataPage db = do
 segOrder :: T.Text -> (T.Text, T.Text)
 segOrder seg = (textOrder seg, seg)
 
--- | Order of the texts (sources, metadata keys), without case nor accents
+-- | Order of the texts (sources, metadata keys), without case nor accents,
+-- the ligatures written as their letters ("œufs" as "oeufs")
 textOrder :: T.Text -> T.Text
-textOrder = stripAccents . T.toLower
+textOrder = T.replace "æ" "ae" . T.replace "œ" "oe" . stripAccents . T.toLower
 
 -- | Order of the keys of a field: the texts without case nor accents (the raw
 -- text breaks ties), the other keys (numbers, dates...) in their natural

@@ -193,7 +193,7 @@ editSpec = do
       [("ann", "secret", ["admin"]), ("bob", "secret", ["family"])]
       [ ("p.md", "title: P\nuid: p\ntags: cuisine > pâtes\nzone: nord, x</script>\n\
                  \access: family:w, public\n\nP")
-      , ("old.md", "title: Old\nuid: old\ntags: vieux\narchive: yes\naccess: family\n\nO")
+      , ("old.md", "title: Old\nuid: old\ntags: vieux, œufs\narchive: yes\naccess: family\n\nO")
       , ("secret.md", "title: S\nuid: secret\ntags: caché\nzone: secrète\naccess: nobody\n\nS")
       , ("../t/o.md", "title: O\nuid: o\ntags: ailleurs\naccess: public\n\nO") ] $
       \_ _ app -> flip WT.runSession app $ do
@@ -204,8 +204,8 @@ editSpec = do
         has "<script type=\"application/json\" id=\"meta-vocabulary\">"
         -- the text of a value that no page has, for app.js
         has "data-new-value=\"new value\""
-        -- the tags and their prefixes, archives included
-        has "\"values\":[\"cuisine\",\"cuisine > pâtes\",\"vieux\"]"
+        -- the tags and their prefixes, archives included, "œ" sorted as "oe"
+        has "\"values\":[\"cuisine\",\"cuisine > pâtes\",\"œufs\",\"vieux\"]"
         -- the custom fields, with their description; no "<" in the script
         has "\"description\":\"the area\",\"key\":\"zone\",\"values\":[\"nord\",\"x\\u003c/script>\"]"
         has "\"key\":\"archive\",\"values\":[\"no\",\"yes\"]"

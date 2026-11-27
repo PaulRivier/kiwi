@@ -87,25 +87,36 @@ if (editable) {
 // Suggestions for the header of a page, in a bar below its text area: the
 // keys and the values of the vocabulary of its source (#meta-vocabulary,
 // from kiwi), for the line of the cursor. Before the ":", its key; after
-// it, the value being written, from the last "," of the line (tags: whole
-// paths, nothing inside a group "{...}"; access: the rights after a ":").
-// Those that start with the text written come first, then those that
-// contain it, without case nor accents. The bar opens when the user types
-// (or Ctrl+Space), follows the cursor on its line, and closes on another
-// line, with Escape, or when the text area loses the focus. ↓/↑ choose a
+// it, the value being written, from the last "," of the line (access: the
+// rights after a ":"). Tags, segment by segment: the children of the tag
+// being written (groups "{...}" included), or of the tag written. Those
+// that start with the text written come first, then those that contain it,
+// without case nor accents. The bar opens when the user types (or
+// Ctrl+Space), follows the cursor on its line, and closes on another line,
+// with Escape, or when the text area loses the focus. ↓/↑ choose a
 // suggestion, Tab or Enter write the chosen one (without a choice, they keep
 // their role); a click writes one.
 
-const maxSuggestions = 10;
-
-// without case nor accents, nor spaces around the ">" of the tags
+// without case nor accents (ligatures as their letters), nor spaces around
+// the ">" of the tags
 const normalized = (s) =>
-  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s*>\s*/g, ">").trim();
+  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/œ/g, "oe").replace(/æ/g, "ae")
+    .replace(/\s*>\s*/g, ">").trim();
 
 function headerSuggestions(meta, vocabulary, newValueText) {
   const entries = new Map(vocabulary.map((e) => [e.key, { ...e, norms: e.values.map(normalized) }]));
   const keys = vocabulary.map((e) => e.key);
   const keyNorms = keys.map(normalized);
+  // the tags as a tree: the segments under each tag (normalized, "" for the
+  // top), in the order of the vocabulary, with their normalized forms
+  const children = new Map();
+  for (const tag of entries.get("tags")?.values ?? []) {
+    const segs = tag.split(">").map((seg) => seg.trim());
+    const parent = normalized(segs.slice(0, -1).join(">"));
+    if (!children.has(parent)) children.set(parent, { names: [], norms: [] });
+    children.get(parent).names.push(segs.at(-1));
+    children.get(parent).norms.push(normalized(segs.at(-1)));
+  }
   const bar = document.createElement("div");
   bar.className = "meta-suggestions";
   bar.hidden = true;
@@ -129,7 +140,7 @@ function headerSuggestions(meta, vocabulary, newValueText) {
       if (norms[i].startsWith(t)) starts.push(x);
       else if (norms[i].includes(t)) contains.push(x);
     });
-    return { found: starts.concat(contains).slice(0, maxSuggestions), known: norms.includes(t) };
+    return { found: starts.concat(contains), known: norms.includes(t) };
   };
 
   // the suggestions replacing the text from start to end, each one a label
@@ -182,9 +193,9 @@ function headerSuggestions(meta, vocabulary, newValueText) {
       return show(lineStart + lead, lineStart + (colon < 0 ? line.length : colon), typed, items, false);
     }
     const entry = entries.get(line.slice(0, colon).trim());
+    if (!entry) return show(0, 0, "", [], false);
+    if (entry.key === "tags") return tagSuggestions(lineStart, line, colon, at);
     const before = line.slice(colon + 1, at);
-    const count = (c) => before.split(c).length - 1;
-    if (!entry || count("{") > count("}")) return show(0, 0, "", [], false);
     // the value of the cursor, from the last "," before it to the next one,
     // without the spaces around
     const itemStart = colon + 1 + before.lastIndexOf(",") + 1;
@@ -206,6 +217,46 @@ function headerSuggestions(meta, vocabulary, newValueText) {
          typed.trim() !== "" && entry.values.length > 0 && !known && found.length === 0);
   };
 
+  // the segment of the tag of the cursor: the prefixes of the groups open
+  // before it, then the text since the last "," or brace, the last ">"
+  // ending its parent
+  const tagSuggestions = (lineStart, line, colon, at) => {
+    const prefixes = [""];
+    let text = "";
+    for (const c of line.slice(colon + 1, at)) {
+      if (c === "{") {
+        prefixes.push(prefixes.at(-1) + text);
+        text = "";
+      } else if (c === "}") {
+        if (prefixes.length > 1) prefixes.pop();
+        text = "";
+      } else if (c === ",") text = "";
+      else text += c;
+    }
+    const segs = (prefixes.at(-1) + text).split(">");
+    const typed = segs.pop().trimStart();
+    const parent = normalized(segs.join(">"));
+    // the segment, from its start to the next separator, without the spaces
+    // after the cursor
+    const start = at - typed.length;
+    let end = at;
+    while (end < line.length && !",{}>".includes(line[end])) end++;
+    while (end > at && line[end - 1] === " ") end--;
+    const siblings = children.get(parent) ?? { names: [], norms: [] };
+    const t = normalized(typed);
+    // a tag written, that has sub-tags: they follow it
+    const i = siblings.norms.indexOf(t);
+    const below = i >= 0 && children.get(parent === "" ? t : `${parent}>${t}`);
+    if (below && line.slice(at, end).trim() === "") {
+      const after = lineStart + start + typed.trimEnd().length;
+      return show(after, lineStart + end, "",
+                  below.names.map((seg) => ({ label: `> ${seg}`, text: ` > ${seg}` })), false);
+    }
+    const { found, known } = matching(siblings.names, siblings.norms, typed);
+    show(lineStart + start, lineStart + end, typed, found.map((seg) => ({ label: seg, text: seg })),
+         t !== "" && !known && found.length === 0);
+  };
+
   const openHere = () => {
     open = true;
     openLine = meta.value.lastIndexOf("\n", meta.selectionStart - 1) + 1;
@@ -222,7 +273,10 @@ function headerSuggestions(meta, vocabulary, newValueText) {
 
   const select = (i) => {
     selected = i;
-    [...bar.querySelectorAll("button")].forEach((b, j) => b.classList.toggle("selected", j === i));
+    [...bar.querySelectorAll("button")].forEach((b, j) => {
+      b.classList.toggle("selected", j === i);
+      if (j === i) b.scrollIntoView({ block: "nearest" });
+    });
   };
 
   meta.addEventListener("input", openHere);
