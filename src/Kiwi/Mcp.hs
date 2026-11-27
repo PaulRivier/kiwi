@@ -396,7 +396,8 @@ tools =
         of the text around it to be unique; it is replaced by the new text. To insert,
         give a line as old text, and this line followed by the new lines as new text. All
         the edits apply, or none. The rest of the body is kept, even if it changed since
-        you read it. Prefer it to write_page_body. The header is changed with
+        you read it. Prefer it to write_page_body; for a large block (deleting,
+        replacing, moving it), edit_page_body_by_lines. The header is changed with
         write_page_meta.
       |]
       [ ("page", prop "string" "The page, as SOURCE/UID.")
@@ -417,12 +418,52 @@ tools =
                      [("Content-Type", "application/json")]
                      (TE.decodeUtf8 $ BL.toStrict $ A.encode $ A.object ["edits" .= edits]))
       asIs
+  , Tool "edit_page_body_by_lines" "Edit a page by lines" Destructive
+      [prose|
+        Call guide first if not done in this session. Change the body of a page by its line
+        numbers, as read_page_body gives them (numbered true, or the lines of a part):
+        replace the lines from-to by new lines (new empty: delete them), insert new lines
+        after a line (after 0: at the start), or move the lines from-to after a line
+        (move_after). All the numbers are those of the body as read, whatever the order of
+        the edits: Kiwi moves them itself. Give the hash that read_page_body gave: the edit
+        is refused if the body changed since. All the edits apply, or none. For large
+        blocks: a section is in the outline with its lines. Mind the blank lines around
+        new blocks; the answer shows the lines around each new passage. For a short change
+        in a line, prefer edit_page_body_by_replace.
+      |]
+      [ ("page", prop "string" "The page, as SOURCE/UID.")
+      , ("hash", prop "string" "The hash of the body as read.")
+      , ("edits", A.object
+          [ "type" .= ("array" :: T.Text)
+          , "items" .= A.object
+              [ "type" .= ("object" :: T.Text)
+              , "properties" .= A.object
+                  [ "from" .= prop "integer" "First line to replace or move."
+                  , "to" .= prop "integer" "Last line to replace or move (from without it)."
+                  , "after" .= prop "integer" "Insert new after this line (0: at the start)."
+                  , "move_after" .= prop "integer" "Move the lines from-to after this line."
+                  , "new" .= prop "string" "The new lines (with from: empty to delete)." ] ]
+          , "description" .= ([prose|
+              The edits: {from, to, new} replaces, {after, new} inserts, {from, to,
+              move_after} moves.
+            |] :: T.Text) ])
+      , messageProp ]
+      ["page", "hash", "edits"]
+      (\o -> do
+          (s, u) <- maybe (Left "missing argument: page") pagePath (text o "page")
+          h <- maybe (Left "missing argument: hash") Right (text o "hash")
+          edits <- maybe (Left "missing argument: edits") Right (KM.lookup "edits" o)
+          return $ ApiRequest "PATCH" (T.concat ["/api/page-body/", s, "/", u]) (optional o ["message"])
+                     [("Content-Type", "application/json"), ("If-Match", "\"" <> h <> "\"")]
+                     (TE.decodeUtf8 $ BL.toStrict $ A.encode $ A.object ["lines" .= edits]))
+      asIs
   , Tool "write_page_body" "Rewrite the body of a page" Destructive
       [prose|
         Call guide first if not done in this session. Replace the whole body of a page
         (its content, without the header). Only for a deep rewrite: prefer
-        edit_page_body_by_replace. Give the hash that read_page_body gave: the write is
-        refused if the body changed since. The header is kept.
+        edit_page_body_by_replace or edit_page_body_by_lines. Give the hash that
+        read_page_body gave: the write is refused if the body changed since. The header is
+        kept.
       |]
       [ ("page", prop "string" "The page, as SOURCE/UID.")
       , ("hash", prop "string" "The hash of the body as read.")

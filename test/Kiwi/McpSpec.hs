@@ -58,7 +58,8 @@ mcpSpec = do
     let names = do A.Array ts <- result a >>= field "tools"
                    return [ n | t <- foldr (:) [] ts, Just (A.String n) <- [field "name" t] ]
     names `shouldBe` Just [ "search", "facets", "list_pages", "read_page_meta", "write_page_meta"
-                          , "read_page_body", "edit_page_body_by_replace", "write_page_body"
+                          , "read_page_body", "edit_page_body_by_replace", "edit_page_body_by_lines"
+                          , "write_page_body"
                           , "create_page", "edit_metadata", "check_metadata", "guide" ]
     -- a title and the hints of what each tool does
     let hintsOf n = do
@@ -125,6 +126,13 @@ mcpSpec = do
                       \\"edits\":[{\"old\":\"a\",\"new\":\"b\"}],\"message\":\"why\"}}}"
     map (\r -> (apiMethod r, apiPath r, apiParams r, apiBody r)) calls
       `shouldBe` [("PATCH", "/api/page-body/s/p", [("message", "why")], "{\"edits\":[{\"new\":\"b\",\"old\":\"a\"}]}")]
+    (_, byLines) <- run "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\
+                        \\"name\":\"edit_page_body_by_lines\",\"arguments\":{\"page\":\"s/p\",\"hash\":\"abc\",\
+                        \\"edits\":[{\"from\":2,\"to\":3,\"new\":\"b\"}]}}}"
+    map (\r -> (apiMethod r, apiPath r, apiHeaders r, apiBody r)) byLines
+      `shouldBe` [ ( "PATCH", "/api/page-body/s/p"
+                   , [("Content-Type", "application/json"), ("If-Match", "\"abc\"")]
+                   , "{\"lines\":[{\"from\":2,\"new\":\"b\",\"to\":3}]}" ) ]
     (_, puts) <- run "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\
                      \\"name\":\"write_page_body\",\"arguments\":{\"page\":\"s/p\",\"hash\":\"abc\",\
                      \\"body\":\"x\\n\"}}}"

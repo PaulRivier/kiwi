@@ -28,8 +28,11 @@ only those it can write.
 - Change the body of a page with edit_page_body_by_replace: exact
   replacements, as many as needed in one call, each old text short but
   unique (a line number from read_page_body numbered helps to find them).
-  write_page_body only for a deep rewrite. The header of one page:
-  write_page_meta, after read_page_meta.
+  For a block (delete, replace or move many lines, rewrite a section
+  found in the outline): edit_page_body_by_lines, every number from the
+  body as read, all the edits of a page in one call. write_page_body only
+  for a deep rewrite. The header of one page: write_page_meta, after
+  read_page_meta.
 - Many headers at once: a metadata script, checked with check_metadata,
   then applied with edit_metadata (syntax: tool guide, topic
   metadata-scripts). Reuse the existing tags and values (facets).

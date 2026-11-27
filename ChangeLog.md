@@ -23,6 +23,11 @@
     that name them);
   - a write of the body keeps the header of the file as written, and the
     opposite.
+- **Edition of the body by lines** (`PATCH /api/page-body` with `lines`,
+  MCP tool `edit_page_body_by_lines`): replace, delete, insert or move
+  lines given by their numbers in the body as read (its hash required),
+  all the edits of a call by the same numbers; the answer shows the lines
+  around each new passage.
 
 ## v0.4.6.0 - 2026-11-25
 

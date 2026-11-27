@@ -25,12 +25,14 @@ import           Control.Monad (unless)
 import           Control.Monad.Reader (local)
 import           Data.IORef (readIORef)
 import           Data.List (nub, sortOn)
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Map.Strict as M
 import           Data.Ord (Down (..))
 import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.Aeson as A
+import qualified Data.Aeson.Key as AK
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AesonT
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -583,26 +585,86 @@ apiPutPageBody source uid = withWritablePage source uid $ \p _ ->
     writeChange p (Edit.bodyText hash sent) $ \(text, ()) ->
       saved "saved" (source, uid) (Edit.textHash $ snd $ Edit.splitFile text) []
 
--- | PATCH /api/page-body/SOURCE/UID: replaces exact passages of the body of
--- the page (as given by GET /api/page-body), with a JSON body {"edits":
--- [{"old": "…", "new": "…"}, …]} (see 'Edit.applyEdits'): all of them or
--- none. The answer gives the lines of the new passages.
+-- | PATCH /api/page-body/SOURCE/UID: changes the body of the page (as
+-- given by GET /api/page-body), all the edits or none, with a JSON body:
+--
+-- * {"edits": [{"old": "…", "new": "…"}, …]}: replacements of exact
+--   passages (see 'Edit.applyEdits'), on the current body; the answer gives
+--   the lines of the new passages;
+-- * {"lines": [{"from": N, "to": M, "new": "…"}, {"after": N, "new": "…"},
+--   {"from": N, "to": M, "move_after": K}, …]}: edits of lines (see
+--   'Edit.applyLineEdits'), all of them by the numbers of the body read,
+--   whose hash If-Match gives (412 when it changed, 428 without it); the
+--   answer gives, for each edit, its lines in the new body and in the body
+--   read, and the line before and the line after its new passage.
 apiPatchPageBody :: T.Text -> T.Text -> ActM ()
 apiPatchPageBody source uid = withWritablePage source uid $ \p _ -> do
   b <- Scotty.body
-  case A.decode b >>= AesonT.parseMaybe editsParser of
-    Nothing -> failWith Net.status400
-      "expected a JSON body: {\"edits\": [{\"old\": \"exact text\", \"new\": \"text\"}]}"
-    Just edits -> do
-      let edits' = [ (T.replace "\r\n" "\n" o, T.replace "\r\n" "\n" n) | (o, n) <- edits ]
-      writeChange p (Edit.editsChange edits') $ \(text, ranges) ->
-        saved "saved" (source, uid) (Edit.textHash $ snd $ Edit.splitFile text)
-          [ "lines: " <> T.intercalate ", " (nub [ T.pack (show a ++ "-" ++ show z) | (a, z) <- ranges ])
-          | not (null ranges) ]
+  case A.decode b of
+    Just (A.Object o)
+      | KM.member "edits" o && KM.member "lines" o ->
+          failWith Net.status400 "give edits or lines, not both"
+      | Just ls <- KM.lookup "lines" o -> case lineEdits ls of
+          Left e -> failWith Net.status400 (T.pack e)
+          Right edits -> withIfMatch $ \hash ->
+            writeChange p (Edit.linesChange hash edits) $ \(text, results) -> do
+              let new = T.lines $ snd $ Edit.splitFile text
+              saved "saved" (source, uid) (Edit.textHash $ snd $ Edit.splitFile text) $
+                concat (zipWith3 (lineEditText new) [1 :: Int ..] edits results)
+      | Just edits <- AesonT.parseMaybe editsParser o -> do
+          let edits' = [ (T.replace "\r\n" "\n" old, T.replace "\r\n" "\n" n) | (old, n) <- edits ]
+          writeChange p (Edit.editsChange edits') $ \(text, ranges) ->
+            saved "saved" (source, uid) (Edit.textHash $ snd $ Edit.splitFile text)
+              [ "lines: " <> T.intercalate ", " (nub [ T.pack (show a ++ "-" ++ show z) | (a, z) <- ranges ])
+              | not (null ranges) ]
+    _ -> failWith Net.status400 $ T.concat
+      [ "expected a JSON body: {\"edits\": [{\"old\": \"exact text\", \"new\": \"text\"}]}, "
+      , "or {\"lines\": [{\"from\": 3, \"to\": 5, \"new\": \"text\"}, {\"after\": 7, \"new\": \"text\"}, "
+      , "{\"from\": 9, \"to\": 12, \"move_after\": 1}]}" ]
   where
-    editsParser = A.withObject "body" $ \o -> do
+    editsParser o = do
       es <- o A..: "edits"
       mapM (A.withObject "edit" $ \e -> (,) <$> e A..: "old" <*> e A..: "new") es
+    -- the edits of lines, or why one of them can not be read
+    lineEdits v = case v of
+      A.Array es -> mapM lineEdit (zip [1 :: Int ..] (foldr (:) [] es))
+      _ -> Left "lines: expected a list of edits"
+    lineEdit (k, v) = let failWith' m = Left ("edit " ++ show k ++ ": " ++ m) in case v of
+      A.Object e ->
+        let int key = case KM.lookup key e of
+              Nothing -> Right Nothing
+              Just n@(A.Number _) | Just i <- AesonT.parseMaybe A.parseJSON n -> Right (Just (i :: Int))
+              -- some clients send every argument as a string
+              Just (A.String t) | Just i <- readMaybe (T.unpack t) -> Right (Just i)
+              Just _ -> failWith' $ AK.toString key ++ " is not a line number"
+            newText = case KM.lookup "new" e of
+              Just (A.String t) -> Just (T.replace "\r\n" "\n" t)
+              _ -> Nothing
+        in do
+          fromM <- int "from"
+          toM <- int "to"
+          afterM <- int "after"
+          moveM <- int "move_after"
+          case (fromM, afterM, moveM, newText) of
+            (Just from, Nothing, Nothing, Just t) -> Right $ Edit.ReplaceLines from (fromMaybe from toM) t
+            (Nothing, Just after, Nothing, Just t) | isNothing toM -> Right $ Edit.InsertAfter after t
+            (Just from, Nothing, Just after, Nothing) -> Right $ Edit.MoveAfter from (fromMaybe from toM) after
+            _ -> failWith' "expected from (and to) with new, after with new, or from (and to) with move_after"
+      _ -> failWith' "expected an object"
+    -- what an edit of lines did, with the lines around its new passage
+    lineEditText new k e (Edit.LineResult (a, z) (a0, z0)) =
+      let what = case e of
+            Edit.InsertAfter _ _ -> T.concat [ "inserted lines ", range a z, " (after line "
+                                             , T.pack (show a0), " before)" ]
+            Edit.MoveAfter {} -> T.concat [ "moved to lines ", range a z, " (", range a0 z0, " before)" ]
+            Edit.ReplaceLines {}
+              | z < a -> T.concat [ "deleted (", range a0 z0, " before)" ]
+              | otherwise -> T.concat [ "lines ", range a z, " (", range a0 z0, " before)" ]
+          around = [ (l, cut (new !! (l - 1))) | l <- [a - 1, z + 1], l >= 1, l <= length new ]
+      in T.concat ["edit ", T.pack (show k), ": ", what]
+         : [ T.stripEnd (AT.numberedLines l [t]) | (l, t) <- around ]
+    range a z = T.pack (show a ++ "-" ++ show z)
+    cut t = if T.length t > 80 then T.take 79 t <> "…" else t
 
 -- | POST /api/pages/SOURCE: creates a page from a JSON body {"meta": "the
 -- lines of its header", "body": "its body"}, with a new uid, at "path"

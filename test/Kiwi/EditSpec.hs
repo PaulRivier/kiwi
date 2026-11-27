@@ -66,6 +66,50 @@ editSpec = do
                         \archive: no\n\nBye\n", ())
     bodyText (textHash "Bye") "Bye" [] (TE.encodeUtf8 file, file) `shouldBe` Left SaveConflict
 
+  it "edits lines by their numbers in the version read, in one pass" $ do
+    let six = "1\n2\n3\n4\n5\n6\n"
+        linesOf = fmap (T.lines . fst)
+        failsWith m r = either (m `L.isInfixOf`) (const False) r
+    -- the numbers are those of the version read, whatever the order
+    applyLineEdits [ReplaceLines 2 3 "a", InsertAfter 5 "x\ny"] six
+      `shouldBe` Right ("1\na\n4\n5\nx\ny\n6\n", [LineResult (2, 2) (2, 3), LineResult (5, 6) (5, 5)])
+    linesOf (applyLineEdits [InsertAfter 5 "x\ny", ReplaceLines 2 3 "a"] six)
+      `shouldBe` Right ["1", "a", "4", "5", "x", "y", "6"]
+    -- a deletion: an empty new passage, between two lines
+    applyLineEdits [ReplaceLines 1 2 ""] six `shouldBe` Right ("3\n4\n5\n6\n", [LineResult (1, 0) (1, 2)])
+    -- at the start and at the end
+    applyLineEdits [InsertAfter 0 "a", InsertAfter 6 "z"] six
+      `shouldBe` Right ("a\n1\n2\n3\n4\n5\n6\nz\n", [LineResult (1, 1) (0, 0), LineResult (8, 8) (6, 6)])
+    -- at the same place, in the order of the list; around a replacement
+    linesOf (applyLineEdits [ReplaceLines 2 3 "r", InsertAfter 1 "i", InsertAfter 3 "j"] six)
+      `shouldBe` Right ["1", "r", "i", "j", "4", "5", "6"]
+    linesOf (applyLineEdits [InsertAfter 1 "i", ReplaceLines 2 3 "r"] six)
+      `shouldBe` Right ["1", "i", "r", "4", "5", "6"]
+    -- moves, down and up
+    applyLineEdits [MoveAfter 1 2 4] six `shouldBe` Right ("3\n4\n1\n2\n5\n6\n", [LineResult (3, 4) (1, 2)])
+    linesOf (applyLineEdits [MoveAfter 5 6 0, ReplaceLines 3 3 "c"] six)
+      `shouldBe` Right ["5", "6", "1", "2", "c", "4"]
+    -- a text without line end at its end, a new text without line end
+    applyLineEdits [ReplaceLines 2 2 "x"] "a\nb" `shouldBe` Right ("a\nx\n", [LineResult (2, 2) (2, 2)])
+    applyLineEdits [InsertAfter 0 "x"] "" `shouldBe` Right ("x\n", [LineResult (1, 1) (0, 0)])
+    -- refused: lines out of the text, overlaps, an insertion between two
+    -- deleted lines, a move that does not move, an empty insertion
+    applyLineEdits [ReplaceLines 0 1 "x"] six `shouldSatisfy` failsWith "edit 1: the lines 0-1 are not lines"
+    applyLineEdits [ReplaceLines 3 2 "x"] six `shouldSatisfy` failsWith "edit 1: the lines 3-2"
+    applyLineEdits [InsertAfter 1 "x", InsertAfter 7 "x"] six `shouldSatisfy` failsWith "edit 2: no line 7"
+    applyLineEdits [ReplaceLines 2 4 "", MoveAfter 4 5 0] six
+      `shouldSatisfy` failsWith "edit 2: its lines 4-5 overlap those of edit 1 (2-4)"
+    applyLineEdits [ReplaceLines 2 4 "x", InsertAfter 3 "y"] six
+      `shouldSatisfy` failsWith "edit 2: it inserts after line 3, between the lines 2-4 of edit 1"
+    applyLineEdits [MoveAfter 2 3 1] six `shouldSatisfy` failsWith "would not move"
+    applyLineEdits [MoveAfter 2 3 3] six `shouldSatisfy` failsWith "would not move"
+    applyLineEdits [InsertAfter 2 ""] six `shouldSatisfy` failsWith "the new text is empty"
+    -- with the hash of the body read, the header kept
+    linesChange (textHash "Hello") [InsertAfter 1 "World"] [] (TE.encodeUtf8 file, file)
+      `shouldBe` Right ( "title: T\nuid: x\nprevious-uids: old\ntags: a\naccess: fam:w, public\n\
+                         \archive: no\n\nHello\nWorld\n", [LineResult (2, 2) (1, 1)] )
+    linesChange "0000" [InsertAfter 1 "World"] [] (TE.encodeUtf8 file, file) `shouldBe` Left SaveConflict
+
   it "checks a page to save: same file, valid text" $ do
     let db = mkPagesDB [mkPage ("src", "other") [] [] False 1, mkPage ("src", "x") [] [] False 1]
         bytes = TE.encodeUtf8 file

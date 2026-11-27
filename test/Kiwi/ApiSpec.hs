@@ -540,6 +540,37 @@ apiSpec = do
     inHeader <- patchWith "{\"edits\": [{\"old\": \"title: Page\", \"new\": \"title: Page 2\"}]}"
     liftIO $ status inHeader `shouldBe` 409
 
+  it "edits the lines of the body of a page, with the hash it was read with" $
+    onWriteKiwi $ \cd tokenOf -> do
+      file0 <- fileOf cd "p.md"
+      let hash = TE.encodeUtf8 $ Edit.textHash $ snd $ Edit.splitFile file0
+          patchWith headers = send "PATCH" (tokenOf "bob") headers "/api/page-body/s/p"
+          edits = "{\"lines\": [{\"from\": 1, \"new\": \"Hi\"}, {\"after\": 3, \"new\": \"\\nEnd\"}, \
+                  \{\"from\": 3, \"move_after\": 0}]}"
+      noMatch <- patchWith [] edits
+      liftIO $ status noMatch `shouldBe` 428
+      stale <- patchWith [("If-Match", "0000")] edits
+      liftIO $ status stale `shouldBe` 412
+      bad <- patchWith [("If-Match", hash)] "{\"lines\": [{\"after\": 1}]}"
+      liftIO $ status bad `shouldBe` 400
+      liftIO $ body bad `shouldSatisfy` T.isInfixOf "edit 1: expected"
+      both <- patchWith [("If-Match", hash)] "{\"lines\": [], \"edits\": []}"
+      liftIO $ status both `shouldBe` 400
+      outside <- patchWith [("If-Match", hash)] "{\"lines\": [{\"from\": 2, \"to\": 9, \"new\": \"\"}]}"
+      liftIO $ status outside `shouldBe` 400
+      liftIO $ body outside `shouldSatisfy` T.isInfixOf "from 1 to 3"
+      -- the body was Hello, blank, World; Hi and World both go after line
+      -- 0, in the order of the list
+      ok <- patchWith [("If-Match", hash)] edits
+      liftIO $ status ok `shouldBe` 200
+      file1 <- fileOf cd "p.md"
+      liftIO $ file1 `shouldBe` "title: Page\nuid: p\naccess: family:w, friends\n\nHi\nWorld\n\n\nEnd\n"
+      liftIO $ T.lines (body ok) `shouldBe`
+        [ "saved s/p", "hash: " <> Edit.textHash (snd $ Edit.splitFile file1)
+        , "edit 1: lines 1-1 (1-1 before)", "     2\tWorld"
+        , "edit 2: inserted lines 4-5 (after line 3 before)", "     3"
+        , "edit 3: moved to lines 2-2 (3-3 before)", "     1\tHi", "     3" ]
+
   it "creates a page with a new uid, named after its title" $ onWriteKiwi $ \cd tokenOf -> do
     -- the default access of the pages is public (read only): bob can not
     -- write a page of this access, the admin can

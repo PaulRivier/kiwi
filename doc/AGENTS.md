@@ -106,7 +106,15 @@ committed in the git repository of the source (author `LOGIN via Kiwi`;
 * `PATCH /api/page-body/SOURCE/UID` : replaces exact passages of the body
   of the page, with a JSON body `{"edits": [{"old": "…", "new": "…"}]}`.
   Each old text must be found exactly once; all the edits apply, or none
-  (409). The answer gives the lines of the new passages.
+  (409). The answer gives the lines of the new passages. Or edits its
+  lines, with `{"lines": [{"from": N, "to": M, "new": "…"}, {"after": N,
+  "new": "…"}, {"from": N, "to": M, "move_after": K}]}` (replace, `new`
+  empty to delete; insert, `after: 0` at the start; move) and the hash of
+  the body in `If-Match`: every number is a line of the body as read,
+  whatever the order of the edits, Kiwi moving the lines itself (400 on
+  lines out of the body, overlapping edits, a move that does not move);
+  the answer gives the lines of each edit in the new body and in the body
+  read, with the line before and the line after its new passage.
 * `PUT /api/page-body/SOURCE/UID` : replaces the whole body, with the hash
   of the body as read in `If-Match` (412 when the body changed since, 428
   without it). The header is kept as written.
@@ -153,7 +161,8 @@ committed in the git repository of the source (author `LOGIN via Kiwi`;
 Kiwi serves the MCP (Model Context Protocol) of the agents on `POST
 /mcp`, with the same API token. Its tools are `search`, `facets`,
 `list_pages`, `read_page_meta`, `write_page_meta`, `read_page_body`,
-`edit_page_body_by_replace`, `write_page_body`, `create_page`,
+`edit_page_body_by_replace`, `edit_page_body_by_lines`, `write_page_body`,
+`create_page`,
 `edit_metadata`, `check_metadata` and `guide`: each one
 calls the API, with the rights of the account. Each tool has a title and
 the hints of what it does: `readOnlyHint` for the tools that only read
@@ -175,8 +184,9 @@ settings):
 ### Pages as local files, if you want them
 
 The agents change the body of the pages with `edit_page_body_by_replace`
-(exact replacements, as many as needed in one call) and
-`write_page_body`, and their header with `write_page_meta`: the
+(exact replacements, as many as needed in one call),
+`edit_page_body_by_lines` (blocks of lines) and `write_page_body`, and
+their header with `write_page_meta`: the
 evaluation bench showed nothing that needs more, even a replacement
 everywhere in a page. An agent that has a shell can still change the
 body of a page as a local file through the API, for instance for a

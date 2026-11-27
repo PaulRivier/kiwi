@@ -22,6 +22,10 @@ module Kiwi.Edit
   , bodyText
   , editsChange
   , applyEdits        -- exported for tests
+  , LineEdit (..)
+  , LineResult (..)
+  , applyLineEdits    -- exported for tests
+  , linesChange
   , checkSave
   , writePageFile
   , writeNewPageFile
@@ -38,6 +42,8 @@ import           Data.Bifunctor (first)
 import qualified Crypto.Hash as H
 import qualified Data.ByteString as BS
 import qualified Data.List as L
+import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import           Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -225,6 +231,103 @@ applyEdits edits text0 = go (1 :: Int) edits text0 []
 -- the new passages in it; the header is kept as written
 editsChange :: [(T.Text, T.Text)] -> Change [(Int, Int)]
 editsChange edits = bodyChange (first SaveNotApplied . applyEdits edits)
+
+-- | An edit of the lines of a body, by the numbers of its lines in the
+-- version read (from 1), whatever the other edits
+data LineEdit = ReplaceLines Int Int T.Text  -- ^ lines from-to replaced by the text (empty: deleted)
+              | InsertAfter Int T.Text       -- ^ text inserted after a line (0: at the start)
+              | MoveAfter Int Int Int        -- ^ lines from-to moved after a line
+  deriving (Eq, Show)
+
+-- | What an edit of lines did: the lines of its new passage in the new
+-- version (first and last; for a deletion, the last is the first minus
+-- one: the passage is empty, between these two lines), and its lines in
+-- the version read (for an insertion: the line it follows, twice)
+data LineResult = LineResult { lineNew :: (Int, Int), lineBefore :: (Int, Int) }
+  deriving (Eq, Show)
+
+-- | Edits of the lines of a text (see 'LineEdit'), all of them or none.
+-- Each edit is a deletion of lines and an insertion after a line, all of
+-- them in the version read: replacing deletes the lines and inserts the
+-- text after the line before them, moving deletes the lines and inserts
+-- them after the line given. The new version is written in one pass over
+-- the lines of the version read: at each place, the insertions made after
+-- it, in the order of the list, then the next line if it is not deleted.
+-- Fails (with the number of the edit) on a line out of the text, deleted
+-- lines of two edits that overlap, an insertion between two deleted lines
+-- of an edit, a move that does not move its lines, an empty insertion. The
+-- new text ends with a line end.
+applyLineEdits :: [LineEdit] -> T.Text -> Either String (T.Text, [LineResult])
+applyLineEdits edits text = do
+  mapM_ check numbered
+  let deletions = [ (k, a, b) | (k, e) <- numbered, Just (a, b) <- [deleted e] ]
+  sequence_ [ Left $ concat [ "edit ", show j, ": its lines ", range a' b', " overlap those of edit "
+                            , show k, " (", range a b, ")" ]
+            | (k, a, b) : rest <- L.tails deletions, (j, a', b') <- rest, a' <= b, a <= b' ]
+  sequence_ [ Left $ concat [ "edit ", show k, ": it inserts after line ", show p
+                            , ", between the lines ", range a b, " of edit ", show j ]
+            | (k, p, _) <- insertions, (j, a, b) <- deletions, j /= k, a <= p, p < b ]
+  let gone = S.fromList (concat [ [a .. b] | (_, a, b) <- deletions ])
+      at = M.fromListWith (flip (++)) [ (p, [(k, ls)]) | (k, p, ls) <- insertions ]
+      -- at each place (from 0), with the lines of the version read after
+      -- it: the lines written so far (reversed), their number, and the new
+      -- lines of each edit
+      step (out, count, sp) (p, next) =
+        let (out', count', sp') =
+              L.foldl' (\(o, c, m) (k, ls) -> ( reverse ls ++ o, c + length ls
+                                              , M.insert k (c + 1, c + length ls) m ))
+                       (out, count, sp) (M.findWithDefault [] p at)
+        in case next of
+             Just l | not (S.member (p + 1) gone) -> (l : out', count' + 1, sp')
+             _ -> (out', count', sp')
+      (written, _, spans) = L.foldl' step ([], 0 :: Int, M.empty)
+                                     (zip [0 ..] (map Just old ++ [Nothing]))
+      results = [ LineResult (M.findWithDefault (0, -1) k spans) (before e) | (k, e) <- numbered ]
+  return (T.unlines (reverse written), results)
+  where
+    old = T.lines text
+    total = length old
+    numbered = zip [1 :: Int ..] edits
+    range a b = show a ++ "-" ++ show b
+    deleted e = case e of
+      ReplaceLines a b _ -> Just (a, b)
+      MoveAfter a b _ -> Just (a, b)
+      InsertAfter _ _ -> Nothing
+    before e = case e of
+      ReplaceLines a b _ -> (a, b)
+      MoveAfter a b _ -> (a, b)
+      InsertAfter p _ -> (p, p)
+    insertions = [ (k, p, ls) | (k, e) <- numbered, let (p, ls) = inserted e ]
+    inserted e = case e of
+      ReplaceLines a _ t -> (a - 1, T.lines t)
+      InsertAfter p t -> (p, T.lines t)
+      MoveAfter a b p -> (p, take (b - a + 1) (drop (a - 1) old))
+    line l = 1 <= l && l <= total
+    place p = 0 <= p && p <= total
+    check (k, e) = let failWith m = Left ("edit " ++ show k ++ ": " ++ m) in case e of
+      ReplaceLines a b _
+        | not (line a && line b && a <= b) -> failWith $ linesOut a b
+        | otherwise -> Right ()
+      InsertAfter p t
+        | not (place p) -> failWith $ placeOut p
+        | T.null t -> failWith "the new text is empty"
+        | otherwise -> Right ()
+      MoveAfter a b p
+        | not (line a && line b && a <= b) -> failWith $ linesOut a b
+        | not (place p) -> failWith $ placeOut p
+        | a - 1 <= p && p <= b -> failWith $ "the lines " ++ range a b ++ " would not move"
+        | otherwise -> Right ()
+    linesOut a b = concat [ "the lines ", range a b, " are not lines of the body (from 1 to "
+                          , show total, ", the first one before the last one)" ]
+    placeOut p = concat [ "no line ", show p, " (from 0, the start of the body, to ", show total, ")" ]
+
+-- | The edits of lines (see 'applyLineEdits') of the body of a page, for
+-- the body read with this hash (see 'textHash'): the body must not have
+-- changed since. The header is kept as written.
+linesChange :: T.Text -> [LineEdit] -> Change [LineResult]
+linesChange hash edits = bodyChange $ \body -> do
+  when (textHash body /= hash) $ Left SaveConflict
+  first SaveInvalid $ applyLineEdits edits body
 
 -- | Text of a page file to save, by this change of the file (its bytes and
 -- text, read in the content folder at this path), with what the change
