@@ -31,6 +31,13 @@
   lines given by their numbers in the body as read (its hash required),
   all the edits of a call by the same numbers; the answer shows the lines
   around each new passage.
+- **Suggestions in the header of the browser editor**: the keys, and the
+  values of the key of the line taken from the pages of the source that
+  the user can read (tags segment by segment, groups included; the
+  rights of access; lang, archive, custom fields), in a bar below the
+  header.
+- The lists of tags and values (`/metadata`, facets of the API) sort
+  `œ` as `oe` and `æ` as `ae`.
 
 ## v0.4.6.0 - 2026-11-25
 

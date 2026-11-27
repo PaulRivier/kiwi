@@ -612,6 +612,17 @@ page is saved, whatever the right. With the write right, the *access*
 metadata is not shown either, and is kept the same way; with the admin
 right, it can be changed.
 
+While you type in the header, a bar below it suggests what can be
+written, from the pages of the source that you can read (archives
+included): the keys before the `:`, and after it the values of the key
+that start with the text typed, then those that contain it, without
+case nor accents. The tags come segment by segment: the tags at the top,
+then, once one is written, its sub-tags (` > sub-tag`), also inside the
+groups of the header (`a > {b, c}`). The rights of *access* follow a
+`:`. The arrows choose a suggestion, Tab or Enter write it, a click too;
+Escape hides the bar, Ctrl+Space shows it again. A value that matches
+none is marked as new.
+
 When the page is saved, Kiwi writes the file (atomically, with its
 former permissions), and reloads the pages. The save is refused when
 its header or its content has changed since the editor was opened (by
