@@ -52,7 +52,7 @@ import           Kiwi.Keywords (keywordsText)
 import qualified Kiwi.Log as L
 import qualified Kiwi.Mcp as Mcp
 import qualified Kiwi.MetaScript as MS
-import           Kiwi.Controller (findPage, getRestrictedDB, relatedOf, keyOrder, sameOrigin, textOrder,
+import           Kiwi.Controller (findPage, findFreshPage, getRestrictedDB, relatedOf, keyOrder, sameOrigin, textOrder,
                                   withContext, withLogin)
 import           Kiwi.Pandoc (pageDoc)
 import           Kiwi.Search (alg, explainPages, extractTerms, queryLang, searchLang, termFields)
@@ -276,9 +276,10 @@ apiFacets = withSelection ["show"] $ \db pages -> do
 -- of lines before the content in this text; 404 otherwise
 withApiPage :: T.Text -> T.Text -> (K.Page -> (T.Text, T.Text, Int) -> ActM ()) -> ActM ()
 withApiPage source uid run = do
+  pM <- findFreshPage (source, uid)
   db <- getDB
   loginM <- asksK (K.login . K.requestState)
-  case findPage db (source, uid) of
+  case pM of
     Just p | Just level <- Auth.pageAccessLevel db loginM p -> do
       fileE <- Scotty.liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
       case fileE >>= \(bytes, t) -> (,) (Edit.fileHash bytes) <$>
@@ -501,9 +502,10 @@ maxTextLength = 1000000
 -- 404 when the user can not read it, 403 when they can not write it
 withWritablePage :: T.Text -> T.Text -> (K.Page -> K.AccessLevel -> ActM ()) -> ActM ()
 withWritablePage source uid run = do
+  pM <- findFreshPage (source, uid)
   db <- getDB
   loginM <- asksK (K.login . K.requestState)
-  case findPage db (source, uid) of
+  case pM of
     Just p | Just level <- Auth.pageAccessLevel db loginM p ->
       if level >= K.AccessWrite then run p level
       else failWith Net.status403 $ "the account can not write the page " <> source <> "/" <> uid

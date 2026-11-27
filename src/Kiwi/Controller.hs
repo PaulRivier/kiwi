@@ -33,6 +33,7 @@ module Kiwi.Controller
   , getRestrictedDB
   , relatedOf
   , findPage
+  , findFreshPage
   , textOrder
   , keyOrder
   , BrowseAll (..)    -- exported for tests
@@ -529,8 +530,8 @@ accessLevel p = do
 -- as on its view (the archive mode does not matter).
 withEditablePage :: K.PageUID -> (K.Page -> K.AccessLevel -> ActM ()) -> ActM ()
 withEditablePage uid run = do
-  db <- getDB
-  case findPage db uid of
+  pM <- findFreshPage uid
+  case pM of
     Nothing -> serveNotFound
     Just p -> do
       levelM <- accessLevel p
@@ -918,7 +919,18 @@ serveForbidden = do
 
 
 findPage :: K.PagesDB -> K.PageUID -> Maybe K.Page
-findPage db pgId = RDI.findDoc (K.pagesIndex db) pgId 
+findPage db pgId = RDI.findDoc (K.pagesIndex db) pgId
+
+-- | The page of this uid, as its file is now (see 'Write.freshPage'): the
+-- pages read after it (by 'getDB') are those of the reload, if any
+findFreshPage :: K.PageUID -> ActM (Maybe K.Page)
+findFreshPage pgId = do
+  db <- getDB
+  case findPage db pgId of
+    Nothing -> return Nothing
+    Just p -> do
+      ss <- asksK id
+      liftIO $ Write.freshPage ss p
 
 
 -- | Set login from session cookie, if the session exists, has not expired,

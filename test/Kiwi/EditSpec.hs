@@ -26,17 +26,17 @@ editSpec = do
   let file = "title: T\nuid: x\nprevious-uids: old\ntags: a\naccess: fam:w, public\n\
              \archive: no\n\nHello"
 
-  it "hides the admin metadata to the editors with the write right, and the uid to all" $ do
-    editorText [] AccessWrite file `shouldBe` Right ("title: T\ntags: a\n\nHello\n", 3)
+  it "hides the access to the editors with the write right, and the uid to all" $ do
+    editorText [] AccessWrite file `shouldBe` Right ("title: T\ntags: a\narchive: no\n\nHello\n", 4)
     editorText [] AccessAdmin file `shouldBe`
       Right ("title: T\ntags: a\naccess: fam:w, public\narchive: no\n\nHello\n", 5)
     -- without metadata, the page starts with a blank line
     editorText [] AccessWrite "\n\nHello" `shouldBe` Right ("\n\nHello\n", 2)
 
-  it "keeps the admin metadata of the file when the write right saves, and the uid" $ do
-    editedText [] AccessWrite file "title: New\naccess: public\n\nBye"
+  it "keeps the access of the file when the write right saves, and the uid" $ do
+    editedText [] AccessWrite file "title: New\naccess: public\narchive: yes\n\nBye"
       `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\naccess: fam:w, public\n\
-                        \archive: no\n\nBye\n", ["access"])
+                        \archive: yes\n\nBye\n", ["access"])
     editedText [] AccessAdmin file "title: New\naccess: public\n\nBye"
       `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\naccess: public\n\nBye\n", [])
     editedText [] AccessAdmin file "title: New\nuid: y\nprevious-uids:\n\nBye"

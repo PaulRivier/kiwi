@@ -118,9 +118,9 @@ sourceMeta scM md = mergeMeta md emptyMeta { metaAccess = scM >>= scAccess
 
 
 -- | Keys of the header that only the users with the admin right on a page
--- can change: those with the write right can not.
+-- can see and change in an editor: those with the write right can not.
 adminKeys :: [T.Text]
-adminKeys = ["access", "archive"]
+adminKeys = ["access"]
 
 -- | Keys of the header that kiwi keeps: no editor can see nor change them,
 -- whatever their right

@@ -10,6 +10,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TLE
+import qualified Data.Time as Time
 import qualified Network.HTTP.Types as Net
 import qualified Network.HTTP.Types.URI as URI
 import qualified Network.Wai as Wai
@@ -229,6 +230,24 @@ apiSpec = do
                                     \access: family:w, public\n"
       secret <- get (tokenOf "bob") "/api/page/s/secret"
       liftIO $ status secret `shouldBe` 404
+
+  it "reloads a page whose file changed on the disk before it is read" $
+    onKiwi $ \cd tokenOf -> do
+      let path = cd FP.</> "s" FP.</> "p.md"
+      liftIO $ do
+        BS.writeFile path "title: Page\nuid: p\naccess: family:w, public\n\n# Changed\n\nNew\n"
+        -- another time than the one of the load, whatever the clock
+        mt <- D.getModificationTime path
+        D.setModificationTime path (Time.addUTCTime 10 mt)
+      outline <- get (tokenOf "bob") "/api/page/s/p?part=outline"
+      liftIO $ T.lines (body outline) `shouldSatisfy` \ls ->
+        L.isSubsequenceOf ["content_size: chars=15 lines=3", "  1-3  # Changed"] ls
+      -- the other pages see the reload too
+      list <- get (tokenOf "bob") "/api/pages?show=summary"
+      liftIO $ body list `shouldNotSatisfy` T.isInfixOf "About p"
+      liftIO $ D.removeFile path
+      gone <- get (tokenOf "bob") "/api/page/s/p"
+      liftIO $ status gone `shouldBe` 404
 
   it "gives the folders of a source as a facet, for the admins only" $ onKiwi $ \_ tokenOf -> do
     r <- get (tokenOf "ann") "/api/facets?show=folder"

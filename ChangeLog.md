@@ -1,5 +1,14 @@
 # ChangeLog for Kiwi
 
+## Unreleased
+
+- The `archive` key of a page is no longer reserved to the admins: the
+  users with the write right on the page see and change it in the editor
+  and the API, as the metadata scripts already allowed.
+- A page whose file changed outside of Kiwi (a local editor, a
+  synchronization) is reloaded before it is read or written by the API or
+  the browser editor, without waiting for a reload of the kiwi.
+
 ## v0.4.6.0 - 2026-11-25
 
 - The browser editor has a field for the message of the change, added to

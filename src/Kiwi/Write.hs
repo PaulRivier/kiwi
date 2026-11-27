@@ -5,6 +5,7 @@
 -- lock of the reloads, with git commits, then the pages are reloaded.
 module Kiwi.Write
   ( readPageFile
+  , freshPage
   , updatePage
   , createPage
   , creatableSources
@@ -55,6 +56,30 @@ readPageFile path = do
     Left e -> Left $ "unable to read " ++ path ++ ": " ++ show (e :: IOException)
     Right bytes -> either (const $ Left $ path ++ " is not a valid UTF-8 file")
                           (\t -> Right (bytes, t)) (TE.decodeUtf8' bytes)
+
+-- | The page as its file is now: when the file changed since the page was
+-- loaded (its modification time is another one, or it can no longer be
+-- read), outside of kiwi (an editor, a synchronization), the pages are
+-- reloaded first, under the lock of the reloads, and the page is the one of
+-- this uid after the reload, if any (none when its file was removed, no
+-- longer loads, or has another uid). Without change, the cost is one stat
+-- of the file.
+freshPage :: ServerState -> Page -> IO (Maybe Page)
+freshPage ss p = do
+  changed <- fileChanged p
+  if not changed then return (Just p) else withMVar (pagesDBLock ss) $ \_ -> do
+    -- another reload may have read the file meanwhile
+    current <- loaded
+    case current of
+      Just p' -> do
+        changed' <- fileChanged p'
+        if changed' then DB.reloadPages ss >> loaded else return current
+      Nothing -> return Nothing
+  where
+    loaded = (\db -> RDI.findDoc (pagesIndex db) (pageUID p)) <$> readIORef (pagesDB ss)
+    fileChanged q = do
+      r <- try $ D.getModificationTime (pageAbsoluteFSPath q)
+      return $ either (\(_ :: IOException) -> True) (/= pageMTime q) r
 
 -- | Writes the file of a page changed by a user (login), when the change
 -- applies to the current file and the page of the new text loads (see
