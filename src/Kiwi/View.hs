@@ -108,25 +108,28 @@ renderPage findPage p canWrite doc backlinks related keywords = do
   renderView (K.pageTitle p) (PageActions p canWrite) (Just doc)
              (pageView loc ctx findPage p canWrite doc backlinks related keywords)
 
--- | Editor of a page: the text of its file, its hash, and the line where
--- the editor starts (from 1); with a field for the message of the commit
-renderEditor :: K.Page -> Bool -> T.Text -> T.Text -> Int -> ActM TL.Text
-renderEditor p canDelete text hash line = editorLayout (EditPage p hash canDelete) text line
+-- | Editor of a page: its header and its body, each one with its hash, and
+-- the line of the body where the editor starts (from 1); with a field for
+-- the message of the commit
+renderEditor :: K.Page -> Bool -> (T.Text, T.Text) -> (T.Text, T.Text) -> Int -> ActM TL.Text
+renderEditor p canDelete (meta, metaHash) (body, bodyHash) line =
+  editorLayout (EditPage p metaHash bodyHash canDelete) meta body line
 
--- | Form of a new page in this source, with this text (see 'renderEditor')
+-- | Form of a new page in this source, with this header and an empty body
+-- (see 'renderEditor')
 renderNewPage :: T.Text -> T.Text -> ActM TL.Text
-renderNewPage source text = editorLayout (NewPage source) text 1
+renderNewPage source meta = editorLayout (NewPage source) meta "" 1
 
-editorLayout :: EditTarget -> T.Text -> Int -> ActM TL.Text
-editorLayout target text line = do
+editorLayout :: EditTarget -> T.Text -> T.Text -> Int -> ActM TL.Text
+editorLayout target meta body line = do
   vctx <- getViewCtx
   let loc = ctxLocales vctx
       title = case target of
-        EditPage p _ _ -> K.loc_Editing loc <> " : " <> K.pageTitle p
+        EditPage p _ _ _ -> K.loc_Editing loc <> " : " <> K.pageTitle p
         NewPage source -> K.loc_NewPageIn loc <> " " <> source
   return $ renderText $
     layout vctx { ctxEditor = True } title NoActions Nothing $
-      editorView loc (ctxIsAdmin vctx) target text line
+      editorView loc (ctxIsAdmin vctx) target meta body line
 
 -- | The sources where the user can create a page, each one a link to the
 -- form of a new page there
@@ -514,19 +517,20 @@ pageView loc ctx findPage p canWrite doc backlinks related keywords = div_ [clas
     browseLink f k = Browse.browseUrl ctx $ Browse.addToReq contextReq (f, k)
 
 
--- | What the editor writes: a page (with the hash of its file, and whether
--- the user can delete it), or a new page of a source
-data EditTarget = EditPage K.Page T.Text Bool
+-- | What the editor writes: a page (with the hashes of its header and its
+-- body, and whether the user can delete it), or a new page of a source
+data EditTarget = EditPage K.Page T.Text T.Text Bool
                 | NewPage T.Text
 
 -- | The editor of a page, or the form of a new page (see 'renderEditor',
--- 'renderNewPage'): a form, turned into a markdown editor by app.js, with
--- the texts of its buttons and messages, the field of the message of the
--- commit, and, for a new page and an admin, the field of its path. The id
--- and the hash are empty for a new page. The link to the deletion of the
--- page needs the admin right on it.
-editorView :: K.Locales -> Bool -> EditTarget -> T.Text -> Int -> Html ()
-editorView loc admin target text line =
+-- 'renderNewPage'): a form with the header in a text area, and the body in
+-- another one, turned into a markdown editor by app.js, with the texts of
+-- its buttons and messages, the field of the message of the commit, and,
+-- for a new page and an admin, the field of its path. The id and the hashes
+-- are empty for a new page. The link to the deletion of the page needs the
+-- admin right on it.
+editorView :: K.Locales -> Bool -> EditTarget -> T.Text -> T.Text -> Int -> Html ()
+editorView loc admin target meta body line =
   form_ ([ class_ formClass, method_ "post", action_ action
          , data_ "page-url" back, data_ "line" (T.pack $ show line)
          , data_ "error-session" (K.loc_ActionSession loc)
@@ -537,7 +541,7 @@ editorView loc admin target text line =
          , data_ "warning-ignored" (K.loc_SaveIgnored loc) ] ++
          [ data_ ("button-" <> name) label | (name, label) <- K.loc_EditorButtons loc ]) $ do
     h1_ [class_ "page-title"] $ case target of
-      EditPage p _ _ -> do
+      EditPage p _ _ _ -> do
         span_ [class_ "editing"] $ toHtml (K.loc_Editing loc) <> " : "
         toHtml (K.pageTitle p)
       NewPage _ -> do
@@ -545,25 +549,30 @@ editorView loc admin target text line =
         toHtml source
     input_ [type_ "hidden", name_ "source", value_ source]
     input_ [type_ "hidden", name_ "id", value_ pId]
-    input_ [type_ "hidden", name_ "hash", value_ hash]
+    input_ [type_ "hidden", name_ "meta-hash", value_ metaHash]
+    input_ [type_ "hidden", name_ "body-hash", value_ bodyHash]
     when (admin && isNew) $
       input_ [ type_ "text", name_ "path", class_ "page-path", maxlength_ "500"
              , placeholder_ (K.loc_PagePath loc), title_ (K.loc_PagePath loc) ]
     -- the browser drops a newline at the start of a textarea
-    textarea_ [name_ "text", class_ "editor-text", rows_ "30"] $ toHtml ("\n" <> text)
+    label_ [class_ "editor-label", for_ "editor-meta"] $ toHtml (K.loc_EditorMeta loc)
+    textarea_ [ id_ "editor-meta", name_ "meta", class_ "editor-meta", spellcheck_ "false"
+              , rows_ (T.pack $ show $ max 3 (length (T.lines meta) + 1)) ] $ toHtml ("\n" <> meta)
+    label_ [class_ "editor-label", for_ "editor-body"] $ toHtml (K.loc_EditorBody loc)
+    textarea_ [id_ "editor-body", name_ "body", class_ "editor-text", rows_ "30"] $ toHtml ("\n" <> body)
     div_ [class_ "editor-actions"] $ do
       input_ [ type_ "text", name_ "message", class_ "commit-message", maxlength_ "2000"
              , placeholder_ (K.loc_CommitMessage loc), title_ (K.loc_CommitMessage loc) ]
       button_ [type_ "submit", class_ "save"] $ toHtml $ K.loc_Save loc
       a_ [href_ back, class_ "cancel"] $ toHtml $ K.loc_Cancel loc
       case target of
-        EditPage p _ True ->
+        EditPage p _ _ True ->
           a_ [href_ (Url.deleteUrl $ K.pageUID p), class_ "delete-page"] $ toHtml $ K.loc_DeletePage loc
         _ -> mempty
   where
-    (isNew, (source, pId), hash, back, action) = case target of
-      EditPage p h _ -> (False, K.pageUID p, h, Url.pageUrl p, "/save-page")
-      NewPage s -> (True, (s, ""), "", "/", "/create-page")
+    (isNew, (source, pId), (metaHash, bodyHash), back, action) = case target of
+      EditPage p mh bh _ -> (False, K.pageUID p, (mh, bh), Url.pageUrl p, "/save-page")
+      NewPage s -> (True, (s, ""), ("", ""), "/", "/create-page")
     formClass = if isNew then "page-editor new-page" else "page-editor"
 
 -- | What the confirmation of the deletion of a page shows

@@ -602,24 +602,24 @@ side by side view. On a computer, a small pen also appears in the right
 margin of the block under the mouse: it opens the editor at the line of
 this block.
 
-The editor shows the whole file, its metadata header included, written
-in a normalized form: one line by key, in a fixed order (title, uid,
-previous-uids, tags, access, lang, archive, the
-custom metadata, then the other keys), the tags sorted. The *uid* and
-*previous-uids* metadata are never shown, and are kept as they are in
-the file when the page is saved, whatever the right. With the write
-right, the *access* and *archive* metadata
-are not shown either, and are kept the same way; with the admin right,
-they can be changed.
+The editor shows the metadata header of the file in a text area of its
+own, above the content, written in a normalized form: one line by key,
+in a fixed order (title, uid, previous-uids, tags, access, lang,
+archive, the custom metadata, then the other keys), the tags sorted. The
+content is in the markdown editor. The *uid* and *previous-uids*
+metadata are never shown, and are kept as they are in the file when the
+page is saved, whatever the right. With the write right, the *access*
+metadata is not shown either, and is kept the same way; with the admin
+right, it can be changed.
 
 When the page is saved, Kiwi writes the file (atomically, with its
 former permissions), and reloads the pages. The save is refused when
-the file has changed since the editor was opened (by another editor or
-another user): keep a copy of your text, and open the editor again. It
-is also refused when the page could not be loaded (an invalid header).
-Until it is saved, the
-text is kept as a draft in your browser, for this version of the file;
-logging out forgets the drafts.
+its header or its content has changed since the editor was opened (by
+another editor, another user or an agent): keep a copy of your text, and
+open the editor again. It is also refused when the page could not be
+loaded (an invalid header, a blank line in the header). Until it is
+saved, the header and the content are kept as drafts in your browser,
+for this version of the file; logging out forgets the drafts.
 
 Kiwi commits the saved file: see [Content versioning and
 backup](#content-versioning-and-backup). The message written next to the

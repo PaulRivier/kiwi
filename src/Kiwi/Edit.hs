@@ -1,7 +1,8 @@
 -- | Edition of a page file: the text shown in an editor, the text saved
--- from the one sent back and its checks, and its writing. The browser editor
--- changes the file whole (header and body); the API changes the header and
--- the body apart, each one keeping the other as written. The users with the
+-- from the one sent back and its checks, and its writing. The header and the
+-- body of a page are edited apart, each one with its hash: the API writes
+-- one of them, keeping the other as written; the browser editor sends both
+-- (see 'editorChange'). The users with the
 -- write right on a page do not see nor change the metadata of 'adminKeys',
 -- and no one sees nor changes those of 'kiwiKeys' (uid); the headers are
 -- written normalized (see 'writeHeader').
@@ -10,14 +11,12 @@ module Kiwi.Edit
   , textHash
   , splitFile
   , joinFile
-  , editorText
-  , editedText
   , editorMeta
   , metaText
   , SaveFailure (..)
   , saveFailureText
   , Change
-  , sentText
+  , editorChange
   , metaChange
   , bodyText
   , editsChange
@@ -80,30 +79,6 @@ splitFile t = fromMaybe (T.dropWhileEnd (== '\n') t, T.empty) (splitOnFirst "\n\
 joinFile :: T.Text -> T.Text -> T.Text
 joinFile header body = T.concat [header, "\n\n", body]
 
--- | Text of a page file to edit with this right, and the number of lines
--- before its content: the line n of the content is the line (n + offset) of
--- the text
-editorText :: [CustomMetaConfig] -> AccessLevel -> T.Text -> Either String (T.Text, Int)
-editorText cmc level fileText = do
-  (header, content) <- splitPage cmc fileText
-  let shown = restrict level header
-      text = writePage cmc shown content
-      headerLines = T.count "\n" (writeHeader cmc shown)
-  -- a page without metadata starts with a blank line (see 'writePage')
-  return (text, max 1 headerLines + 1)
-
--- | Text of a page file saved by an editor with this right, from the text of
--- the file and the text sent, and the keys sent that the editor can not
--- change (ignored): their values are those of the file. Fails when the
--- header sent is invalid.
-editedText :: [CustomMetaConfig] -> AccessLevel -> T.Text -> T.Text ->
-              Either String (T.Text, [T.Text])
-editedText cmc level fileText sent = do
-  (original, _) <- splitPage cmc fileText
-  (edited, content) <- splitPage cmc sent
-  let (header, ignored) = editedHeader level original edited
-  return (writePage cmc header content, ignored)
-
 -- | The header saved by an editor with this right, from the header of the
 -- file and the header sent, and the keys sent that the editor can not
 -- change (ignored): their values are those of the file
@@ -139,17 +114,19 @@ data SaveFailure = SaveConflict         -- ^ the file changed since its edition
 
 -- | A change of a page file, from the custom metadata of the config and the
 -- file (its bytes and its text): the text to write, with what the change
--- tells (the keys that are ignored, see 'editedText'; the lines of the new
+-- tells (the keys that are ignored, see 'editedHeader'; the lines of the new
 -- passages, see 'applyEdits'), or why it can not be made
 type Change a = [CustomMetaConfig] -> (BS.ByteString, T.Text) ->
                 Either SaveFailure (T.Text, a)
 
--- | The text sent by an editor with this right (see 'editedText'), for the
--- file read with this hash: the file must not have changed since
-sentText :: AccessLevel -> T.Text -> T.Text -> Change [T.Text]
-sentText level hash sent cmc (bytes, fileText) = do
-  when (fileHash bytes /= hash) $ Left SaveConflict
-  first SaveInvalid $ editedText cmc level fileText sent
+-- | The header and the body sent by the browser editor, with this right
+-- (see 'metaChange' and 'bodyText'), for the header and the body read with
+-- these hashes: neither must have changed since
+editorChange :: AccessLevel -> T.Text -> T.Text -> T.Text -> T.Text -> Change [T.Text]
+editorChange level metaHash bodyHash meta body cmc file@(_, fileText) = do
+  when (textHash (snd $ splitFile fileText) /= bodyHash) $ Left SaveConflict
+  (text, ignored) <- metaChange level metaHash meta cmc file
+  return (joinFile (fst $ splitFile text) (withLineEnd body), ignored)
 
 -- | The header sent by an editor with this right (see 'metaText' and
 -- 'editedHeader'), for the header read with this hash (see 'textHash'): the
@@ -177,7 +154,11 @@ bodyChange change _ (_, fileText) = do
 bodyText :: T.Text -> T.Text -> Change ()
 bodyText hash sent = bodyChange $ \body -> do
   when (textHash body /= hash) $ Left SaveConflict
-  return (if T.null sent || "\n" `T.isSuffixOf` sent then sent else sent <> "\n", ())
+  return (withLineEnd sent, ())
+
+-- | A body that ends with a line end, unless it is empty
+withLineEnd :: T.Text -> T.Text
+withLineEnd t = if T.null t || "\n" `T.isSuffixOf` t then t else t <> "\n"
 
 -- | Message of a failure
 saveFailureText :: SaveFailure -> T.Text

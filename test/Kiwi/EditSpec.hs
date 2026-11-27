@@ -26,23 +26,32 @@ editSpec = do
   let file = "title: T\nuid: x\nprevious-uids: old\ntags: a\naccess: fam:w, public\n\
              \archive: no\n\nHello"
 
+  let -- the hashes of the header and of the body of a file
+      hashes t = let (h, b) = splitFile t in (textHash h, textHash b)
+      saveBy level meta b = let (mh, bh) = hashes file
+                            in editorChange level mh bh meta b [] (TE.encodeUtf8 file, file)
+
   it "hides the access to the editors with the write right, and the uid to all" $ do
-    editorText [] AccessWrite file `shouldBe` Right ("title: T\ntags: a\narchive: no\n\nHello\n", 4)
-    editorText [] AccessAdmin file `shouldBe`
-      Right ("title: T\ntags: a\naccess: fam:w, public\narchive: no\n\nHello\n", 5)
-    -- without metadata, the page starts with a blank line
-    editorText [] AccessWrite "\n\nHello" `shouldBe` Right ("\n\nHello\n", 2)
+    editorMeta [] AccessWrite file `shouldBe` Right "title: T\ntags: a\narchive: no\n"
+    editorMeta [] AccessAdmin file `shouldBe` Right "title: T\ntags: a\naccess: fam:w, public\narchive: no\n"
+    -- without metadata
+    editorMeta [] AccessWrite "\n\nHello" `shouldBe` Right ""
 
   it "keeps the access of the file when the write right saves, and the uid" $ do
-    editedText [] AccessWrite file "title: New\naccess: public\narchive: yes\n\nBye"
+    saveBy AccessWrite "title: New\naccess: public\narchive: yes" "Bye"
       `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\naccess: fam:w, public\n\
                         \archive: yes\n\nBye\n", ["access"])
-    editedText [] AccessAdmin file "title: New\naccess: public\n\nBye"
+    saveBy AccessAdmin "title: New\naccess: public" "Bye"
       `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\naccess: public\n\nBye\n", [])
-    editedText [] AccessAdmin file "title: New\nuid: y\nprevious-uids:\n\nBye"
+    saveBy AccessAdmin "title: New\nuid: y\nprevious-uids:" "Bye"
       `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\n\nBye\n", ["previous-uids", "uid"])
-    editedText [] AccessWrite file "not a header\n\nBye"
-      `shouldBe` Left "invalid metadata header, line 1"
+    saveBy AccessWrite "not a header" "Bye"
+      `shouldBe` Left (SaveInvalid "invalid metadata header, line 1")
+    -- the header and the body must both be those read
+    let (mh, bh) = hashes file
+        change m b = editorChange AccessWrite m b "title: New" "Bye" [] (TE.encodeUtf8 file, file)
+    change "0000" bh `shouldBe` Left SaveConflict
+    change mh "0000" `shouldBe` Left SaveConflict
 
   it "splits a file into its header and body as written, and joins them back" $ do
     splitFile "title: T\nuid: x\n\n# A\n\n\nB\n" `shouldBe` ("title: T\nuid: x", "# A\n\n\nB\n")
@@ -113,13 +122,13 @@ editSpec = do
   it "checks a page to save: same file, valid text" $ do
     let db = mkPagesDB [mkPage ("src", "other") [] [] False 1, mkPage ("src", "x") [] [] False 1]
         bytes = TE.encodeUtf8 file
-        check hash sent = checkSave "/k/content" db (sentText AccessAdmin hash sent)
-                            "/k/content/src/p.md" (bytes, file)
-    check (fileHash bytes) "title: New\n\nBye"
+        (mh, bh) = hashes file
+        check m meta' = checkSave "/k/content" db (editorChange AccessAdmin m bh meta' "Bye")
+                          "/k/content/src/p.md" (bytes, file)
+    check mh "title: New"
       `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\n\nBye\n", [])
-    check "0000" "title: New\n\nBye" `shouldBe` Left SaveConflict
-    check (fileHash bytes) "not a header\n\nBye"
-      `shouldBe` Left (SaveInvalid "invalid metadata header, line 1")
+    check "0000" "title: New" `shouldBe` Left SaveConflict
+    check mh "not a header" `shouldBe` Left (SaveInvalid "invalid metadata header, line 1")
 
   -- requests to a kiwi with accounts: ann (admin), bob (family), joe (friends)
   let pages = [ ("p.md", "title: Page\nuid: p\naccess: family:w, friends, public\n\n\
@@ -146,7 +155,12 @@ editSpec = do
       -- the git repository of the source s
       repoOf cd = cd FP.</> "s"
       hashOf cd name = fileHash <$> liftIO (BS.readFile $ pagePath cd name)
-      save h text = post "/save-page" [("source", "s"), ("id", "p"), ("hash", h), ("text", text)]
+      -- the hashes of the header and of the body of a page file, for the editor
+      hashesOf cd name = hashes . TE.decodeUtf8 <$> liftIO (BS.readFile $ pagePath cd name)
+      -- the fields of the editor of a text "header, blank line, body"
+      pageFields text = let (m, b) = splitFile text in [("meta", m), ("body", b)]
+      save (mh, bh) text = post "/save-page" $
+        [("source", "s"), ("id", "p"), ("meta-hash", mh), ("body-hash", bh)] ++ pageFields text
 
   it "gives the editor to the users with the write right" $ onKiwi $ \_ -> do
     anonymous <- get "/edit/s/p"
@@ -157,9 +171,12 @@ editSpec = do
     _ <- login "bob"
     editor <- get "/edit/s/p?line=3"
     liftIO $ status editor `shouldBe` 200
-    liftIO $ body editor `shouldSatisfy` T.isInfixOf "title: Page\n\nHello\n\nWorld\n</textarea>"
-    -- the line 3 of the content is the line 5 of the text
-    liftIO $ body editor `shouldSatisfy` T.isInfixOf "data-line=\"5\""
+    -- the header and the body in two text areas
+    liftIO $ body editor `shouldSatisfy` T.isInfixOf "name=\"meta\" class=\"editor-meta\""
+    liftIO $ body editor `shouldSatisfy` T.isInfixOf "\ntitle: Page\n</textarea>"
+    liftIO $ body editor `shouldSatisfy` T.isInfixOf "name=\"body\" class=\"editor-text\" rows=\"30\">\nHello\n\nWorld</textarea>"
+    -- the line of the body
+    liftIO $ body editor `shouldSatisfy` T.isInfixOf "data-line=\"3\""
     liftIO $ body editor `shouldSatisfy` (not . T.isInfixOf "access:")
     liftIO $ lookup "Cache-Control" (WT.simpleHeaders editor) `shouldBe` Just "no-store"
     liftIO $ body editor `shouldSatisfy` T.isInfixOf "name=\"message\""
@@ -181,7 +198,7 @@ editSpec = do
 
   it "saves a page, with the admin metadata of its file, and reloads it" $ onKiwi $ \cd -> do
     _ <- login "bob"
-    h <- hashOf cd "p.md"
+    h <- hashesOf cd "p.md"
     saved <- save h "title: New\naccess: public\n\nBye"
     liftIO $ status saved `shouldBe` 200
     liftIO $ body saved `shouldBe` "/page/s/p"
@@ -193,14 +210,14 @@ editSpec = do
     -- the file has changed since the hash was read
     conflict <- save h "title: Again\n\nBye"
     liftIO $ status conflict `shouldBe` 409
-    h' <- hashOf cd "p.md"
+    h' <- hashesOf cd "p.md"
     invalid <- save h' "not a header\n\nBye"
     liftIO $ status invalid `shouldBe` 400
     liftIO $ body invalid `shouldBe` "invalid metadata header, line 1"
 
   it "keeps the uid of the page, even when an admin sends another one" $ onKiwi $ \cd -> do
     _ <- login "ann"
-    h <- hashOf cd "p.md"
+    h <- hashesOf cd "p.md"
     moved <- save h "title: Page\nuid: q\naccess: public\n\nHello"
     liftIO $ status moved `shouldBe` 200
     liftIO $ body moved `shouldBe` "/page/s/p"
@@ -210,16 +227,18 @@ editSpec = do
 
   it "saves the text sent with windows line endings" $ onKiwi $ \cd -> do
     _ <- login "ann"
-    h <- hashOf cd "p.md"
-    saved <- save h "title: Page\r\naccess: public\r\n\r\nHello\r\nAgain"
+    (mh, bh) <- hashesOf cd "p.md"
+    saved <- post "/save-page" [ ("source", "s"), ("id", "p"), ("meta-hash", mh), ("body-hash", bh)
+                               , ("meta", "title: Page\r\naccess: public\r\n"), ("body", "Hello\r\nAgain") ]
     liftIO $ status saved `shouldBe` 200
     content <- liftIO $ BS.readFile $ pagePath cd "p.md"
     liftIO $ content `shouldBe` "title: Page\nuid: p\naccess: public\n\nHello\nAgain\n"
 
   it "refuses the edition requests from other sites" $ onKiwi $ \cd -> do
     _ <- login "bob"
-    h <- hashOf cd "p.md"
-    let params = encode [("source", "s"), ("id", "p"), ("hash", h), ("text", "title: X\n\nX")]
+    (mh, bh) <- hashesOf cd "p.md"
+    let params = encode $ [("source", "s"), ("id", "p"), ("meta-hash", mh), ("body-hash", bh)]
+                          ++ pageFields "title: X\n\nX"
     other <- request "POST" [("Origin", "https://evil.example"), ("Host", "kiwi.example")]
                      "/save-page" params
     liftIO $ status other `shouldBe` 403
@@ -235,7 +254,7 @@ editSpec = do
 
   it "commits a saved page in its git repository" $ onRepo [] $ \cd -> do
     _ <- login "bob"
-    h <- hashOf cd "p.md"
+    h <- hashesOf cd "p.md"
     saved <- save h "title: New\n\nBye"
     liftIO $ status saved `shouldBe` 200
     liftIO $ gitOut (repoOf cd) ["log", "-1", "--format=%an <%ae>|%cn <%ce>|%s"]
@@ -252,7 +271,7 @@ editSpec = do
     _ <- login "bob"
     liftIO $ appendFile (pagePath cd "p.md") "\n\nOutside"
     outside <- liftIO $ readFile (pagePath cd "p.md")
-    h <- hashOf cd "p.md"
+    h <- hashesOf cd "p.md"
     saved <- save h "title: New\n\nBye"
     liftIO $ status saved `shouldBe` 200
     liftIO $ logOf cd 3 `shouldReturn` (saveCommits ++ "test <test@test>|test <test@test>|init\n")
@@ -263,23 +282,23 @@ editSpec = do
     _ <- login "bob"
     liftIO $ git (repoOf cd) ["rm", "-q", "--cached", "p.md"]
     liftIO $ git (repoOf cd) ["commit", "-q", "-m", "untrack"]
-    h <- hashOf cd "p.md"
+    h <- hashesOf cd "p.md"
     saved <- save h "title: New\n\nBye"
     liftIO $ status saved `shouldBe` 200
     liftIO $ logOf cd 2 `shouldReturn` saveCommits
 
   it "adds the message of the editor to the commit" $ onRepo [] $ \cd -> do
     _ <- login "bob"
-    h <- hashOf cd "p.md"
-    saved <- post "/save-page" [ ("source", "s"), ("id", "p"), ("hash", h)
-                               , ("message", "Typo fixed"), ("text", "title: New\n\nBye") ]
+    (mh, bh) <- hashesOf cd "p.md"
+    saved <- post "/save-page" $ [ ("source", "s"), ("id", "p"), ("meta-hash", mh), ("body-hash", bh)
+                                 , ("message", "Typo fixed") ] ++ pageFields "title: New\n\nBye"
     liftIO $ status saved `shouldBe` 200
     liftIO $ gitOut (repoOf cd) ["log", "-1", "--format=%B"]
       `shouldReturn` "Edit s:p (kiwi kiwi)\n\nTypo fixed\n\n"
     -- an empty message adds nothing
-    h' <- hashOf cd "p.md"
-    again <- post "/save-page" [ ("source", "s"), ("id", "p"), ("hash", h')
-                               , ("message", " "), ("text", "title: New\n\nBye again") ]
+    (mh', bh') <- hashesOf cd "p.md"
+    again <- post "/save-page" $ [ ("source", "s"), ("id", "p"), ("meta-hash", mh'), ("body-hash", bh')
+                                 , ("message", " ") ] ++ pageFields "title: New\n\nBye again"
     liftIO $ status again `shouldBe` 200
     liftIO $ gitOut (repoOf cd) ["log", "-1", "--format=%B"] `shouldReturn` "Edit s:p (kiwi kiwi)\n\n"
 
@@ -290,7 +309,7 @@ editSpec = do
       liftIO $ page `shouldSatisfy` (not . T.isInfixOf "/edit/s/p")
       editor <- get "/edit/s/p"
       liftIO $ status editor `shouldBe` 403
-      h <- hashOf cd "p.md"
+      h <- hashesOf cd "p.md"
       saved <- save h "title: New\n\nBye"
       liftIO $ status saved `shouldBe` 403
       creation <- get "/new/s"
@@ -304,7 +323,7 @@ editSpec = do
       flip WT.runSession app $ do
         -- the mode of the sources is read at each load
         _ <- login "bob"
-        h <- hashOf cd "p.md"
+        h <- hashesOf cd "p.md"
         unclassified <- save h "title: New\n\nBye"
         liftIO $ status unclassified `shouldBe` 500
         _ <- login "ann"
@@ -319,13 +338,14 @@ editSpec = do
   it "previews the content of a text, relative to its page" $ onKiwi $ \_ -> do
     _ <- login "bob"
     preview <- post "/preview" [ ("source", "s"), ("id", "p")
-                               , ("text", "title: T\n\n*Hi* [o](page:q) [x](<page: none>)") ]
+                               , ("body", "*Hi* [o](page:q) [x](<page: none>)") ]
     liftIO $ status preview `shouldBe` 200
     liftIO $ body preview `shouldSatisfy` T.isInfixOf "<em>Hi</em>"
     liftIO $ body preview `shouldSatisfy`
       T.isInfixOf "<a href=\"/page/s/none\" class=\"kiwi-link-page kiwi-link-broken\">x</a>"
-    invalid <- post "/preview" [("source", "s"), ("id", "p"), ("text", "not a header\n\nx")]
-    liftIO $ status invalid `shouldBe` 400
+    -- the body only: a header in it is text
+    asText <- post "/preview" [("source", "s"), ("id", "p"), ("body", "title: T")]
+    liftIO $ body asText `shouldSatisfy` T.isInfixOf "title: T"
 
   -- creation of pages: bob (family) can write in the source s
   let sourceLines = ["[source s]", "access: family:w, public"]
@@ -351,7 +371,7 @@ editSpec = do
     form <- get "/new/s"
     liftIO $ status form `shouldBe` 200
     liftIO $ body form `shouldSatisfy` T.isInfixOf "action=\"/create-page\""
-    liftIO $ body form `shouldSatisfy` T.isInfixOf "title: \n\n</textarea>"
+    liftIO $ body form `shouldSatisfy` T.isInfixOf "\ntitle: </textarea>"
     liftIO $ body form `shouldSatisfy` (not . T.isInfixOf "name=\"path\"")
     unknown <- get "/new/none"
     liftIO $ status unknown `shouldBe` 404
@@ -366,7 +386,7 @@ editSpec = do
 
   it "creates a page named after its title, and reloads the pages" $ onNewKiwi $ \cd -> do
     _ <- login "bob"
-    created <- create [("text", "title: Hello world\n\nBody"), ("path", "")]
+    created <- create (pageFields "title: Hello world\n\nBody" ++ [("path", "")])
     liftIO $ status created `shouldBe` 200
     let url = body created
     liftIO $ url `shouldSatisfy` T.isPrefixOf "/page/s/"
@@ -376,18 +396,18 @@ editSpec = do
     liftIO $ status page `shouldBe` 200
     liftIO $ body page `shouldSatisfy` T.isInfixOf "Body"
     -- a title is needed
-    untitled <- create [("text", "tags: a\n\nBody")]
+    untitled <- create (pageFields "tags: a\n\nBody")
     liftIO $ status untitled `shouldBe` 400
-    blank <- create [("text", "title:  \n\nBody")]
+    blank <- create (pageFields "title:  \n\nBody")
     liftIO $ status blank `shouldBe` 400
     -- only the admins choose the path
-    withPath <- create [("text", "title: T\n\nBody"), ("path", "sub/t")]
+    withPath <- create (pageFields "title: T\n\nBody" ++ [("path", "sub/t")])
     liftIO $ status withPath `shouldBe` 403
     _ <- login "joe"
-    reader <- create [("text", "title: T\n\nBody")]
+    reader <- create (pageFields "title: T\n\nBody")
     liftIO $ status reader `shouldBe` 403
     _ <- login "ann"
-    admin <- create [("text", "title: T\n\nBody"), ("path", "sub/t")]
+    admin <- create (pageFields "title: T\n\nBody" ++ [("path", "sub/t")])
     liftIO $ status admin `shouldBe` 200
     adminContent <- liftIO $ BS.readFile $ pagePath cd ("sub" FP.</> "t.md")
     liftIO $ adminContent `shouldBe` TE.encodeUtf8 ("title: T\nuid: " <> uidOf (body admin) <> "\n\nBody\n")
@@ -395,18 +415,18 @@ editSpec = do
   it "refuses the creation requests from other sites" $ onNewKiwi $ \_ -> do
     _ <- login "bob"
     other <- request "POST" [("Origin", "https://evil.example"), ("Host", "kiwi.example")]
-                     "/create-page" (encode [("source", "s"), ("text", "title: X\n\nX")])
+                     "/create-page" (encode $ ("source", "s") : pageFields "title: X\n\nX")
     liftIO $ status other `shouldBe` 403
 
   it "previews the content of a new page, in its source" $ onNewKiwi $ \_ -> do
     _ <- login "bob"
     preview <- post "/preview" [ ("source", "s"), ("id", "")
-                               , ("text", "title: T\n\n[o](page:q) [x](<page: none>)") ]
+                               , ("body", "[o](page:q) [x](<page: none>)") ]
     liftIO $ status preview `shouldBe` 200
     liftIO $ body preview `shouldSatisfy`
       T.isInfixOf "<a href=\"/page/s/none\" class=\"kiwi-link-page kiwi-link-broken\">x</a>"
     _ <- login "joe"
-    reader <- post "/preview" [("source", "s"), ("id", ""), ("text", "title: T\n\nx")]
+    reader <- post "/preview" [("source", "s"), ("id", ""), ("body", "x")]
     liftIO $ status reader `shouldBe` 403
 
   it "commits a created page, with the message of the form" $ withGit $
@@ -415,7 +435,7 @@ editSpec = do
       git (repoOf cd) ["commit", "-q", "-m", "init"]
       flip WT.runSession app $ do
         _ <- login "bob"
-        created <- create [("text", "title: New\n\nBody"), ("message", "From the web")]
+        created <- create (pageFields "title: New\n\nBody" ++ [("message", "From the web")])
         liftIO $ status created `shouldBe` 200
         liftIO $ gitOut (repoOf cd) ["log", "-1", "--format=%an|%B"] `shouldReturn`
           T.unpack ("bob via Kiwi|Create s:" <> uidOf (body created) <> " (kiwi kiwi)\n\nFrom the web\n\n")

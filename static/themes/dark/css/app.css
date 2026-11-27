@@ -1195,6 +1195,26 @@ form.page-editor textarea.editor-text {
   font: 0.95em ui-monospace, monospace;
 }
 
+/* the header of the page, in a text area of its own, above the body */
+form.page-editor label.editor-label {
+  display: block;
+  margin: 12px 0 4px;
+  font-size: 0.85em;
+  color: rgba(var(--kiwi-text), 0.6);
+}
+
+form.page-editor textarea.editor-meta {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  padding: 6px 8px;
+  background-color: rgb(var(--kiwi-bg));
+  color: rgb(var(--kiwi-text));
+  border: 1px solid rgba(var(--kiwi-text), 0.2);
+  border-radius: 4px;
+  font: 0.95em ui-monospace, monospace;
+}
+
 .editor-actions {
   display: flex;
   align-items: center;

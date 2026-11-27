@@ -76,7 +76,7 @@ import           Kiwi.Types (ActM)
 import qualified Kiwi.Log as L
 import qualified Kiwi.DefaultPages as DP
 import qualified Kiwi.Edit as Edit
-import           Kiwi.Meta (splitPage)
+import           Kiwi.Meta (parseHeader)
 import           Kiwi.Files (servedName)
 import           Kiwi.Pandoc (pageDoc, newPageDoc, embeddedDoc)
 import           Kiwi.Search (searchPages, queryTerms, queryLang, searchLang, stripAccents,
@@ -541,16 +541,18 @@ withEditablePage uid run = do
                    | otherwise -> serveForbidden
 
 -- | Editor of a page, for a user with the write right, at the given line of
--- its content, if any (see 'Kiwi.Edit.editorText'). The text is read from
--- the file, with its hash, to detect a change of the file at its save.
+-- its body, if any: its header (see 'Kiwi.Edit.editorMeta') and its body,
+-- read from the file, each one with its hash, to detect a change of the
+-- file at its save.
 serveEditor :: K.PageUID -> Maybe Int -> ActM ()
 serveEditor uid lineM = withEditablePage uid $ \p level -> do
   cmc <- K.customMetaConfig <$> getDB
   fileE <- liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
-  case fileE >>= \(bytes, t) -> (,) (Edit.fileHash bytes) <$> Edit.editorText cmc level t of
+  case fileE >>= \(_, t) -> (,) (Edit.splitFile t) <$> Edit.editorMeta cmc level t of
     Left e -> serveFailure $ T.pack e
-    Right (hash, (text, offset)) -> do
-      r <- V.renderEditor p (level >= K.AccessAdmin) text hash (maybe 1 (+ offset) lineM)
+    Right ((rawHeader, body), meta) -> do
+      r <- V.renderEditor p (level >= K.AccessAdmin) (meta, Edit.textHash rawHeader)
+                          (body, Edit.textHash body) (fromMaybe 1 lineM)
       -- the text of the file is not kept by the browser
       setHeader "Cache-Control" "no-store"
       html r
@@ -663,18 +665,21 @@ sameOrigin = do
     Nothing -> True
     Just o  -> any (\h -> o `elem` ["http://" <> h, "https://" <> h]) hosts
 
--- | Saves the text of a page sent by its editor (see 'Kiwi.Edit.editedText'),
--- when its file has not changed since the edition (same hash), and when the
--- page can be loaded (its uid is kept, see 'Kiwi.Meta.kiwiKeys'), with git
--- commits (see 'Write.updatePage'). The answer is the URL of the page, with
--- the keys that the user can not change in the Kiwi-Ignored-Keys header, if
--- any; 409 when the file changed, 400 when the text can not be saved. The
--- message, if any, is added to the one of the commit.
-serveSavePage :: K.PageUID -> T.Text -> Maybe T.Text -> T.Text -> ActM ()
-serveSavePage uid hash messageM sent = withEditablePage uid $ \p level -> withEditRequest sent $ do
+-- | Saves the header and the body of a page sent by its editor (see
+-- 'Kiwi.Edit.editorChange'), when neither has changed since the edition
+-- (same hashes), and when the page can be loaded (its uid is kept, see
+-- 'Kiwi.Meta.kiwiKeys'), with git commits (see 'Write.updatePage'). The
+-- answer is the URL of the page, with the keys that the user can not change
+-- in the Kiwi-Ignored-Keys header, if any; 409 when the file changed, 400
+-- when the text can not be saved. The message, if any, is added to the one
+-- of the commit.
+serveSavePage :: K.PageUID -> (T.Text, T.Text) -> (T.Text, T.Text) -> Maybe T.Text -> ActM ()
+serveSavePage uid (meta, metaHash) (body, bodyHash) messageM =
+  withEditablePage uid $ \p level -> withEditRequest (meta <> body) $ do
   ss <- asksK id
   user <- maybe "" K.loginUser <$> asksK (K.login . K.requestState)
-  result <- liftIO $ Write.updatePage ss user messageM p (Edit.sentText level hash sent)
+  result <- liftIO $ Write.updatePage ss user messageM p
+              (Edit.editorChange level metaHash bodyHash meta body)
   case result of
     Right (_, ignored) -> do
       unless (null ignored) $
@@ -722,36 +727,42 @@ serveNewPageSources = do
     sources -> V.renderNewPageSources sources >>= html
 
 -- | Form of a new page in this source, for a user who can create a page
--- there: the editor of a page, with a header holding an empty title
+-- there: the editor of a page, with a header holding an empty title, and an
+-- empty body
 serveNewPage :: T.Text -> ActM ()
 serveNewPage source = withCreatableSource source $ do
-  r <- V.renderNewPage source "title: \n\n"
+  r <- V.renderNewPage source "title: "
   setHeader "Cache-Control" "no-store"
   html r
 
--- | Creates a page in this source from the text sent by the form of a new
--- page (see 'Write.createPage'), at the path given, if any (admins), with
--- the message of the commit, if any. The text must have a title. The answer
--- is the URL of the new page; 400 when the text can not be saved.
-serveCreatePage :: T.Text -> Maybe FP.FilePath -> Maybe T.Text -> T.Text -> ActM ()
-serveCreatePage source pathM messageM sent = withCreatableSource source $ withEditRequest sent $ do
+-- | Creates a page in this source from the header and the body sent by the
+-- form of a new page (see 'Write.createPage'), at the path given, if any
+-- (admins), with the message of the commit, if any. The header must have a
+-- title. The answer is the URL of the new page; 400 when the text can not be
+-- saved.
+serveCreatePage :: T.Text -> Maybe FP.FilePath -> Maybe T.Text -> T.Text -> T.Text -> ActM ()
+serveCreatePage source pathM messageM meta body =
+  withCreatableSource source $ withEditRequest (meta <> body) $ do
   cmc <- K.customMetaConfig <$> getDB
-  case splitPage cmc sent of
-    Right (header, _) | maybe True (T.null . T.strip) (K.metaTitle header) -> do
+  case Edit.metaText meta >>= \m -> (,) m <$> parseHeader cmc m of
+    Left e -> do
+      status Net.status400
+      Scotty.text $ TL.pack e
+    Right (_, header) | maybe True (T.null . T.strip) (K.metaTitle header) -> do
       status Net.status400
       Scotty.text "a new page needs a title"
-    _ -> do
+    Right (meta', _) -> do
       ss <- asksK id
       loginM <- asksK (K.login . K.requestState)
-      result <- liftIO $ Write.createPage ss loginM messageM source pathM sent
+      result <- liftIO $ Write.createPage ss loginM messageM source pathM (Edit.joinFile meta' body)
       case result of
         Right (uid, _) -> Scotty.text $ TL.fromStrict $ Url.pageUIDUrl uid
         Left f -> saveFailed f
 
--- | Preview of the content of a text sent by the editor of a page, as the
--- content of the page (its links in its source), or by the form of a new
--- page of a source (empty id): an HTML fragment, or 400 with the reason when
--- the header of the text is invalid
+-- | Preview of a body sent by the editor of a page, as the body of the page
+-- (its links in its source), or by the form of a new page of a source
+-- (empty id): an HTML fragment, or 400 with the reason when it can not be
+-- read
 servePreview :: K.PageUID -> T.Text -> ActM ()
 servePreview (source, pId) sent
   | T.null pId = withCreatableSource source $ withEditRequest sent $
@@ -761,7 +772,7 @@ servePreview (source, pId) sent
   where
     preview toDoc = do
       db <- getRestrictedDB
-      case splitPage (K.customMetaConfig db) sent >>= toDoc db . snd of
+      case toDoc db sent of
         Left e -> do
           status Net.status400
           Scotty.text $ TL.pack e

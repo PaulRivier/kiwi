@@ -138,11 +138,16 @@ kiwiRoute ss api = do
     line <- queryParamMaybe "line"
     serveEditor (source, pId) line
   post "/save-page" $ withLogin $ do
-    (uid, sent) <- editParams
-    hash <- formParam "hash"
+    uid <- pageParams
+    meta <- textParam "meta"
+    metaHash <- formParam "meta-hash"
+    content <- textParam "body"
+    bodyHash <- formParam "body-hash"
     message <- formParamMaybe "message"
-    serveSavePage uid hash message sent
-  post "/preview" $ withLogin $ editParams >>= uncurry servePreview
+    serveSavePage uid (meta, metaHash) (content, bodyHash) message
+  post "/preview" $ withLogin $ do
+    uid <- pageParams
+    textParam "body" >>= servePreview uid
   -- deletion of a page in the browser, with the admin right on it
   get "/delete/:source/:pId" $ withLogin $ do
     source <- pathParam "source"
@@ -161,11 +166,12 @@ kiwiRoute ss api = do
   get "/new/:source" $ withLogin $ pathParam "source" >>= serveNewPage
   post "/create-page" $ withLogin $ do
     source <- formParam "source"
-    sent <- T.replace "\r\n" "\n" <$> formParam "text"
+    meta <- textParam "meta"
+    content <- textParam "body"
     -- an empty path: the name of the file comes from the title
     pathM <- fmap T.unpack . mfilter (not . T.null . T.strip) <$> formParamMaybe "path"
     message <- formParamMaybe "message"
-    serveCreatePage source pathM message sent
+    serveCreatePage source pathM message meta content
   get  "/login" $ withLogin serveLogin
   post "/login" $ logUserIn
   post "/logout" $ logUserOut
@@ -187,13 +193,14 @@ kiwiRoute ss api = do
   notFound $ withLogin serveNotFound
 
   where
-    editParams = do
+    -- the page of the editor
+    pageParams = do
       source <- formParam "source"
       -- empty for a new page (see 'servePreview')
       pId <- fromMaybe "" <$> formParamMaybe "id"
-      -- browsers send the text of a textarea with CRLF line endings
-      sent <- T.replace "\r\n" "\n" <$> formParam "text"
-      return ((source, pId), sent)
+      return (source, pId)
+    -- browsers send the text of a textarea with CRLF line endings
+    textParam name = T.replace "\r\n" "\n" <$> formParam name
 
 
 -- | The routes of the API (see "Kiwi.Api")

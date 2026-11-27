@@ -23,6 +23,9 @@
     that name them);
   - a write of the body keeps the header of the file as written, and the
     opposite.
+- The browser editor shows the header of the page in a text area of its
+  own, above the content in the markdown editor; the save checks that
+  neither changed since the editor was opened.
 - **Edition of the body by lines** (`PATCH /api/page-body` with `lines`,
   MCP tool `edit_page_body_by_lines`): replace, delete, insert or move
   lines given by their numbers in the body as read (its hash required),

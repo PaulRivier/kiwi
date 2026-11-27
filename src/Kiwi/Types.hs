@@ -578,6 +578,8 @@ data Locales = Locales
   , loc_NewPageIn :: T.Text      -- ^ before the source, in the form of a new page
   , loc_NewPageSource :: T.Text  -- ^ heading of the choice of the source
   , loc_PagePath :: T.Text       -- ^ placeholder of the path of a new page (admins)
+  , loc_EditorMeta :: T.Text     -- ^ label of the header in the editor
+  , loc_EditorBody :: T.Text     -- ^ label of the body in the editor
   -- | deletion of a page: link of the editor, before the title of the page,
   -- what happens, the pages linking to it, the files that only it links,
   -- the box to delete them, the button, the reasons that make it

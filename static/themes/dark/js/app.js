@@ -34,7 +34,8 @@ async function adminAction(button, url, params) {
 }
 
 // Logging out forgets the drafts of the editors that this browser keeps
-// (EasyMDE autosave: "smde_" + uniqueId, see the editor below)
+// (EasyMDE autosave: "smde_" + uniqueId, and the header with the same
+// prefix, see the editor below)
 $("form[action='/logout']")?.addEventListener("submit", () => {
   try {
     for (const key of Object.keys(localStorage))
@@ -83,18 +84,20 @@ if (editable) {
 }
 
 
-// Page editor: the form of the page text becomes a markdown editor
-// (EasyMDE, loaded before this script), saved with the hash of the file
-// read; the same form creates a new page (class new-page: empty id and hash,
-// sent to /create-page)
+// Page editor: the header of the page in a text area, its body in a
+// markdown editor (EasyMDE, loaded before this script), saved with the
+// hashes of the header and the body read; the same form creates a new page
+// (class new-page: empty id and hashes, sent to /create-page)
 
 const editorForm = $("form.page-editor");
 
 if (editorForm && window.EasyMDE) {
   const data = editorForm.dataset;
   const field = (name) => editorForm.elements[name].value;
-  const source = field("source"), id = field("id"), hash = field("hash");
+  const source = field("source"), id = field("id");
+  const metaHash = field("meta-hash"), bodyHash = field("body-hash");
   const isNew = editorForm.classList.contains("new-page");
+  const meta = editorForm.elements.meta;
   // titles of the toolbar buttons, from the data-button-NAME attributes
   const button = (name, action, text) => ({
     name, action, text, title: data[`button${name.replace(/(^|-)(.)/g, (_, _d, c) => c.toUpperCase())}`],
@@ -108,7 +111,7 @@ if (editorForm && window.EasyMDE) {
     clearTimeout(previewTimer);
     previewTimer = setTimeout(async () => {
       try {
-        const response = await post("/preview", { source, id, text });
+        const response = await post("/preview", { source, id, body: text });
         preview.innerHTML = await response.text();
       } catch {
         // network failure: the preview is kept
@@ -117,14 +120,14 @@ if (editorForm && window.EasyMDE) {
     return preview.innerHTML;
   };
 
+  // a draft is kept in the browser for this version of the body (and of
+  // the header) only, or for the new pages of the source
   const editor = new E({
-    element: editorForm.elements.text,
+    element: editorForm.elements.body,
     autoDownloadFontAwesome: false,
     spellChecker: false,
-    // a draft is kept in the browser for this version of the file only, or
-    // for the new pages of the source
     autosave: { enabled: true, delay: 5000,
-                uniqueId: isNew ? `kiwi-new-${source}` : `kiwi-${source}/${id}/${hash}` },
+                uniqueId: isNew ? `kiwi-new-${source}` : `kiwi-${source}/${id}/${bodyHash}` },
     maxHeight: "65vh",
     previewClass: ["editor-preview", "document"],
     previewRender: renderPreview,
@@ -155,22 +158,51 @@ if (editorForm && window.EasyMDE) {
     ],
   });
 
-  // the editor opens at the line of the block chosen on the page
+  // the draft of the header, with the prefix of those of EasyMDE (see the
+  // logout above)
+  const metaKey = isNew ? `smde_kiwi-meta-new-${source}` : `smde_kiwi-meta-${source}/${id}/${metaHash}`;
+  const storage = {
+    get: () => { try { return localStorage.getItem(metaKey); } catch { return null; } },
+    set: (v) => { try { localStorage.setItem(metaKey, v); } catch { /* no draft */ } },
+    clear: () => { try { localStorage.removeItem(metaKey); } catch { /* no draft */ } },
+  };
+  const metaDraft = storage.get();
+  if (metaDraft !== null) meta.value = metaDraft;
+  // the text area grows with the header
+  const fitMeta = () => { meta.rows = Math.max(3, meta.value.split("\n").length + 1); };
+  fitMeta();
+
+  // the editor opens at the line of the block chosen on the page; a new
+  // page: in the header, after "title: "
   const cm = editor.codemirror;
-  const line = Math.max(0, Number(data.line) - 1);
-  // a new page: after "title: "
-  cm.setCursor({ line, ch: isNew ? cm.getLine(line).length : 0 });
-  cm.scrollTo(null, cm.charCoords({ line, ch: 0 }, "local").top - 40);
-  cm.focus();
+  if (isNew) {
+    const end = meta.value.indexOf("\n");
+    meta.focus();
+    meta.setSelectionRange(end < 0 ? meta.value.length : end, end < 0 ? meta.value.length : end);
+  } else {
+    const line = Math.max(0, Number(data.line) - 1);
+    cm.setCursor({ line, ch: 0 });
+    cm.scrollTo(null, cm.charCoords({ line, ch: 0 }, "local").top - 40);
+    cm.focus();
+  }
 
   // leaving the page with changes asks for a confirmation
   let changed = false;
   cm.on("change", () => { changed = true; });
+  meta.addEventListener("input", () => {
+    changed = true;
+    storage.set(meta.value);
+    fitMeta();
+  });
   addEventListener("beforeunload", (e) => { if (changed) e.preventDefault(); });
 
-  // cancel: the draft is forgotten
-  $("form.page-editor .cancel").addEventListener("click", () =>
-    editor.clearAutosavedValue());
+  const forgetDrafts = () => {
+    editor.clearAutosavedValue();
+    storage.clear();
+  };
+
+  // cancel: the drafts are forgotten
+  $("form.page-editor .cancel").addEventListener("click", forgetDrafts);
 
   editorForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -178,9 +210,10 @@ if (editorForm && window.EasyMDE) {
     save.disabled = true;
     let response;
     try {
-      // the fields of the form (message, path of a new page...), and the text
+      // the fields of the form (header, message, path of a new page...),
+      // and the body
       const params = new URLSearchParams(new FormData(editorForm));
-      params.set("text", editor.value());
+      params.set("body", editor.value());
       response = await post(editorForm.getAttribute("action"), params);
     } catch {
       save.disabled = false;
@@ -191,7 +224,7 @@ if (editorForm && window.EasyMDE) {
       const url = await response.text();
       const ignored = response.headers.get("Kiwi-Ignored-Keys");
       if (ignored) alert(`${data.warningIgnored} ${ignored}`);
-      editor.clearAutosavedValue();
+      forgetDrafts();
       changed = false;
       location.href = url;
       return;
