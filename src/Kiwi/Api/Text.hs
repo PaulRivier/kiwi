@@ -11,8 +11,6 @@ module Kiwi.Api.Text
   , sections
   , outlineText
   , numberedLines
-  , unnumbered
-  , headerLength
   , linesRange
   , folderCounts
   , tagText
@@ -21,7 +19,6 @@ module Kiwi.Api.Text
   ) where
 
 import qualified Data.Map.Strict as M
-import           Data.List (findIndex)
 import           Data.Maybe (mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Time as Time
@@ -174,15 +171,6 @@ outlineText pathsM p backlinks secs = T.unlines $
   ++ [ T.concat [ "  ", T.pack (show $ sectionFrom s), "-", T.pack (show $ sectionTo s), "  "
                 , T.replicate (sectionLevel s) "#", " ", sectionTitle s ]
      | s <- secs ]
-
--- | Number of lines of the header of a page text, its blank line included:
--- the line before the first line of its content
-headerLength :: T.Text -> Int
-headerLength t = let ls = T.lines t in maybe (length ls) (+ 1) (findIndex T.null ls)
-
--- | The place of a number before a line that has none (see 'numberedLines')
-unnumbered :: T.Text
-unnumbered = T.replicate 6 " " <> "\t"
 
 -- | Lines of a text, from the first given one, each one after its number and
 -- a tab (as "cat -n")

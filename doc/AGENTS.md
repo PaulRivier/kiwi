@@ -63,16 +63,26 @@ required), `since=YYYY-MM-DD` and `page=SOURCE/UID` (repeated: these pages).
   its number of pages (`show=tags,lang,folder,FIELD`: only these). The agents explore the wiki
   with it as a person does on the browse page: a tag, then another one…,
   and list the pages once there are few of them.
-* `GET /api/page/SOURCE/UID` : the text of the page, without its uid, and
-  the hash of its file as `ETag` (16 hexadecimal digits); a page of more
+* A page has a header (its metadata, `key: value` lines) and a body (its
+  content, in CommonMark, after the blank line that ends the header): the
+  API reads and writes them apart, each one with its own hash (16
+  hexadecimal digits of its SHA-256, as `ETag`), so that a change of the
+  header does not change the version of the body, nor the opposite.
+* `GET /api/page-body/SOURCE/UID` : the body of the page; a body of more
   than 40000 characters gives its outline instead, with a line that gives
-  its size and says how to read it. `part=whole` gives the whole page,
+  its size and says how to read it. `part=whole` gives the whole body,
   whatever its size, `part=outline` its outline (tags,
   summary, size, backlinks, sections with their lines), `part=section&title=T`
   one section, `part=lines&from=N&to=M` some lines, and `numbered=yes`
   numbers the lines. Everywhere in the API, the lines are those of the
-  content, from its first line: the header is not numbered.
-* `GET /api/page/SOURCE/UID/meta` : the header of the page.
+  body, from 1.
+* `GET /api/page-meta/SOURCE/UID` : the header of the page, as written in
+  its file, without its uid (and without `access` for an account that has
+  the write right but not the admin right). The defaults of *kiwi.ini* and
+  of the source, which a page gets for a missing field when it loads, are
+  not in it (`/api/pages?show=…` gives the values in use).
+* A page whose file changed outside of Kiwi (an editor, a
+  synchronization) is reloaded before it is read or written.
 * The admins also get the path of the file of a page in its outline, and
   of a page they create.
 * `GET /api/guide` : the documentation of the API for the agents,
@@ -93,17 +103,24 @@ in a source where Kiwi writes (not read-only, see the README), and are
 committed in the git repository of the source (author `LOGIN via Kiwi`;
 `message=…` adds a message to the one of the commit):
 
-* `PATCH /api/page/SOURCE/UID` : replaces exact passages of the text of
-  the page, with a JSON body `{"edits": [{"old": "…", "new": "…"}]}`. Each
-  old text must be found exactly once; all the edits apply, or none (409).
-* `PUT /api/page/SOURCE/UID` : replaces the whole text, with the hash of
-  the page as read in `If-Match` (412 when the page changed since, 428
-  without it).
-* `POST /api/pages/SOURCE` : creates a page from the text of the body.
-  Kiwi gives it a uid (and answers with its size), and names its file after its title (` (2)` is added
-  when the name is taken); the admins can give its path (`path=folder/name`,
-  without extension). The account must have the write right on the new
-  page, by the access of the source (an admin can set it in the header).
+* `PATCH /api/page-body/SOURCE/UID` : replaces exact passages of the body
+  of the page, with a JSON body `{"edits": [{"old": "…", "new": "…"}]}`.
+  Each old text must be found exactly once; all the edits apply, or none
+  (409). The answer gives the lines of the new passages.
+* `PUT /api/page-body/SOURCE/UID` : replaces the whole body, with the hash
+  of the body as read in `If-Match` (412 when the body changed since, 428
+  without it). The header is kept as written.
+* `PUT /api/page-meta/SOURCE/UID` : replaces the header (its lines, no
+  blank line), with the hash of the header as read in `If-Match`. The keys
+  that the account can not change keep their value, and are listed in the
+  answer; the body is kept as written.
+* `POST /api/pages/SOURCE` : creates a page from a JSON body `{"meta":
+  "title: …\ntags: …", "body": "…"}`. Kiwi gives it a uid (and answers
+  with the hashes of its header and body, and its size), and names its
+  file after its title (` (2)` is added when the name is taken); the
+  admins can give its path (`path=folder/name`, without extension). The
+  account must have the write right on the new page, by the access of the
+  source (an admin can set it in the header).
 * `POST /api/metadata` : changes the headers of many pages with a
   script, all of its commands or none, in one commit; `check=yes` writes
   nothing and lists the pages that each command would change, on the pages
@@ -135,7 +152,8 @@ committed in the git repository of the source (author `LOGIN via Kiwi`;
 
 Kiwi serves the MCP (Model Context Protocol) of the agents on `POST
 /mcp`, with the same API token. Its tools are `search`, `facets`,
-`list_pages`, `read_page`, `edit_page`, `write_page`, `create_page`,
+`list_pages`, `read_page_meta`, `write_page_meta`, `read_page_body`,
+`edit_page_body_by_replace`, `write_page_body`, `create_page`,
 `edit_metadata`, `check_metadata` and `guide`: each one
 calls the API, with the rights of the account. Each tool has a title and
 the hints of what it does: `readOnlyHint` for the tools that only read
@@ -156,16 +174,18 @@ settings):
 
 ### Pages as local files, if you want them
 
-The agents change the pages with `edit_page` (exact replacements, as many
-as needed in one call) and `write_page`: the evaluation bench showed
-nothing that needs more, even a replacement everywhere in a page. An
-agent that has a shell can still change a page as a local file through
-the API, for instance for a script on many pages; Kiwi does not propose
-it. To allow it, put in your agent guide the recipe and the path of a
-file (mode 0600) that holds the line `Authorization: Bearer TOKEN`:
+The agents change the body of the pages with `edit_page_body_by_replace`
+(exact replacements, as many as needed in one call) and
+`write_page_body`, and their header with `write_page_meta`: the
+evaluation bench showed nothing that needs more, even a replacement
+everywhere in a page. An agent that has a shell can still change the
+body of a page as a local file through the API, for instance for a
+script on many pages; Kiwi does not propose it. To allow it, put in your
+agent guide the recipe and the path of a file (mode 0600) that holds the
+line `Authorization: Bearer TOKEN`:
 
-    curl http://localhost:3456/api/page/SOURCE/UID -sS -o FILE -w '%header{etag}\n' -H @/path/of/the/header/file
-    curl http://localhost:3456/api/page/SOURCE/UID -sS -X PUT --data-binary @FILE -H @/path/of/the/header/file -H "If-Match: ETAG" --url-query "message=MESSAGE"
+    curl http://localhost:3456/api/page-body/SOURCE/UID?part=whole -sS -o FILE -w '%header{etag}\n' -H @/path/of/the/header/file
+    curl http://localhost:3456/api/page-body/SOURCE/UID -sS -X PUT --data-binary @FILE -H @/path/of/the/header/file -H "If-Match: ETAG" --url-query "message=MESSAGE"
 
 - Each command alone, in the current folder (no `cd`, `&&`, `;`, `|`), and
   the header from the file, not from a variable: Claude Code never allows
@@ -178,7 +198,8 @@ file (mode 0600) that holds the line `Authorization: Bearer TOKEN`:
   The rule only checks the start of the command: Claude Code documents
   that such rules can be bypassed.
 - `--data-binary`, never `-d` (it removes the line ends); a 412 answer:
-  the page changed meanwhile, download it again. curl 7.87 or later.
+  the body changed meanwhile, download it again. The header is changed
+  the same way with `/api/page-meta/SOURCE/UID`. curl 7.87 or later.
 
 ### Bridge for the stdio agents
 

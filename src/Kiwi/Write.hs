@@ -89,17 +89,17 @@ freshPage ss p = do
 -- the user (a failure is only logged). The pages are then reloaded. The
 -- check, the commits, the write and the reload hold the lock of the reloads.
 -- The message, if any, is added to the one of the commit (see
--- 'commitMessage'). The result is the hash of the written file, and the keys
--- of the change that are ignored.
-updatePage :: ServerState -> T.Text -> Maybe T.Text -> Page -> Edit.Change ->
-              IO (Either Edit.SaveFailure (T.Text, [T.Text]))
+-- 'commitMessage'). The result is the text of the written file, and what
+-- the change tells (see 'Edit.Change').
+updatePage :: ServerState -> T.Text -> Maybe T.Text -> Page -> Edit.Change a ->
+              IO (Either Edit.SaveFailure (T.Text, a))
 updatePage ss user messageM p change = withMVar (pagesDBLock ss) $ \_ -> runExceptT $ do
   let path = pageAbsoluteFSPath p
       uid = pageUID p
   db <- liftIO $ readIORef (pagesDB ss)
   writableSource db (fst uid)
   file <- withExceptT Edit.SaveFailed $ ExceptT $ readPageFile path
-  (text, ignored) <- liftEither $ Edit.checkSave (contentDir ss) db change path file
+  (text, r) <- liftEither $ Edit.checkSave (contentDir ss) db change path file
   preCommit ss (fst uid) (pageMessage ss "Pre-update commit of " uid Nothing) [path]
   withExceptT (\e -> Edit.SaveFailed $ show (e :: IOException)) $ ExceptT $ try $
     Edit.writePageFile path text
@@ -107,7 +107,7 @@ updatePage ss user messageM p change = withMVar (pagesDBLock ss) $ \_ -> runExce
     logger ss L.Info $ T.pack $ concat [ "page saved by ", T.unpack user, ": ", path ]
     commitPaths ss (fst uid) (user <> " via Kiwi") (pageMessage ss "Edit " uid messageM) [path]
     DB.reloadPages ss
-  return (Edit.fileHash $ TE.encodeUtf8 text, ignored)
+  return (text, r)
 
 -- | Creates a page in a source (its folder must exist) for a user, from its
 -- text as written by an editor (header and content; the keys that the user

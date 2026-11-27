@@ -1,18 +1,27 @@
--- | Edition of a page file in the browser: the text shown in the editor, the
--- text saved from the one sent back and its checks, and its writing. The
--- users with the write right on a page do not see nor change the metadata of
--- 'adminKeys', and no one sees nor changes those of 'kiwiKeys' (uid); the
--- headers are written normalized (see 'writeHeader').
+-- | Edition of a page file: the text shown in an editor, the text saved
+-- from the one sent back and its checks, and its writing. The browser editor
+-- changes the file whole (header and body); the API changes the header and
+-- the body apart, each one keeping the other as written. The users with the
+-- write right on a page do not see nor change the metadata of 'adminKeys',
+-- and no one sees nor changes those of 'kiwiKeys' (uid); the headers are
+-- written normalized (see 'writeHeader').
 module Kiwi.Edit
   ( fileHash
+  , textHash
+  , splitFile
+  , joinFile
   , editorText
   , editedText
+  , editorMeta
+  , metaText
   , SaveFailure (..)
   , saveFailureText
   , Change
   , sentText
-  , applyEdits
+  , metaChange
+  , bodyText
   , editsChange
+  , applyEdits        -- exported for tests
   , checkSave
   , writePageFile
   , writeNewPageFile
@@ -29,6 +38,7 @@ import           Data.Bifunctor (first)
 import qualified Crypto.Hash as H
 import qualified Data.ByteString as BS
 import qualified Data.List as L
+import           Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified System.Directory as D
@@ -39,6 +49,7 @@ import qualified System.Posix.Files as PF
 import           Kiwi.Meta
 import           Kiwi.Pandoc (checkPageText)
 import           Kiwi.Types
+import           Kiwi.Utils (splitOnFirst)
 
 
 -- | Hash of the content of a file (the first 16 hexadecimal digits of its
@@ -46,6 +57,22 @@ import           Kiwi.Types
 -- changed between its edition and its save)
 fileHash :: BS.ByteString -> T.Text
 fileHash bytes = T.take 16 $ T.pack $ show (H.hash bytes :: H.Digest H.SHA256)
+
+-- | Hash of a text (see 'fileHash'): the version of the body or of the
+-- header of a page, for the API
+textHash :: T.Text -> T.Text
+textHash = fileHash . TE.encodeUtf8
+
+-- | The header and the body of the text of a page file, as written: the
+-- header is the text before its first blank line, the body the text after
+-- it (see 'splitPage'); a text without blank line is a header alone, with an
+-- empty body
+splitFile :: T.Text -> (T.Text, T.Text)
+splitFile t = fromMaybe (T.dropWhileEnd (== '\n') t, T.empty) (splitOnFirst "\n\n" t)
+
+-- | The text of a page file of this header and body (see 'splitFile')
+joinFile :: T.Text -> T.Text -> T.Text
+joinFile header body = T.concat [header, "\n\n", body]
 
 -- | Text of a page file to edit with this right, and the number of lines
 -- before its content: the line n of the content is the line (n + offset) of
@@ -68,10 +95,32 @@ editedText :: [CustomMetaConfig] -> AccessLevel -> T.Text -> T.Text ->
 editedText cmc level fileText sent = do
   (original, _) <- splitPage cmc fileText
   (edited, content) <- splitPage cmc sent
-  let protected = protectedKeys level
-      ignored = filter (`elem` protected) (metaKeys edited)
-      header = mergeMeta (keepOnlyMeta protected original) (clearMeta protected edited)
+  let (header, ignored) = editedHeader level original edited
   return (writePage cmc header content, ignored)
+
+-- | The header saved by an editor with this right, from the header of the
+-- file and the header sent, and the keys sent that the editor can not
+-- change (ignored): their values are those of the file
+editedHeader :: AccessLevel -> MetaData -> MetaData -> (MetaData, [T.Text])
+editedHeader level original edited =
+  let protected = protectedKeys level
+  in ( mergeMeta (keepOnlyMeta protected original) (clearMeta protected edited)
+     , filter (`elem` protected) (metaKeys edited) )
+
+-- | The lines of the header of a page file shown to an editor with this
+-- right (without the keys of 'protectedKeys'), normalized
+editorMeta :: [CustomMetaConfig] -> AccessLevel -> T.Text -> Either String T.Text
+editorMeta cmc level fileText = writeHeader cmc . restrict level . fst <$> splitPage cmc fileText
+
+-- | The lines of a header sent apart from the body, without the blank
+-- lines at its start and end; fails on a blank line inside it, which would
+-- end the header
+metaText :: T.Text -> Either String T.Text
+metaText sent =
+  let ls = L.dropWhileEnd blank $ dropWhile blank $ T.lines sent
+      blank = T.all isSpace
+  in if any blank ls then Left "the metadata can not have a blank line (the body is written apart)"
+     else Right (T.intercalate "\n" ls)
 
 -- | Why a page could not be saved
 data SaveFailure = SaveConflict         -- ^ the file changed since its edition
@@ -83,17 +132,46 @@ data SaveFailure = SaveConflict         -- ^ the file changed since its edition
   deriving (Eq, Show)
 
 -- | A change of a page file, from the custom metadata of the config and the
--- file (its bytes and its text): the text to write, with the keys of the
--- change that are ignored (see 'editedText'), or why it can not be made
-type Change = [CustomMetaConfig] -> (BS.ByteString, T.Text) ->
-              Either SaveFailure (T.Text, [T.Text])
+-- file (its bytes and its text): the text to write, with what the change
+-- tells (the keys that are ignored, see 'editedText'; the lines of the new
+-- passages, see 'applyEdits'), or why it can not be made
+type Change a = [CustomMetaConfig] -> (BS.ByteString, T.Text) ->
+                Either SaveFailure (T.Text, a)
 
 -- | The text sent by an editor with this right (see 'editedText'), for the
 -- file read with this hash: the file must not have changed since
-sentText :: AccessLevel -> T.Text -> T.Text -> Change
+sentText :: AccessLevel -> T.Text -> T.Text -> Change [T.Text]
 sentText level hash sent cmc (bytes, fileText) = do
   when (fileHash bytes /= hash) $ Left SaveConflict
   first SaveInvalid $ editedText cmc level fileText sent
+
+-- | The header sent by an editor with this right (see 'metaText' and
+-- 'editedHeader'), for the header read with this hash (see 'textHash'): the
+-- header must not have changed since. The body is kept as written.
+metaChange :: AccessLevel -> T.Text -> T.Text -> Change [T.Text]
+metaChange level hash sent cmc (_, fileText) = do
+  let (rawHeader, body) = splitFile fileText
+  when (textHash rawHeader /= hash) $ Left SaveConflict
+  first SaveInvalid $ do
+    lines' <- metaText sent
+    edited <- parseHeader cmc lines'
+    (original, _) <- splitPage cmc fileText
+    let (header, ignored) = editedHeader level original edited
+    return (joinFile (T.dropWhileEnd (== '\n') $ writeHeader cmc header) body, ignored)
+
+-- | A change of the body of a page file: the header is kept as written
+bodyChange :: (T.Text -> Either SaveFailure (T.Text, a)) -> Change a
+bodyChange change _ (_, fileText) = do
+  let (header, body) = splitFile fileText
+  (body', r) <- change body
+  return (joinFile header body', r)
+
+-- | The body sent, for the body read with this hash (see 'textHash'): the
+-- body must not have changed since. It ends with a line end.
+bodyText :: T.Text -> T.Text -> Change ()
+bodyText hash sent = bodyChange $ \body -> do
+  when (textHash body /= hash) $ Left SaveConflict
+  return (if T.null sent || "\n" `T.isSuffixOf` sent then sent else sent <> "\n", ())
 
 -- | Message of a failure
 saveFailureText :: SaveFailure -> T.Text
@@ -109,8 +187,7 @@ saveFailureText f = T.pack $ case f of
 -- the previous replacements. The result is the new text, and the lines of
 -- each new passage in it (first and last line, from 1; an empty new
 -- passage gives the line where the old one was), or why the edits do not
--- apply (an old passage found several times: its lines in the content, the
--- header apart, at most 10).
+-- apply (an old passage found several times: its lines, at most 10).
 applyEdits :: [(T.Text, T.Text)] -> T.Text -> Either String (T.Text, [(Int, Int)])
 applyEdits edits text0 = go (1 :: Int) edits text0 []
   where
@@ -133,11 +210,7 @@ applyEdits edits text0 = go (1 :: Int) edits text0 []
                 end = start + max 1 (length $ T.lines new) - 1
             in go (n + 1) rest t' ((start, end) : map shift ranges)
           found ->
-            let -- the lines of the content, after the header and its blank
-                -- line (none without a blank line), as everywhere in the API
-                off = maybe 0 (+ 1) (L.findIndex T.null (T.lines t))
-                lineOf (b, _) = let l = T.count "\n" b + 1
-                                in if l <= off then "header" else show (l - off)
+            let lineOf (b, _) = show (T.count "\n" b + 1)
                 shown = L.nub (map lineOf found)
                 more = length shown - maxLines
             in Left $ concat
@@ -148,24 +221,20 @@ applyEdits edits text0 = go (1 :: Int) edits text0 []
     -- lines given when an old text is found several times
     maxLines = 10
 
--- | The edits (see 'applyEdits') of the text of a page as shown to an
--- editor with this right (see 'editorText'), saved as the text sent by this
--- editor (see 'editedText')
-editsChange :: AccessLevel -> [(T.Text, T.Text)] -> Change
-editsChange level edits cmc (_, fileText) = do
-  (shown, _) <- first SaveInvalid $ editorText cmc level fileText
-  (text, _) <- first SaveNotApplied $ applyEdits edits shown
-  first SaveInvalid $ editedText cmc level fileText text
+-- | The edits (see 'applyEdits') of the body of a page, with the lines of
+-- the new passages in it; the header is kept as written
+editsChange :: [(T.Text, T.Text)] -> Change [(Int, Int)]
+editsChange edits = bodyChange (first SaveNotApplied . applyEdits edits)
 
 -- | Text of a page file to save, by this change of the file (its bytes and
--- text, read in the content folder at this path), with the ignored keys:
--- the page of the new text must load. The uid of the page can not change.
-checkSave :: FilePath -> PagesDB -> Change -> FilePath -> (BS.ByteString, T.Text) ->
-             Either SaveFailure (T.Text, [T.Text])
+-- text, read in the content folder at this path), with what the change
+-- tells: the page of the new text must load. The uid of the page can not change.
+checkSave :: FilePath -> PagesDB -> Change a -> FilePath -> (BS.ByteString, T.Text) ->
+             Either SaveFailure (T.Text, a)
 checkSave contentDir' db change path file = do
-  (text, ignored) <- change (customMetaConfig db) file
+  (text, r) <- change (customMetaConfig db) file
   first SaveInvalid $ checkPageText contentDir' db path text
-  return (text, ignored)
+  return (text, r)
 
 -- | Keys of the header that an editor with this right can not see nor change
 protectedKeys :: AccessLevel -> [T.Text]

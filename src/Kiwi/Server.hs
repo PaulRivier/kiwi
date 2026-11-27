@@ -201,28 +201,22 @@ apiRoute :: WebM ()
 apiRoute = do
   get "/api/pages" $ withToken apiPages
   get "/api/facets" $ withToken apiFacets
-  get "/api/page/:source/:uid" $ do
-    source <- pathParam "source"
-    uid <- pathParam "uid"
-    withToken $ apiPage source uid
-  get "/api/page/:source/:uid/meta" $ do
-    source <- pathParam "source"
-    uid <- pathParam "uid"
-    withToken $ apiPageMeta source uid
+  get "/api/page-body/:source/:uid" $ pageRoute apiPageBody
+  get "/api/page-meta/:source/:uid" $ pageRoute apiPageMeta
   get "/api/guide" $ withToken apiGuide
   get "/api/search" $ withToken apiSearch
-  put "/api/page/:source/:uid" $ do
-    source <- pathParam "source"
-    uid <- pathParam "uid"
-    withToken $ apiPutPage source uid
-  patch "/api/page/:source/:uid" $ do
-    source <- pathParam "source"
-    uid <- pathParam "uid"
-    withToken $ apiPatchPage source uid
+  put "/api/page-body/:source/:uid" $ pageRoute apiPutPageBody
+  put "/api/page-meta/:source/:uid" $ pageRoute apiPutPageMeta
+  patch "/api/page-body/:source/:uid" $ pageRoute apiPatchPageBody
   post "/api/pages/:source" $ do
     source <- pathParam "source"
     withToken $ apiCreatePage source
   post "/api/metadata" $ withToken apiMetadata
+  where
+    pageRoute handler = do
+      source <- pathParam "source"
+      uid <- pathParam "uid"
+      withToken $ handler source uid
 
 -- | The API alone, as an application, for the tools of the MCP (see
 -- 'serveMcp')

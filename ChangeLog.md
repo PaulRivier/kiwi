@@ -8,6 +8,21 @@
 - A page whose file changed outside of Kiwi (a local editor, a
   synchronization) is reloaded before it is read or written by the API or
   the browser editor, without waiting for a reload of the kiwi.
+- **The API and the MCP tools read and write the header and the body of a
+  page apart**, each one with its own hash (a change of the header does
+  not change the version of the body, nor the opposite), the lines
+  numbered from the first line of the body:
+  - routes: `GET`/`PUT /api/page-meta/SOURCE/UID`, `GET`/`PUT`/`PATCH
+    /api/page-body/SOURCE/UID`; `POST /api/pages/SOURCE` takes a JSON body
+    `{"meta": "…", "body": "…"}`; the routes `/api/page/SOURCE/UID` are
+    removed;
+  - MCP tools: `read_page_meta`, `write_page_meta`, `read_page_body`,
+    `edit_page_body_by_replace`, `write_page_body`, and `create_page` with
+    `meta` and `body`; `read_page`, `edit_page` and `write_page` are
+    removed (update the permissions given to them, and the agent guides
+    that name them);
+  - a write of the body keeps the header of the file as written, and the
+    opposite.
 
 ## v0.4.6.0 - 2026-11-25
 

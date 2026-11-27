@@ -28,8 +28,9 @@ mcpSpec = do
         modifyIORef calls (req :)
         return $ case path of
           "/api/guide" -> (200, [], "the guide")
-          "/api/page/s/p" -> (200, [("etag", "\"abc\""), ("kiwi-lines", "1-3")], "title: P\n\nx\n")
-          "/api/page/s/none" -> (404, [], "no page s/none")
+          "/api/page-body/s/p" -> (200, [("etag", "\"abc\""), ("kiwi-lines", "1-3")], "x\ny\nz\n")
+          "/api/page-meta/s/p" -> (200, [("etag", "\"def\"")], "title: P\n")
+          "/api/page-body/s/none" -> (404, [], "no page s/none")
           _ -> (200, [], "ok")
       run msg = do
         calls <- newIORef []
@@ -56,9 +57,9 @@ mcpSpec = do
     (Just a, _) <- run "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"
     let names = do A.Array ts <- result a >>= field "tools"
                    return [ n | t <- foldr (:) [] ts, Just (A.String n) <- [field "name" t] ]
-    names `shouldBe` Just [ "search", "facets", "list_pages", "read_page"
-                          , "edit_page", "write_page", "create_page", "edit_metadata"
-                          , "check_metadata", "guide" ]
+    names `shouldBe` Just [ "search", "facets", "list_pages", "read_page_meta", "write_page_meta"
+                          , "read_page_body", "edit_page_body_by_replace", "write_page_body"
+                          , "create_page", "edit_metadata", "check_metadata", "guide" ]
     -- a title and the hints of what each tool does
     let hintsOf n = do
           A.Array ts <- result a >>= field "tools"
@@ -67,7 +68,9 @@ mcpSpec = do
           return (field "title" t, field "readOnlyHint" an, field "destructiveHint" an)
     hintsOf "search" `shouldBe` Just (Just (A.String "Search the wiki"), Just (A.Bool True), Nothing)
     hintsOf "create_page" `shouldBe` Just (Just (A.String "Create a page"), Just (A.Bool False), Just (A.Bool False))
-    hintsOf "edit_page" `shouldBe` Just (Just (A.String "Edit a page"), Just (A.Bool False), Just (A.Bool True))
+    hintsOf "edit_page_body_by_replace"
+      `shouldBe` Just (Just (A.String "Replace passages of a page"), Just (A.Bool False), Just (A.Bool True))
+    hintsOf "read_page_meta" `shouldBe` Just (Just (A.String "Read the header of a page"), Just (A.Bool True), Nothing)
     hintsOf "check_metadata" `shouldBe` Just (Just (A.String "Check a metadata script"), Just (A.Bool True), Nothing)
 
   it "checks a metadata script with check_metadata, and applies it with edit_metadata" $ do
@@ -94,32 +97,49 @@ mcpSpec = do
     (_, facetCalls) <- run "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\
                            \\"name\":\"facets\",\"arguments\":{\"tags\":[\"sport\",\"cuisine\"]}}}"
     facetCalls `shouldBe` [ApiRequest "GET" "/api/facets" [("tag", "sport"), ("tag", "cuisine")] [] ""]
-    (Just p, _) <- run "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\
-                    \\"name\":\"read_page\",\"arguments\":{\"page\":\"s/p\"}}}"
-    toolText p `shouldBe` Just "hash: abc\nlines: 1-3\n---\ntitle: P\n\nx\n"
+    (Just p, bodyCalls) <- run "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\
+                    \\"name\":\"read_page_body\",\"arguments\":{\"page\":\"s/p\",\"part\":\"lines\",\
+                    \\"from\":1,\"to\":3,\"numbered\":true}}}"
+    toolText p `shouldBe` Just "hash: abc\nlines: 1-3\n---\nx\ny\nz\n"
     isError p `shouldBe` Just (A.Bool False)
+    bodyCalls `shouldBe` [apiGetReq "/api/page-body/s/p" [ ("part", "lines"), ("from", "1"), ("to", "3")
+                                                         , ("numbered", "yes") ]]
+    (Just m, metaCalls) <- run "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\
+                    \\"name\":\"read_page_meta\",\"arguments\":{\"page\":\"s/p\"}}}"
+    toolText m `shouldBe` Just "hash: def\n---\ntitle: P\n"
+    metaCalls `shouldBe` [apiGetReq "/api/page-meta/s/p" []]
 
   it "gives the errors of the API and of the arguments as tool errors" $ do
     (Just a, _) <- run "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\",\"params\":{\
-                    \\"name\":\"read_page\",\"arguments\":{\"page\":\"s/none\"}}}"
+                    \\"name\":\"read_page_body\",\"arguments\":{\"page\":\"s/none\"}}}"
     toolText a `shouldBe` Just "error 404: no page s/none"
     isError a `shouldBe` Just (A.Bool True)
     (Just b, calls) <- run "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\",\"params\":{\
-                        \\"name\":\"read_page\",\"arguments\":{\"page\":\"nope\"}}}"
+                        \\"name\":\"read_page_meta\",\"arguments\":{\"page\":\"nope\"}}}"
     fmap (T.isPrefixOf "invalid page") (toolText b) `shouldBe` Just True
     calls `shouldBe` []
 
-  it "sends the edits of a page as JSON, and a new text with its hash" $ do
+  it "sends the edits of a body as JSON, a new body or header with its hash, a new page as JSON" $ do
     (_, calls) <- run "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\
-                      \\"name\":\"edit_page\",\"arguments\":{\"page\":\"s/p\",\
+                      \\"name\":\"edit_page_body_by_replace\",\"arguments\":{\"page\":\"s/p\",\
                       \\"edits\":[{\"old\":\"a\",\"new\":\"b\"}],\"message\":\"why\"}}}"
     map (\r -> (apiMethod r, apiPath r, apiParams r, apiBody r)) calls
-      `shouldBe` [("PATCH", "/api/page/s/p", [("message", "why")], "{\"edits\":[{\"new\":\"b\",\"old\":\"a\"}]}")]
+      `shouldBe` [("PATCH", "/api/page-body/s/p", [("message", "why")], "{\"edits\":[{\"new\":\"b\",\"old\":\"a\"}]}")]
     (_, puts) <- run "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\
-                     \\"name\":\"write_page\",\"arguments\":{\"page\":\"s/p\",\"hash\":\"abc\",\
-                     \\"text\":\"title: T\\n\\nx\\n\"}}}"
-    map (\r -> (apiMethod r, apiHeaders r, apiBody r)) puts
-      `shouldBe` [("PUT", [("If-Match", "\"abc\"")], "title: T\n\nx\n")]
+                     \\"name\":\"write_page_body\",\"arguments\":{\"page\":\"s/p\",\"hash\":\"abc\",\
+                     \\"body\":\"x\\n\"}}}"
+    map (\r -> (apiMethod r, apiPath r, apiHeaders r, apiBody r)) puts
+      `shouldBe` [("PUT", "/api/page-body/s/p", [("If-Match", "\"abc\"")], "x\n")]
+    (_, metas) <- run "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\
+                      \\"name\":\"write_page_meta\",\"arguments\":{\"page\":\"s/p\",\"hash\":\"def\",\
+                      \\"meta\":\"title: T\\n\"}}}"
+    map (\r -> (apiMethod r, apiPath r, apiHeaders r, apiBody r)) metas
+      `shouldBe` [("PUT", "/api/page-meta/s/p", [("If-Match", "\"def\"")], "title: T\n")]
+    (_, creates) <- run "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\
+                        \\"name\":\"create_page\",\"arguments\":{\"source\":\"s\",\"meta\":\"title: T\",\
+                        \\"body\":\"x\\n\",\"path\":\"a/b\"}}}"
+    map (\r -> (apiMethod r, apiPath r, apiParams r, apiBody r)) creates
+      `shouldBe` [("POST", "/api/pages/s", [("path", "a/b")], "{\"body\":\"x\\n\",\"meta\":\"title: T\"}")]
 
   -- POST /mcp, on a whole kiwi: the tools call its API in memory
   let pages = [ ("p.md", "title: Page\nuid: p\naccess: family:w\n\nHello world\n")
@@ -158,8 +178,8 @@ mcpSpec = do
               "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
     liftIO $ (status' n, WT.simpleBody n) `shouldBe` (202, "")
     r <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\
-                       \\"name\":\"read_page\",\"arguments\":{\"page\":\"s/p\"}}}"
-    liftIO $ fmap (T.isInfixOf "Hello world") (answer r >>= toolText) `shouldBe` Just True
+                       \\"name\":\"read_page_body\",\"arguments\":{\"page\":\"s/p\"}}}"
+    liftIO $ (answer r >>= toolText) `shouldSatisfy` maybe False (T.isSuffixOf "---\nHello world\n")
     liftIO $ fmap (T.isPrefixOf "hash: ") (answer r >>= toolText) `shouldBe` Just True
     q <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\
                        \\"name\":\"search\",\"arguments\":{\"query\":\"hello world\"}}}"
@@ -177,7 +197,7 @@ mcpSpec = do
                           \\"name\":\"list_pages\",\"arguments\":{\"has_fields\":[\"author\"],\"show\":[]}}}"
     liftIO $ (answer uids >>= toolText) `shouldBe` Just "1 page, the most recently modified first\ns/n\n"
     e <- post token [] "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\
-                       \\"name\":\"edit_page\",\"arguments\":{\"page\":\"s/p\",\
+                       \\"name\":\"edit_page_body_by_replace\",\"arguments\":{\"page\":\"s/p\",\
                        \\"edits\":[{\"old\":\"Hello\",\"new\":\"Hi\"}]}}}"
     liftIO $ (answer e >>= isError) `shouldBe` Just (A.Bool False)
     content <- liftIO $ readFile (cd FP.</> "s" FP.</> "p.md")
@@ -210,3 +230,4 @@ mcpSpec = do
       A.String t <- field "text" c
       return t
     isIn x y = T.pack x `T.isInfixOf` T.pack y
+    apiGetReq path params = ApiRequest "GET" path params [] ""

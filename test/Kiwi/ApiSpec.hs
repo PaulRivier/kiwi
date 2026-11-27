@@ -22,7 +22,6 @@ import           Test.Hspec
 import qualified Kiwi.Api.Search as AS
 import qualified Kiwi.Auth as Auth
 import qualified Kiwi.Edit as Edit
-import           Kiwi.Edit (fileHash)
 import           Kiwi.Types
 import           TestUtils
 
@@ -181,55 +180,55 @@ apiSpec = do
   it "gives the outline of a page too long to be given whole, and its lines on demand" $
     withKiwiAccounts' [ ("big.md", "title: Big\nuid: big\n\n# Start\n\n"
                                     <> concat (replicate 1000 "A line of fifty characters, to make it long.\n")) ] $ \get' -> do
-      r <- get' "/api/page/s/big"
+      r <- get' "/api/page-body/s/big"
       liftIO $ T.lines (body r) `shouldSatisfy` \ls -> case ls of
         note : ref : _ -> "this page has " `T.isPrefixOf` note && "from 1 to 1002" `T.isInfixOf` note
                           && "(part whole)" `T.isInfixOf` note
                           && ref == "s/big  Big"
         _ -> False
-      whole <- get' "/api/page/s/big?part=lines&from=1&to=1002"
+      whole <- get' "/api/page-body/s/big?part=lines&from=1&to=1002"
       liftIO $ length (T.lines $ body whole) `shouldBe` 1002
-      forced <- get' "/api/page/s/big?part=whole"
-      liftIO $ take 3 (T.lines $ body forced) `shouldBe` ["title: Big", "", "# Start"]
-      liftIO $ length (T.lines $ body forced) `shouldBe` 1004
+      forced <- get' "/api/page-body/s/big?part=whole"
+      liftIO $ take 2 (T.lines $ body forced) `shouldBe` ["# Start", ""]
+      liftIO $ length (T.lines $ body forced) `shouldBe` 1002
       liftIO $ lookup "ETag" (WT.simpleHeaders r) `shouldSatisfy` maybe False ((== 18) . BS.length)
 
-  it "gives the text of a page without its uid, its hash as ETag, and parts of it" $
+  it "gives the body of a page, its hash as ETag, and parts of it, and its header apart" $
     onKiwi $ \cd tokenOf -> do
-      r <- get (tokenOf "bob") "/api/page/s/p"
-      bytes <- liftIO $ BS.readFile (cd FP.</> "s" FP.</> "p.md")
-      liftIO $ lookup "ETag" (WT.simpleHeaders r)
-        `shouldBe` Just (BC.pack $ "\"" ++ T.unpack (fileHash bytes) ++ "\"")
-      -- bob has the write right: access is hidden, as in the editor
-      liftIO $ body r `shouldBe` "title: Page\nsummary: About p\ntags: a > b, c\n\n# One\n\n\
-                                 \Hello\n\n## Two\n\nWorld\n\n# Three\n\nEnd [q](page:q)\n"
-      outline <- get (tokenOf "bob") "/api/page/s/p?part=outline"
+      r <- get (tokenOf "bob") "/api/page-body/s/p"
+      file <- liftIO $ TE.decodeUtf8 <$> BS.readFile (cd FP.</> "s" FP.</> "p.md")
+      let (rawHeader, fileBody) = Edit.splitFile file
+          etag h = Just (BC.pack $ "\"" ++ T.unpack h ++ "\"")
+      liftIO $ lookup "ETag" (WT.simpleHeaders r) `shouldBe` etag (Edit.textHash fileBody)
+      liftIO $ body r `shouldBe` "# One\n\nHello\n\n## Two\n\nWorld\n\n# Three\n\nEnd [q](page:q)\n"
+      liftIO $ lookup "Kiwi-Lines" (WT.simpleHeaders r) `shouldBe` Just "1-11"
+      outline <- get (tokenOf "bob") "/api/page-body/s/p?part=outline"
       liftIO $ T.lines (body outline) `shouldSatisfy` \ls ->
         L.isSubsequenceOf [ "s/p  Page", "tags: a > b, c", "summary: About p"
                           , "content_size: chars=54 lines=11"
                           , "backlinks: s/q Other", "sections (lines):"
                           , "  1-8  # One", "  5-8  ## Two", "  9-11  # Three" ] ls
-      -- the lines are those of the content: the same for the admin, who sees
-      -- one more line of header
-      outlineAnn <- get (tokenOf "ann") "/api/page/s/p?part=outline"
-      liftIO $ T.lines (body outlineAnn) `shouldSatisfy` elem "  9-11  # Three"
-      section <- get (tokenOf "bob") "/api/page/s/p?part=section&title=two"
+      section <- get (tokenOf "bob") "/api/page-body/s/p?part=section&title=two"
       liftIO $ body section `shouldBe` "## Two\n\nWorld\n\n"
       liftIO $ lookup "Kiwi-Lines" (WT.simpleHeaders section) `shouldBe` Just "5-8"
-      numbered <- get (tokenOf "bob") "/api/page/s/p?part=lines&from=9&to=20&numbered=yes"
+      numbered <- get (tokenOf "bob") "/api/page-body/s/p?part=lines&from=9&to=20&numbered=yes"
       liftIO $ body numbered `shouldBe` "     9\t# Three\n    10\t\n    11\tEnd [q](page:q)\n"
-      -- the whole page numbered: the header without numbers
-      whole <- get (tokenOf "bob") "/api/page/s/p?numbered=yes"
-      liftIO $ take 6 (T.lines $ body whole) `shouldBe`
-        [ "      \ttitle: Page", "      \tsummary: About p", "      \ttags: a > b, c", "      \t"
-        , "     1\t# One", "     2\t" ]
-      missing <- get (tokenOf "bob") "/api/page/s/p?part=section&title=Four"
+      whole <- get (tokenOf "bob") "/api/page-body/s/p?numbered=yes"
+      liftIO $ take 2 (T.lines $ body whole) `shouldBe` ["     1\t# One", "     2\t"]
+      missing <- get (tokenOf "bob") "/api/page-body/s/p?part=section&title=Four"
       liftIO $ status missing `shouldBe` 404
-      meta <- get (tokenOf "ann") "/api/page/s/p/meta"
-      liftIO $ body meta `shouldBe` "title: Page\nsummary: About p\ntags: a > b, c\n\
-                                    \access: family:w, public\n"
-      secret <- get (tokenOf "bob") "/api/page/s/secret"
+      -- the header: bob has the write right, access is hidden, as in the
+      -- editor; the uid is hidden to all
+      meta <- get (tokenOf "bob") "/api/page-meta/s/p"
+      liftIO $ body meta `shouldBe` "title: Page\nsummary: About p\ntags: a > b, c\n"
+      liftIO $ lookup "ETag" (WT.simpleHeaders meta) `shouldBe` etag (Edit.textHash rawHeader)
+      metaAnn <- get (tokenOf "ann") "/api/page-meta/s/p"
+      liftIO $ body metaAnn `shouldBe` "title: Page\nsummary: About p\ntags: a > b, c\n\
+                                       \access: family:w, public\n"
+      secret <- get (tokenOf "bob") "/api/page-body/s/secret"
       liftIO $ status secret `shouldBe` 404
+      secretMeta <- get (tokenOf "bob") "/api/page-meta/s/secret"
+      liftIO $ status secretMeta `shouldBe` 404
 
   it "reloads a page whose file changed on the disk before it is read" $
     onKiwi $ \cd tokenOf -> do
@@ -239,14 +238,14 @@ apiSpec = do
         -- another time than the one of the load, whatever the clock
         mt <- D.getModificationTime path
         D.setModificationTime path (Time.addUTCTime 10 mt)
-      outline <- get (tokenOf "bob") "/api/page/s/p?part=outline"
+      outline <- get (tokenOf "bob") "/api/page-body/s/p?part=outline"
       liftIO $ T.lines (body outline) `shouldSatisfy` \ls ->
         L.isSubsequenceOf ["content_size: chars=15 lines=3", "  1-3  # Changed"] ls
       -- the other pages see the reload too
       list <- get (tokenOf "bob") "/api/pages?show=summary"
       liftIO $ body list `shouldNotSatisfy` T.isInfixOf "About p"
       liftIO $ D.removeFile path
-      gone <- get (tokenOf "bob") "/api/page/s/p"
+      gone <- get (tokenOf "bob") "/api/page-body/s/p"
       liftIO $ status gone `shouldBe` 404
 
   it "gives the folders of a source as a facet, for the admins only" $ onKiwi $ \_ tokenOf -> do
@@ -421,9 +420,9 @@ apiSpec = do
     Edit.applyEdits [("x", "y")] "a\n" `shouldSatisfy` either ("not in the page" `L.isInfixOf`) (const False)
     Edit.applyEdits [("a", "y")] "a\na\n"
       `shouldSatisfy` either ("2 times (lines 1, 2)" `L.isInfixOf`) (const False)
-    -- the lines of the content, after the header, and at most 10 of them
-    Edit.applyEdits [("x", "y")] ("title: x\n\n" <> T.replicate 12 "x\n")
-      `shouldSatisfy` either ("13 times (lines header, 1, 2, 3, 4, 5, 6, 7, 8, 9, and 3 more)" `L.isInfixOf`)
+    -- at most 10 lines
+    Edit.applyEdits [("x", "y")] (T.replicate 13 "x\n")
+      `shouldSatisfy` either ("13 times (lines 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 3 more)" `L.isInfixOf`)
                              (const False)
     Edit.applyEdits [("", "y")] "a\n" `shouldSatisfy` either (const True) (const False)
 
@@ -459,70 +458,103 @@ apiSpec = do
   it "writes nothing in a read-only source, its pages read as by a reader" $
     onWriteKiwiWith ["[source s]", "read-only: yes"] $ \cd tokenOf -> do
       bytes <- liftIO $ BS.readFile (cd FP.</> "s" FP.</> "p.md")
-      let hash = TE.encodeUtf8 (fileHash bytes)
-      put <- send "PUT" (tokenOf "ann") [("If-Match", hash)] "/api/page/s/p" "title: New\n\nBye\n"
+      let (rawHeader, fileBody) = Edit.splitFile (TE.decodeUtf8 bytes)
+      put <- send "PUT" (tokenOf "ann") [("If-Match", TE.encodeUtf8 $ Edit.textHash fileBody)]
+               "/api/page-body/s/p" "Bye\n"
       liftIO $ status put `shouldBe` 403
-      patch <- send "PATCH" (tokenOf "bob") [] "/api/page/s/p"
+      putMeta <- send "PUT" (tokenOf "ann") [("If-Match", TE.encodeUtf8 $ Edit.textHash rawHeader)]
+                   "/api/page-meta/s/p" "title: New\n"
+      liftIO $ status putMeta `shouldBe` 403
+      patch <- send "PATCH" (tokenOf "bob") [] "/api/page-body/s/p"
                  "{\"edits\": [{\"old\": \"World\", \"new\": \"Earth\"}]}"
       liftIO $ status patch `shouldBe` 403
-      created <- send "POST" (tokenOf "ann") [] "/api/pages/s" "title: Burns\n\nCool it.\n"
+      created <- send "POST" (tokenOf "ann") [] "/api/pages/s" "{\"meta\": \"title: Burns\", \"body\": \"Cool it.\"}"
       liftIO $ status created `shouldBe` 403
       script <- send "POST" (tokenOf "ann") [] "/api/metadata" "pages s/p\nmeta zone set here\n"
       liftIO $ status script `shouldBe` 403
       -- the admin reads the header without the keys of the admin right
-      page <- send "GET" (tokenOf "ann") [] "/api/page/s/p" ""
+      page <- send "GET" (tokenOf "ann") [] "/api/page-meta/s/p" ""
       liftIO $ status page `shouldBe` 200
       liftIO $ body page `shouldSatisfy` (not . T.isInfixOf "access:")
       fileOf cd "p.md" >>= liftIO . (`shouldBe` TE.decodeUtf8 bytes)
       liftIO $ D.listDirectory (cd FP.</> "s") >>= (`shouldMatchList` [".git", "p.md"])
 
-  it "replaces a page with the hash it was read with" $ onWriteKiwi $ \cd tokenOf -> do
-    bytes <- liftIO $ BS.readFile (cd FP.</> "s" FP.</> "p.md")
-    let hash = TE.encodeUtf8 (fileHash bytes)
-    noMatch <- send "PUT" (tokenOf "bob") [] "/api/page/s/p" "title: New\n\nBye\n"
-    liftIO $ status noMatch `shouldBe` 428
-    stale <- send "PUT" (tokenOf "bob") [("If-Match", "\"0000\"")] "/api/page/s/p" "title: New\n\nBye\n"
-    liftIO $ status stale `shouldBe` 412
-    readOnly <- send "PUT" (tokenOf "joe") [("If-Match", hash)] "/api/page/s/p" "title: New\n\nBye\n"
-    liftIO $ status readOnly `shouldBe` 403
-    ok <- send "PUT" (tokenOf "bob") [("If-Match", "\"" <> hash <> "\"")] "/api/page/s/p"
-            "title: New\naccess: public\n\nBye\n"
-    liftIO $ status ok `shouldBe` 200
-    liftIO $ T.lines (body ok) `shouldSatisfy` \ls ->
-      take 1 ls == ["saved s/p"] && "ignored keys (not allowed): access" `elem` ls
-    -- the uid and the access are kept
-    file <- fileOf cd "p.md"
-    liftIO $ file `shouldBe` "title: New\nuid: p\naccess: family:w, friends\n\nBye\n"
-    -- the index is up to date
-    r <- get (tokenOf "bob") "/api/pages?show=title"
-    liftIO $ T.lines (body r) `shouldSatisfy` elem "  title: New"
+  it "replaces the header or the body of a page with the hash it was read with" $
+    onWriteKiwi $ \cd tokenOf -> do
+      file0 <- fileOf cd "p.md"
+      let hashOf part = TE.encodeUtf8 . Edit.textHash . part . Edit.splitFile
+          bodyHash = hashOf snd file0
+          metaHash = hashOf fst file0
+      -- the body
+      noMatch <- send "PUT" (tokenOf "bob") [] "/api/page-body/s/p" "Bye\n"
+      liftIO $ status noMatch `shouldBe` 428
+      -- the hash of the header is not the one of the body
+      wrong <- send "PUT" (tokenOf "bob") [("If-Match", metaHash)] "/api/page-body/s/p" "Bye\n"
+      liftIO $ status wrong `shouldBe` 412
+      readOnly <- send "PUT" (tokenOf "joe") [("If-Match", bodyHash)] "/api/page-body/s/p" "Bye\n"
+      liftIO $ status readOnly `shouldBe` 403
+      ok <- send "PUT" (tokenOf "bob") [("If-Match", "\"" <> bodyHash <> "\"")] "/api/page-body/s/p"
+              "Bye\n\ntitle: not a header"
+      liftIO $ status ok `shouldBe` 200
+      file1 <- fileOf cd "p.md"
+      -- the header as written, the body with a line end
+      liftIO $ file1 `shouldBe` "title: Page\nuid: p\naccess: family:w, friends\n\nBye\n\ntitle: not a header\n"
+      liftIO $ T.lines (body ok) `shouldBe` ["saved s/p", "hash: " <> TE.decodeUtf8 (hashOf snd file1)]
+      -- the hash of the header did not change: the header is written with it
+      noMetaMatch <- send "PUT" (tokenOf "bob") [] "/api/page-meta/s/p" "title: New\n"
+      liftIO $ status noMetaMatch `shouldBe` 428
+      blank <- send "PUT" (tokenOf "bob") [("If-Match", metaHash)] "/api/page-meta/s/p" "title: New\n\nzone: x\n"
+      liftIO $ status blank `shouldBe` 400
+      okMeta <- send "PUT" (tokenOf "bob") [("If-Match", metaHash)] "/api/page-meta/s/p"
+                  "\ntitle: New\naccess: public\narchive: yes\n\n"
+      liftIO $ status okMeta `shouldBe` 200
+      liftIO $ T.lines (body okMeta) `shouldSatisfy` \ls ->
+        take 1 ls == ["saved s/p"] && "ignored keys (not allowed): access" `elem` ls
+      -- the uid and the access are kept, archive is changed by the write right
+      file2 <- fileOf cd "p.md"
+      liftIO $ file2 `shouldBe` "title: New\nuid: p\naccess: family:w, friends\narchive: yes\n\n\
+                                \Bye\n\ntitle: not a header\n"
+      staleMeta <- send "PUT" (tokenOf "bob") [("If-Match", metaHash)] "/api/page-meta/s/p" "title: Again\n"
+      liftIO $ status staleMeta `shouldBe` 412
+      -- the body did not change: its hash is still the same
+      again <- send "PUT" (tokenOf "bob") [("If-Match", hashOf snd file1)] "/api/page-body/s/p" "Again\n"
+      liftIO $ status again `shouldBe` 200
+      -- the index is up to date
+      r <- get (tokenOf "bob") "/api/pages?show=title&archive=yes"
+      liftIO $ T.lines (body r) `shouldSatisfy` elem "  title: New"
 
-  it "replaces exact passages of a page" $ onWriteKiwi $ \cd tokenOf -> do
-    let patchWith edits = send "PATCH" (tokenOf "bob") [] "/api/page/s/p" edits
+  it "replaces exact passages of the body of a page" $ onWriteKiwi $ \cd tokenOf -> do
+    let patchWith edits = send "PATCH" (tokenOf "bob") [] "/api/page-body/s/p" edits
     missing <- patchWith "{\"edits\": [{\"old\": \"Hullo\", \"new\": \"Hi\"}]}"
     liftIO $ status missing `shouldBe` 409
     bad <- patchWith "{\"old\": \"Hello\"}"
     liftIO $ status bad `shouldBe` 400
     ok <- patchWith "{\"edits\": [{\"old\": \"Hello\\n\", \"new\": \"Hello\\n\\nNew line\\n\"}]}"
     liftIO $ status ok `shouldBe` 200
-    -- the lines of the content: Hello is line 1
+    -- the lines of the body: Hello is line 1
     liftIO $ T.lines (body ok) `shouldSatisfy` elem "lines: 1-3"
     file <- fileOf cd "p.md"
     liftIO $ file `shouldBe` "title: Page\nuid: p\naccess: family:w, friends\n\nHello\n\nNew line\n\nWorld\n"
-    -- an edit of the header
+    liftIO $ T.lines (body ok) `shouldSatisfy` elem ("hash: " <> Edit.textHash (snd $ Edit.splitFile file))
+    -- the header is not in the text edited
     inHeader <- patchWith "{\"edits\": [{\"old\": \"title: Page\", \"new\": \"title: Page 2\"}]}"
-    liftIO $ T.lines (body inHeader) `shouldSatisfy` elem "lines: header"
+    liftIO $ status inHeader `shouldBe` 409
 
   it "creates a page with a new uid, named after its title" $ onWriteKiwi $ \cd tokenOf -> do
     -- the default access of the pages is public (read only): bob can not
     -- write a page of this access, the admin can
-    refused <- send "POST" (tokenOf "bob") [] "/api/pages/s" "title: Burns\n\nCool it.\n"
+    let page meta b = "{\"meta\": \"" <> meta <> "\", \"body\": \"" <> b <> "\"}"
+    refused <- send "POST" (tokenOf "bob") [] "/api/pages/s" (page "title: Burns" "Cool it.\\n")
     liftIO $ status refused `shouldBe` 403
-    noSource <- send "POST" (tokenOf "ann") [] "/api/pages/nope" "title: Burns\n\nCool it.\n"
+    noSource <- send "POST" (tokenOf "ann") [] "/api/pages/nope" (page "title: Burns" "Cool it.\\n")
     liftIO $ status noSource `shouldBe` 400
-    first' <- send "POST" (tokenOf "ann") [] "/api/pages/s" "title: Burns\nuid: mine\n\nCool it.\n"
+    notJson <- send "POST" (tokenOf "ann") [] "/api/pages/s" "title: Burns\n\nCool it.\n"
+    liftIO $ status notJson `shouldBe` 400
+    blank <- send "POST" (tokenOf "ann") [] "/api/pages/s" (page "title: Burns\\n\\nzone: x" "Cool it.\\n")
+    liftIO $ status blank `shouldBe` 400
+    first' <- send "POST" (tokenOf "ann") [] "/api/pages/s" (page "title: Burns\\nuid: mine\\n" "Cool it.\\n")
     liftIO $ status first' `shouldBe` 201
-    second <- send "POST" (tokenOf "ann") [] "/api/pages/s" "title: Burns\n\nAgain.\n"
+    second <- send "POST" (tokenOf "ann") [] "/api/pages/s" (page "title: Burns" "Again.\\n")
     liftIO $ T.lines (body second) `shouldSatisfy` elem "path: Burns (2).md"
     file <- fileOf cd "Burns.md"
     liftIO $ case T.lines file of
@@ -530,13 +562,15 @@ apiSpec = do
         u `shouldSatisfy` T.isPrefixOf "uid: "
         u `shouldNotBe` "uid: mine"
         T.lines (body first') `shouldSatisfy` elem ("created s/" <> T.drop 5 u)
-        T.lines (body first') `shouldSatisfy` L.isSubsequenceOf ["content_size: chars=9 lines=1"]
+        T.lines (body first') `shouldSatisfy` L.isSubsequenceOf
+          [ "meta_hash: " <> Edit.textHash (fst $ Edit.splitFile file)
+          , "body_hash: " <> Edit.textHash "Cool it.\n", "content_size: chars=9 lines=1" ]
       other -> expectationFailure $ show other
     -- bob gets the page when it gives him the write right
     byBob <- send "POST" (tokenOf "ann") [] "/api/pages/s?path=notes/first"
-               "title: Notes\naccess: family:w\n\nN\n"
+               (page "title: Notes\\naccess: family:w" "N\\n")
     liftIO $ T.lines (body byBob) `shouldSatisfy` elem "path: notes/first.md"
-    pathRefused <- send "POST" (tokenOf "bob") [] "/api/pages/s?path=x" "title: X\n\nX\n"
+    pathRefused <- send "POST" (tokenOf "bob") [] "/api/pages/s?path=x" (page "title: X" "X\\n")
     liftIO $ status pathRefused `shouldBe` 403
 
   it "commits a page created or changed by the API, with the account as author" $ withGit $
@@ -545,9 +579,10 @@ apiSpec = do
       liftIO $ do
         git repo ["add", "."]
         git repo ["commit", "-q", "-m", "init"]
-      created <- send "POST" (tokenOf "ann") [] "/api/pages/s" "title: Burns\n\nCool it.\n"
+      created <- send "POST" (tokenOf "ann") [] "/api/pages/s"
+                   "{\"meta\": \"title: Burns\", \"body\": \"Cool it.\\n\"}"
       liftIO $ status created `shouldBe` 201
-      _ <- send "PATCH" (tokenOf "bob") [] "/api/page/s/p?message=Earth%20is%20better"
+      _ <- send "PATCH" (tokenOf "bob") [] "/api/page-body/s/p?message=Earth%20is%20better"
              "{\"edits\": [{\"old\": \"World\", \"new\": \"Earth\"}]}"
       lastMessage <- liftIO $ gitOut repo ["log", "-1", "--format=%B"]
       liftIO $ lastMessage `shouldBe` "Edit s:p (kiwi kiwi)\n\nEarth is better\n\n"

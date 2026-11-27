@@ -44,6 +44,28 @@ editSpec = do
     editedText [] AccessWrite file "not a header\n\nBye"
       `shouldBe` Left "invalid metadata header, line 1"
 
+  it "splits a file into its header and body as written, and joins them back" $ do
+    splitFile "title: T\nuid: x\n\n# A\n\n\nB\n" `shouldBe` ("title: T\nuid: x", "# A\n\n\nB\n")
+    -- a header alone, or a body alone
+    splitFile "title: T\n" `shouldBe` ("title: T", "")
+    splitFile "\n\nHello\n" `shouldBe` ("", "Hello\n")
+    uncurry joinFile (splitFile file) `shouldBe` file
+    joinFile "title: T" "" `shouldBe` "title: T\n\n"
+
+  it "reads a header sent apart from its body: no blank line inside" $ do
+    metaText "\n\ntitle: T\ntags: a\n\n \n" `shouldBe` Right "title: T\ntags: a"
+    metaText "title: T\n\ntags: a\n" `shouldSatisfy` either (const True) (const False)
+    let hashOf = textHash . fst . splitFile
+        change level h sent = metaChange level h sent [] (TE.encodeUtf8 file, file)
+    -- the body as written, the protected keys kept
+    change AccessWrite (hashOf file) "title: New\naccess: public\n"
+      `shouldBe` Right ("title: New\nuid: x\nprevious-uids: old\naccess: fam:w, public\n\nHello", ["access"])
+    change AccessWrite "0000" "title: New\n" `shouldBe` Left SaveConflict
+    bodyText (textHash "Hello") "Bye" [] (TE.encodeUtf8 file, file)
+      `shouldBe` Right ("title: T\nuid: x\nprevious-uids: old\ntags: a\naccess: fam:w, public\n\
+                        \archive: no\n\nBye\n", ())
+    bodyText (textHash "Bye") "Bye" [] (TE.encodeUtf8 file, file) `shouldBe` Left SaveConflict
+
   it "checks a page to save: same file, valid text" $ do
     let db = mkPagesDB [mkPage ("src", "other") [] [] False 1, mkPage ("src", "x") [] [] False 1]
         bytes = TE.encodeUtf8 file

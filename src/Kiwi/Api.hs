@@ -7,19 +7,21 @@ module Kiwi.Api
   ( withToken
   , apiPages
   , apiFacets
-  , apiPage
+  , apiPageBody
   , apiPageMeta
   , apiGuide
   -- , guideText  -- used by the start warning of the long guides, commented out
   , apiSearch
-  , apiPutPage
-  , apiPatchPage
+  , apiPutPageBody
+  , apiPutPageMeta
+  , apiPatchPageBody
   , apiCreatePage
   , apiMetadata
   , serveMcp
   ) where
 
 import           Control.Exception (IOException, try)
+import           Control.Monad (unless)
 import           Control.Monad.Reader (local)
 import           Data.IORef (readIORef)
 import           Data.List (nub, sortOn)
@@ -270,67 +272,63 @@ apiFacets = withSelection ["show"] $ \db pages -> do
 --                             | p <- sortOn (snd . K.pageUID) ps, l <- U.nodup (K.pageLinks p) ]
 --            | (s, ps) <- sortOn (textOrder . fst) (M.toList bySource) ]
 
--- | The page of the request, readable by the user, archived or not, with
--- the text of its file (as shown to an editor with the right of the user:
--- without uid, see 'Edit.editorText'), the hash of the file, and the number
--- of lines before the content in this text; 404 otherwise
-withApiPage :: T.Text -> T.Text -> (K.Page -> (T.Text, T.Text, Int) -> ActM ()) -> ActM ()
+-- | The page of the request, readable by the user, archived or not, as its
+-- file is now (see 'findFreshPage'), with the right of the user; 404
+-- otherwise
+withApiPage :: T.Text -> T.Text -> (K.Page -> K.AccessLevel -> ActM ()) -> ActM ()
 withApiPage source uid run = do
   pM <- findFreshPage (source, uid)
   db <- getDB
   loginM <- asksK (K.login . K.requestState)
   case pM of
-    Just p | Just level <- Auth.pageAccessLevel db loginM p -> do
-      fileE <- Scotty.liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
-      case fileE >>= \(bytes, t) -> (,) (Edit.fileHash bytes) <$>
-                                    Edit.editorText (K.customMetaConfig db) level t of
-        Left e -> failWith Net.status500 $ T.pack e
-        Right (hash, (text, offset)) -> do
-          setHeader "ETag" $ TL.fromStrict $ "\"" <> hash <> "\""
-          run p (text, hash, offset)
+    Just p | Just level <- Auth.pageAccessLevel db loginM p -> run p level
     _ -> failWith Net.status404 $ "no page " <> source <> "/" <> uid
 
--- | GET /api/page/SOURCE/UID: the text of the page (see 'withApiPage'), in
--- markdown, with the hash of its file as ETag. "part=outline" gives its
--- outline (see 'AT.outlineText'); "part=section&title=T" the lines of its
--- section of title T; "part=lines&from=N&to=M" these lines.
--- "part=whole" the whole text, whatever its size.
--- "numbered=yes" gives the lines after their number (not for the outline).
--- The lines are those of the content, from its first line: the header is
--- not numbered, nor in the parts. A page longer than 'maxWholePage'
--- characters is not given whole without part: its outline instead, after a
--- line that gives its size and says how to read it.
-apiPage :: T.Text -> T.Text -> ActM ()
-apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
+-- | GET /api/page-body/SOURCE/UID: the body of the page (its content, after
+-- its header), in markdown, with its hash as ETag (see 'Edit.textHash').
+-- "part=outline" gives its outline (see 'AT.outlineText');
+-- "part=section&title=T" the lines of its section of title T;
+-- "part=lines&from=N&to=M" these lines. "part=whole" the whole body,
+-- whatever its size. "numbered=yes" gives the lines after their number (not
+-- for the outline). The lines are those of the body, from 1. A body longer
+-- than 'maxWholePage' characters is not given whole without part: its
+-- outline instead, after a line that gives its size and says how to read
+-- it.
+apiPageBody :: T.Text -> T.Text -> ActM ()
+apiPageBody source uid = withApiPage source uid $ \p _ -> do
   partM <- queryParamMaybe "part"
   numberedM <- queryParamMaybe "numbered"
   let numbered = numberedM == Just ("yes" :: T.Text)
-      (headerLines, contentLines) = splitAt offset (T.lines text)
-      content = T.unlines contentLines
-      total = length contentLines
+      body = K.pageBody p
+      bodyLines = T.lines body
+      total = length bodyLines
+      linesHeader from ls = unless (null ls) $
+        setHeader "Kiwi-Lines" $ TL.pack $ show from ++ "-" ++ show (from + length ls - 1)
       send from ls
         | numbered = answer $ AT.numberedLines from ls
         | otherwise = do
             setHeader "Content-Type" "text/markdown; charset=utf-8"
-            setHeader "Kiwi-Lines" $ TL.pack $ show from ++ "-" ++ show (from + length ls - 1)
+            linesHeader from ls
             answer $ T.unlines ls
       outline note = do
         db <- getRestrictedDB
         paths <- pathsFor
         let backlinks = sortOn (textOrder . K.pageTitle) $
                           RDI.query (K.pagesIndex db) (U.qOnly K.FieldLink (K.pageUID p))
-        secs <- pageSections p content
+        secs <- pageSections p
         answer $ note <> AT.outlineText paths p backlinks secs
       whole
-        | numbered = answer $ T.unlines (map (AT.unnumbered <>) headerLines)
-                              <> AT.numberedLines 1 contentLines
+        | numbered = answer $ AT.numberedLines 1 bodyLines
         | otherwise = do
             setHeader "Content-Type" "text/markdown; charset=utf-8"
-            answer text
+            linesHeader 1 bodyLines
+            -- as written, to be sent back whole
+            answer body
+  setHeader "ETag" $ TL.fromStrict $ "\"" <> Edit.textHash body <> "\""
   case partM :: Maybe T.Text of
     Nothing
-      | T.length text > maxWholePage -> outline $ T.concat
-          [ "this page has ", T.pack (show $ T.length text), " characters, more than "
+      | T.length body > maxWholePage -> outline $ T.concat
+          [ "this page has ", T.pack (show $ T.length body), " characters, more than "
           , T.pack (show maxWholePage), ": its outline below. Read a section (part section), "
           , "lines (part lines, from 1 to ", T.pack (show total), "), or the whole page (part whole).\n" ]
       | otherwise -> whole
@@ -341,37 +339,48 @@ apiPage source uid = withApiPage source uid $ \p (text, _, offset) -> do
       case titleM of
         Nothing -> failWith Net.status400 "missing parameter: title"
         Just title -> do
-          secs <- pageSections p content
+          secs <- pageSections p
           let norm = T.toCaseFold . T.strip
           case filter ((== norm title) . norm . AT.sectionTitle) secs of
-            s : _ -> uncurry send $ AT.linesRange (AT.sectionFrom s) (AT.sectionTo s) content
+            s : _ -> uncurry send $ AT.linesRange (AT.sectionFrom s) (AT.sectionTo s) body
             [] -> failWith Net.status404 $ T.unlines $
                     ("no section " <> title <> ", the sections are:") :
                     map (("  " <>) . AT.sectionTitle) secs
     Just "lines" ->
       intParam "from" 1 $ \from -> intParam "to" total $ \to ->
-        uncurry send $ AT.linesRange from to content
+        uncurry send $ AT.linesRange from to body
     Just other -> failWith Net.status400 $ "invalid part: " <> other
                     <> " (expected whole, outline, section or lines)"
 
--- | Largest page given whole by GET /api/page without part, in characters
--- (about 10000 tokens, where Claude Code warns about the size of an answer)
+-- | Largest body given whole by GET /api/page-body without part, in
+-- characters (about 10000 tokens, where Claude Code warns about the size of
+-- an answer)
 maxWholePage :: Int
 maxWholePage = 40000
 
--- | Sections of the content of a page (see 'AT.sections'), parsed again
-pageSections :: K.Page -> T.Text -> ActM [AT.Section]
-pageSections p content = do
+-- | Sections of the body of a page (see 'AT.sections'), parsed again
+pageSections :: K.Page -> ActM [AT.Section]
+pageSections p = do
   db <- getDB
-  return $ case pageDoc (K.sourceFiles db) p { K.pageBody = content } of
+  return $ case pageDoc (K.sourceFiles db) p of
     Left _ -> []
-    Right doc -> AT.sections doc (length $ T.lines content)
+    Right doc -> AT.sections doc (K.pageContentLines p)
 
--- | GET /api/page/SOURCE/UID/meta: the header of the page (see
--- 'withApiPage'), with the hash of its file as ETag
+-- | GET /api/page-meta/SOURCE/UID: the lines of the header of the page, as
+-- shown to the user (see 'Edit.editorMeta': without uid, without access for
+-- the write right), with the hash of the header of the file as ETag (see
+-- 'Edit.textHash'). Only the header of the file: the defaults of the config
+-- and of the source are not in it.
 apiPageMeta :: T.Text -> T.Text -> ActM ()
-apiPageMeta source uid = withApiPage source uid $ \_ (text, _, offset) ->
-  answer $ T.unlines $ take (offset - 1) $ T.lines text
+apiPageMeta source uid = withApiPage source uid $ \p level -> do
+  db <- getDB
+  fileE <- Scotty.liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
+  case fileE >>= \(_, t) -> (,) (fst $ Edit.splitFile t) <$>
+                            Edit.editorMeta (K.customMetaConfig db) level t of
+    Left e -> failWith Net.status500 $ T.pack e
+    Right (rawHeader, shown) -> do
+      setHeader "ETag" $ TL.fromStrict $ "\"" <> Edit.textHash rawHeader <> "\""
+      answer shown
 
 -- Replaced by the facet folder of /api/facets, for the admins
 -- -- | GET /api/folders/SOURCE, for the admins: the folders of the source that
@@ -480,7 +489,7 @@ apiSearch = withSelection ["q", "limit", "show"] $ \db selected -> withShow ["ke
     -- its content
     withPassages terms h = do
       let p = AS.hitPage h
-      secs <- pageSections p (K.pageBody p)
+      secs <- pageSections p
       return (h, AS.passages (K.pageLang p) terms (K.pageBody p) secs)
 
 
@@ -498,8 +507,9 @@ withBodyText run = do
 maxTextLength :: Int
 maxTextLength = 1000000
 
--- | The page of the request, when the user can write it, with their right;
--- 404 when the user can not read it, 403 when they can not write it
+-- | The page of the request, when the user can write it, with their right,
+-- as its file is now (see 'findFreshPage'); 404 when the user can not read
+-- it, 403 when they can not write it
 withWritablePage :: T.Text -> T.Text -> (K.Page -> K.AccessLevel -> ActM ()) -> ActM ()
 withWritablePage source uid run = do
   pM <- findFreshPage (source, uid)
@@ -511,12 +521,11 @@ withWritablePage source uid run = do
       else failWith Net.status403 $ "the account can not write the page " <> source <> "/" <> uid
     _ -> failWith Net.status404 $ "no page " <> source <> "/" <> uid
 
--- | Answer of a write: the page, the hash of its file (also as ETag), and
--- more lines
-saved :: Net.Status -> T.Text -> K.PageUID -> T.Text -> [T.Text] -> ActM ()
-saved st what (s, u) hash more = do
+-- | Answer of a write: the page, the hash of the part written (also as
+-- ETag), and more lines
+saved :: T.Text -> K.PageUID -> T.Text -> [T.Text] -> ActM ()
+saved what (s, u) hash more = do
   setHeader "ETag" $ TL.fromStrict $ "\"" <> hash <> "\""
-  status st
   answer $ T.unlines $ [ T.concat [what, " ", s, "/", u], "hash: " <> hash ] ++ more
 
 -- | Answer of a write that failed
@@ -533,89 +542,107 @@ writeFailed f = case f of
 userName :: ActM T.Text
 userName = maybe "" K.loginUser <$> asksK (K.login . K.requestState)
 
--- | PUT /api/page/SOURCE/UID: replaces the text of a page (header and
--- content, as given by GET, without uid) by the body, when its file still has
--- the hash of If-Match (412 otherwise, 428 without it). The keys that the
--- user can not change keep their value (see 'Edit.editedText'), and are
--- listed in the answer.
-apiPutPage :: T.Text -> T.Text -> ActM ()
-apiPutPage source uid = withWritablePage source uid $ \p level -> withBodyText $ \text -> do
+-- | The hash of If-Match, or answers 428
+withIfMatch :: (T.Text -> ActM ()) -> ActM ()
+withIfMatch run = do
   ifMatch <- Scotty.header "If-Match"
   case T.filter (/= '"') . TL.toStrict <$> ifMatch of
     Nothing -> failWith Net.status428
-      "If-Match is required, with the hash of the page as read (its ETag)"
-    Just hash -> do
-      ss <- asksK id
-      user <- userName
-      messageM <- queryParamMaybe "message"
-      r <- Scotty.liftIO $ Write.updatePage ss user messageM p (Edit.sentText level hash text)
-      case r of
-        Left f -> writeFailed f
-        Right (newHash, ignored) -> saved Net.status200 "saved" (source, uid) newHash
-          [ "ignored keys (not allowed): " <> T.intercalate ", " ignored | not (null ignored) ]
+      "If-Match is required, with the hash of the part of the page as read (its ETag)"
+    Just hash -> run hash
 
--- | PATCH /api/page/SOURCE/UID: replaces exact passages of the text of the
--- page (as given by GET), with a JSON body {"edits": [{"old": "…", "new":
--- "…"}, …]} (see 'Edit.applyEdits'): all of them or none. The answer gives
--- the lines of the new passages.
-apiPatchPage :: T.Text -> T.Text -> ActM ()
-apiPatchPage source uid = withWritablePage source uid $ \p level -> do
+-- | Writes a change of a page for the user of the request, with the
+-- message of the request, if any, then answers with what the change tells,
+-- or the failure
+writeChange :: K.Page -> Edit.Change a -> ((T.Text, a) -> ActM ()) -> ActM ()
+writeChange p change done = do
+  ss <- asksK id
+  user <- userName
+  messageM <- queryParamMaybe "message"
+  r <- Scotty.liftIO $ Write.updatePage ss user messageM p change
+  either writeFailed done r
+
+-- | PUT /api/page-meta/SOURCE/UID: replaces the header of a page by the
+-- body (its lines, as given by GET /api/page-meta), when the header of its
+-- file still has the hash of If-Match (412 otherwise, 428 without it). The
+-- keys that the user can not change keep their value (see 'Edit.metaChange'),
+-- and are listed in the answer. The body of the page is kept as written.
+apiPutPageMeta :: T.Text -> T.Text -> ActM ()
+apiPutPageMeta source uid = withWritablePage source uid $ \p level ->
+  withBodyText $ \sent -> withIfMatch $ \hash ->
+    writeChange p (Edit.metaChange level hash sent) $ \(text, ignored) ->
+      saved "saved" (source, uid) (Edit.textHash $ fst $ Edit.splitFile text)
+        [ "ignored keys (not allowed): " <> T.intercalate ", " ignored | not (null ignored) ]
+
+-- | PUT /api/page-body/SOURCE/UID: replaces the body of a page by the body
+-- of the request, when the body of its file still has the hash of If-Match
+-- (412 otherwise, 428 without it). The header is kept as written.
+apiPutPageBody :: T.Text -> T.Text -> ActM ()
+apiPutPageBody source uid = withWritablePage source uid $ \p _ ->
+  withBodyText $ \sent -> withIfMatch $ \hash ->
+    writeChange p (Edit.bodyText hash sent) $ \(text, ()) ->
+      saved "saved" (source, uid) (Edit.textHash $ snd $ Edit.splitFile text) []
+
+-- | PATCH /api/page-body/SOURCE/UID: replaces exact passages of the body of
+-- the page (as given by GET /api/page-body), with a JSON body {"edits":
+-- [{"old": "…", "new": "…"}, …]} (see 'Edit.applyEdits'): all of them or
+-- none. The answer gives the lines of the new passages.
+apiPatchPageBody :: T.Text -> T.Text -> ActM ()
+apiPatchPageBody source uid = withWritablePage source uid $ \p _ -> do
   b <- Scotty.body
   case A.decode b >>= AesonT.parseMaybe editsParser of
     Nothing -> failWith Net.status400
       "expected a JSON body: {\"edits\": [{\"old\": \"exact text\", \"new\": \"text\"}]}"
     Just edits -> do
-      ss <- asksK id
-      user <- userName
-      db <- getDB
       let edits' = [ (T.replace "\r\n" "\n" o, T.replace "\r\n" "\n" n) | (o, n) <- edits ]
-      -- the lines of the new passages in the content ("header" for those
-      -- of the header), from the text before the save (for the answer only)
-      before <- Scotty.liftIO $ Write.readPageFile (K.pageAbsoluteFSPath p)
-      let ranges = case before of
-            Right (_, t) | Right (shown, _) <- Edit.editorText (K.customMetaConfig db) level t
-                         , Right (new, rs) <- Edit.applyEdits edits' shown ->
-                             let off = AT.headerLength new
-                             in nub [ if z <= off then "header"
-                                           else T.pack (show (max 1 (a - off)) ++ "-" ++ show (z - off))
-                                         | (a, z) <- rs ]
-            _ -> []
-      messageM <- queryParamMaybe "message"
-      r <- Scotty.liftIO $ Write.updatePage ss user messageM p (Edit.editsChange level edits')
-      case r of
-        Left f -> writeFailed f
-        Right (newHash, ignored) -> saved Net.status200 "saved" (source, uid) newHash $
-          [ "lines: " <> T.intercalate ", " ranges | not (null ranges) ] ++
-          [ "ignored keys (not allowed): " <> T.intercalate ", " ignored | not (null ignored) ]
+      writeChange p (Edit.editsChange edits') $ \(text, ranges) ->
+        saved "saved" (source, uid) (Edit.textHash $ snd $ Edit.splitFile text)
+          [ "lines: " <> T.intercalate ", " (nub [ T.pack (show a ++ "-" ++ show z) | (a, z) <- ranges ])
+          | not (null ranges) ]
   where
     editsParser = A.withObject "body" $ \o -> do
       es <- o A..: "edits"
       mapM (A.withObject "edit" $ \e -> (,) <$> e A..: "old" <*> e A..: "new") es
 
--- | POST /api/pages/SOURCE: creates a page from the body (header and
--- content, as given by GET), with a new uid, at "path" (admins only, see
--- 'Write.createPage') or in a file named after its title. 201 with the uid
--- of the page.
+-- | POST /api/pages/SOURCE: creates a page from a JSON body {"meta": "the
+-- lines of its header", "body": "its body"}, with a new uid, at "path"
+-- (admins only, see 'Write.createPage') or in a file named after its title.
+-- 201 with the uid of the page and the hashes of its header and body.
 apiCreatePage :: T.Text -> ActM ()
-apiCreatePage source = withBodyText $ \text -> do
-  pathM <- queryParamMaybe "path"
-  messageM <- queryParamMaybe "message"
-  ss <- asksK id
-  loginM <- asksK (K.login . K.requestState)
-  admin <- Auth.isAdmin
-  r <- Scotty.liftIO $ Write.createPage ss loginM messageM source (T.unpack <$> pathM) text
-  case r of
-    Left f -> writeFailed f
-    Right (uid, path) -> do
-      fileE <- Scotty.liftIO $ Write.readPageFile (contentPath ss uid path)
-      let hash = either (const "") (Edit.fileHash . fst) fileE
-          content = drop (AT.headerLength text) (T.lines text)
-      saved Net.status201 "created" uid hash $
-        [ "path: " <> T.pack path | admin ] ++
-        [ "content_size: " <> AT.sizeText (T.length $ T.unlines content) (length content) ]
+apiCreatePage source = do
+  b <- Scotty.body
+  case A.decode b >>= AesonT.parseMaybe pageParser of
+    Nothing -> failWith Net.status400
+      "expected a JSON body: {\"meta\": \"title: ...\", \"body\": \"text of the page\"}"
+    Just (meta, body)
+      | T.length meta + T.length body > maxTextLength -> failWith Net.status413 "the text is too long"
+      | otherwise -> case Edit.metaText (T.replace "\r\n" "\n" meta) of
+          Left e -> failWith Net.status400 (T.pack e)
+          Right meta' -> do
+            pathM <- queryParamMaybe "path"
+            messageM <- queryParamMaybe "message"
+            ss <- asksK id
+            loginM <- asksK (K.login . K.requestState)
+            admin <- Auth.isAdmin
+            let body' = T.replace "\r\n" "\n" body
+            r <- Scotty.liftIO $ Write.createPage ss loginM messageM source (T.unpack <$> pathM)
+                                   (Edit.joinFile meta' body')
+            case r of
+              Left f -> writeFailed f
+              Right (uid, path) -> do
+                fileE <- Scotty.liftIO $ Write.readPageFile (contentPath ss uid path)
+                let (rawHeader, written) = either (const ("", body')) (Edit.splitFile . snd) fileE
+                    (s, u) = uid
+                status Net.status201
+                answer $ T.unlines $
+                  [ T.concat ["created ", s, "/", u]
+                  , "meta_hash: " <> Edit.textHash rawHeader
+                  , "body_hash: " <> Edit.textHash written ] ++
+                  [ "path: " <> T.pack path | admin ] ++
+                  [ "content_size: " <> AT.sizeText (T.length written) (length $ T.lines written) ]
   where
+    pageParser = A.withObject "page" $ \o -> (,) <$> o A..: "meta" <*> o A..: "body"
     contentPath ss (s, _) path = K.contentDir ss FP.</> T.unpack s FP.</> path
-
 
 -- | POST /api/metadata: applies the metadata script of the body (see
 -- "Kiwi.MetaScript" and 'Write.runMetaScript'): all of its commands, or

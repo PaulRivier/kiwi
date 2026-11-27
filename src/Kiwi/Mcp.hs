@@ -25,7 +25,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.CaseInsensitive as CI
-import           Data.Maybe (fromMaybe, mapMaybe)
+import           Data.Maybe (fromMaybe, isJust, mapMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Network.HTTP.Types as Net
@@ -328,20 +328,55 @@ tools =
       []
       (\o -> Right $ apiGet "/api/pages" (selectionParams o ++ listShow o ++ optional o ["limit"]))
       asIs
-  , Tool "read_page" "Read a page" ReadOnly
+  , Tool "read_page_meta" "Read the header of a page" ReadOnly
       [prose|
-        Read a page (SOURCE/UID): its header, then its content in CommonMark (a page of
-        more than 40000 characters gives its outline instead, unless part whole). search
-        and list_pages give its content_size. For a long page, read its outline first
-        (part: outline: tags, summary, backlinks, sections with their lines), then only
-        the section or the lines you need. Line numbers count from the first line of the
-        content: the header is not numbered (read it whole, or with list_pages and show).
-        The hash identifies the version of the file.
+        Read the header of a page (SOURCE/UID): its metadata, one line `key: value` by
+        field (title, summary, tags with > for sub-tags, lang, custom fields), as written
+        in its file. A field missing here takes the default of its source when the page
+        loads (list_pages with show gives the values in use). The hash identifies the
+        version of the header, for write_page_meta. The body is read apart
+        (read_page_body).
+      |]
+      [ ("page", prop "string" "The page, as SOURCE/UID.") ]
+      ["page"]
+      (\o -> do
+          (s, u) <- maybe (Left "missing argument: page") pagePath (text o "page")
+          return $ apiGet (T.concat ["/api/page-meta/", s, "/", u]) [])
+      withVersion
+  , Tool "write_page_meta" "Rewrite the header of a page" Destructive
+      [prose|
+        Call guide first if not done in this session. Replace the header of a page by the
+        lines given, as read_page_meta gives them: one line `key: value` by field, no
+        blank line. Give the hash that read_page_meta gave: the write is refused if the
+        header changed since. The body is kept. To change a value in many pages (a tag
+        renamed...), use a script of edit_metadata.
+      |]
+      [ ("page", prop "string" "The page, as SOURCE/UID.")
+      , ("hash", prop "string" "The hash of the header as read.")
+      , ("meta", prop "string" "The new lines of the header.")
+      , messageProp ]
+      ["page", "hash", "meta"]
+      (\o -> do
+          (s, u) <- maybe (Left "missing argument: page") pagePath (text o "page")
+          h <- maybe (Left "missing argument: hash") Right (text o "hash")
+          m <- maybe (Left "missing argument: meta") Right (text o "meta")
+          return $ ApiRequest "PUT" (T.concat ["/api/page-meta/", s, "/", u]) (optional o ["message"])
+                     [("If-Match", "\"" <> h <> "\"")] m)
+      asIs
+  , Tool "read_page_body" "Read the body of a page" ReadOnly
+      [prose|
+        Read the body of a page (SOURCE/UID): its content in CommonMark, without its header
+        (read_page_meta). A body of more than 40000 characters gives its outline instead,
+        unless part whole; search and list_pages give its content_size. For a long page,
+        read its outline first (part outline: tags, summary, backlinks, sections with
+        their lines), then only the section or the lines you need. The lines are numbered
+        from 1, the first line of the body. The hash identifies the version of the body,
+        for write_page_body.
       |]
       [ ("page", prop "string" "The page, as SOURCE/UID.")
       , ("part", A.object [ "type" .= ("string" :: T.Text)
                           , "enum" .= (["whole", "outline", "section", "lines"] :: [T.Text])
-                          , "description" .= ("What to read; the whole page without it." :: T.Text) ])
+                          , "description" .= ("What to read; the whole body without it." :: T.Text) ])
       , ("title", prop "string" "With part section: the title of the section.")
       , ("from", prop "integer" "With part lines: the first line.")
       , ("to", prop "integer" "With part lines: the last line.")
@@ -349,32 +384,27 @@ tools =
       ["page"]
       (\o -> do
           (s, u) <- maybe (Left "missing argument: page") pagePath (text o "page")
-          return $ apiGet (T.concat ["/api/page/", s, "/", u])
+          return $ apiGet (T.concat ["/api/page-body/", s, "/", u])
                           ( optional o ["part", "title", "from", "to"]
                             ++ [ ("numbered", "yes") | flag o "numbered" ] ))
-      (\headers body ->
-         let etag = T.filter (/= '"') <$> lookupCI "etag" headers
-             range = lookupCI "kiwi-lines" headers
-         in T.concat [ maybe "" (\h -> "hash: " <> h <> "\n") etag
-                     , maybe "" (\r -> "lines: " <> r <> "\n") range
-                     , if isJust' etag || isJust' range then "---\n" else ""
-                     , body ])
-  , Tool "edit_page" "Edit a page" Destructive
+      withVersion
+  , Tool "edit_page_body_by_replace" "Replace passages of a page" Destructive
       [prose|
-        Call guide first if not done in this session. Change a page by replacing exact
-        passages of its text (as read_page gives it, without line numbers): each old text
-        must be found exactly once in the page, copied exactly, with enough of the text
-        around it to be unique; it is replaced by the new text. To insert, give a line as
-        old text, and this line followed by the new lines as new text. All the edits
-        apply, or none. The rest of the page is kept, even if it changed since you read
-        it. Prefer it to write_page. The header can be changed the same way.
+        Call guide first if not done in this session. Change the body of a page by
+        replacing exact passages of it (as read_page_body gives it, without line numbers):
+        each old text must be found exactly once in the body, copied exactly, with enough
+        of the text around it to be unique; it is replaced by the new text. To insert,
+        give a line as old text, and this line followed by the new lines as new text. All
+        the edits apply, or none. The rest of the body is kept, even if it changed since
+        you read it. Prefer it to write_page_body. The header is changed with
+        write_page_meta.
       |]
       [ ("page", prop "string" "The page, as SOURCE/UID.")
       , ("edits", A.object
           [ "type" .= ("array" :: T.Text)
           , "items" .= A.object
               [ "type" .= ("object" :: T.Text)
-              , "properties" .= A.object [ "old" .= prop "string" "Exact text of the page to replace."
+              , "properties" .= A.object [ "old" .= prop "string" "Exact text of the body to replace."
                                          , "new" .= prop "string" "Its replacement (empty to delete it)." ]
               , "required" .= (["old", "new"] :: [T.Text]) ]
           , "description" .= ("The replacements, in their order." :: T.Text) ])
@@ -383,45 +413,51 @@ tools =
       (\o -> do
           (s, u) <- maybe (Left "missing argument: page") pagePath (text o "page")
           edits <- maybe (Left "missing argument: edits") Right (KM.lookup "edits" o)
-          return $ ApiRequest "PATCH" (T.concat ["/api/page/", s, "/", u]) (optional o ["message"])
+          return $ ApiRequest "PATCH" (T.concat ["/api/page-body/", s, "/", u]) (optional o ["message"])
                      [("Content-Type", "application/json")]
                      (TE.decodeUtf8 $ BL.toStrict $ A.encode $ A.object ["edits" .= edits]))
       asIs
-  , Tool "write_page" "Rewrite a page" Destructive
+  , Tool "write_page_body" "Rewrite the body of a page" Destructive
       [prose|
-        Call guide first if not done in this session. Replace the whole text of a page
-        (header and content). Only for a deep rewrite: prefer edit_page. Give the hash
-        that read_page gave: the write is refused if the page changed since.
+        Call guide first if not done in this session. Replace the whole body of a page
+        (its content, without the header). Only for a deep rewrite: prefer
+        edit_page_body_by_replace. Give the hash that read_page_body gave: the write is
+        refused if the body changed since. The header is kept.
       |]
       [ ("page", prop "string" "The page, as SOURCE/UID.")
-      , ("hash", prop "string" "The hash of the page as read.")
-      , ("text", prop "string" "The new text: header, blank line, content.")
+      , ("hash", prop "string" "The hash of the body as read.")
+      , ("body", prop "string" "The new body, in CommonMark.")
       , messageProp ]
-      ["page", "hash", "text"]
+      ["page", "hash", "body"]
       (\o -> do
           (s, u) <- maybe (Left "missing argument: page") pagePath (text o "page")
           h <- maybe (Left "missing argument: hash") Right (text o "hash")
-          t <- maybe (Left "missing argument: text") Right (text o "text")
-          return $ ApiRequest "PUT" (T.concat ["/api/page/", s, "/", u]) (optional o ["message"])
-                     [("If-Match", "\"" <> h <> "\"")] t)
+          b <- maybe (Left "missing argument: body") Right (text o "body")
+          return $ ApiRequest "PUT" (T.concat ["/api/page-body/", s, "/", u]) (optional o ["message"])
+                     [("If-Match", "\"" <> h <> "\"")] b)
       asIs
   , Tool "create_page" "Create a page" Additive
       [prose|
         Call guide first if not done in this session. Create a page in a source, from its
-        text: header (title, tags, summary...), a blank line, then its content in
-        CommonMark. Kiwi gives it its uid (in the answer, as SOURCE/UID). Search before
-        creating: do not duplicate an existing page. The file is named after the title;
-        admins may give its path (the folders: facets, show folder).
+        header (meta: one line `key: value` by field, title required, summary, tags...)
+        and its body in CommonMark. Kiwi gives it its uid (in the answer, as SOURCE/UID,
+        with the hashes of its header and body). Search before creating: do not duplicate
+        an existing page. The file is named after the title; admins may give its path
+        (the folders: facets, show folder).
       |]
       [ ("source", prop "string" "The source of the page.")
-      , ("text", prop "string" "The text of the page: header, blank line, content.")
+      , ("meta", prop "string" "The lines of the header: title, summary, tags...")
+      , ("body", prop "string" "The body of the page, in CommonMark.")
       , ("path", prop "string" "Path of the file from the top of the source, without extension (admins only).")
       , messageProp ]
-      ["source", "text"]
+      ["source", "meta", "body"]
       (\o -> do
           s <- maybe (Left "missing argument: source") Right (text o "source")
-          t <- maybe (Left "missing argument: text") Right (text o "text")
-          return $ ApiRequest "POST" ("/api/pages/" <> s) (optional o ["path", "message"]) [] t)
+          m <- maybe (Left "missing argument: meta") Right (text o "meta")
+          b <- maybe (Left "missing argument: body") Right (text o "body")
+          return $ ApiRequest "POST" ("/api/pages/" <> s) (optional o ["path", "message"])
+                     [("Content-Type", "application/json")]
+                     (TE.decodeUtf8 $ BL.toStrict $ A.encode $ A.object ["meta" .= m, "body" .= b]))
       asIs
   , Tool "edit_metadata" "Apply a metadata script" Destructive
       [prose|
@@ -470,8 +506,15 @@ tools =
       asIs
   ]
   where
-    lookupCI k hs = lookup k hs
-    isJust' = maybe False (const True)
+    -- the hash and the lines of a part of a page (ETag and Kiwi-Lines),
+    -- before its text
+    withVersion headers body =
+      let etag = T.filter (/= '"') <$> lookup "etag" headers
+          range = lookup "kiwi-lines" headers
+      in T.concat [ maybe "" (\h -> "hash: " <> h <> "\n") etag
+                  , maybe "" (\r -> "lines: " <> r <> "\n") range
+                  , if isJust etag || isJust range then "---\n" else ""
+                  , body ]
 
 -- | Properties of the tools selecting pages by their metadata (see
 -- 'selectionParams')
